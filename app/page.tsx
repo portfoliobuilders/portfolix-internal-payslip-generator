@@ -1,17 +1,19 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { FileClock, FilePlus2, ShieldCheck, Users } from 'lucide-react';
+import { FileClock, FilePlus2, Settings, ShieldCheck, Users } from 'lucide-react';
 import RosterView from '@/components/RosterView';
 import GeneratorView from '@/components/GeneratorView';
 import HistoryView from '@/components/HistoryView';
+import SettingsView from '@/components/SettingsView';
 
-type Tab = 'roster' | 'generator' | 'history';
+type Tab = 'roster' | 'generator' | 'history' | 'settings';
 
 const TABS: { id: Tab; label: string; icon: typeof Users }[] = [
   { id: 'roster', label: 'Employee Roster', icon: Users },
   { id: 'generator', label: 'Generator', icon: FilePlus2 },
   { id: 'history', label: 'History', icon: FileClock },
+  { id: 'settings', label: 'Settings', icon: Settings },
 ];
 
 export default function Home() {
@@ -67,8 +69,10 @@ export default function Home() {
           <RosterView onGenerateFor={() => setTab('generator')} />
         ) : tab === 'generator' ? (
           <GeneratorView />
-        ) : (
+        ) : tab === 'history' ? (
           <HistoryView />
+        ) : (
+          <SettingsView />
         )}
       </main>
     </div>

@@ -11,6 +11,7 @@ import { persist, createJSONStorage } from 'zustand/middleware';
 import type {
   Employee,
   EntityCode,
+  EntityInfo,
   FlexLogEntry,
   Settings,
   SlipSnapshot,
@@ -84,6 +85,7 @@ interface HRState {
   importBackup: (json: string) => { ok: true } | { ok: false; error: string };
 
   updateSettings: (patch: Partial<Settings>) => void;
+  updateEntity: (code: EntityCode, patch: Partial<EntityInfo>) => void;
 }
 
 export function generateId(): string {
@@ -244,6 +246,17 @@ export const useHRStore = create<HRState>()(
 
       updateSettings: (patch) =>
         set((state) => ({ settings: { ...state.settings, ...patch } })),
+
+      updateEntity: (code, patch) =>
+        set((state) => ({
+          settings: {
+            ...state.settings,
+            entities: {
+              ...state.settings.entities,
+              [code]: { ...state.settings.entities[code], ...patch },
+            },
+          },
+        })),
     }),
     {
       name: STORAGE_KEY,

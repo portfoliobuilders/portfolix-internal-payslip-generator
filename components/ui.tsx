@@ -3,7 +3,12 @@
 /** Tiny shared UI primitives — kept deliberately minimal. */
 
 import { X } from 'lucide-react';
-import type { ReactNode } from 'react';
+import { forwardRef } from 'react';
+import type {
+  InputHTMLAttributes,
+  ReactNode,
+  TextareaHTMLAttributes,
+} from 'react';
 
 export function Modal({
   title,
@@ -71,3 +76,35 @@ export const btnPrimary =
 
 export const btnSecondary =
   'inline-flex items-center gap-1.5 rounded-md border border-hairline bg-paper px-3 py-1.5 text-sm font-medium text-ink hover:bg-surface disabled:cursor-not-allowed disabled:opacity-40';
+
+export const Input = forwardRef<HTMLInputElement, InputHTMLAttributes<HTMLInputElement>>(
+  function Input({ className = '', ...props }, ref) {
+    return <input ref={ref} className={`${inputCls} ${className}`} {...props} />;
+  },
+);
+
+export const NumberInput = forwardRef<HTMLInputElement, InputHTMLAttributes<HTMLInputElement>>(
+  function NumberInput({ className = '', ...props }, ref) {
+    return (
+      <input
+        ref={ref}
+        type="number"
+        inputMode="decimal"
+        className={`${inputCls} tabular-nums ${className}`}
+        {...props}
+      />
+    );
+  },
+);
+
+export const Textarea = forwardRef<HTMLTextAreaElement, TextareaHTMLAttributes<HTMLTextAreaElement>>(
+  function Textarea({ className = '', ...props }, ref) {
+    return (
+      <textarea
+        ref={ref}
+        className={`${inputCls} min-h-[70px] resize-y ${className}`}
+        {...props}
+      />
+    );
+  },
+);

@@ -70,6 +70,16 @@ export function formatMinutes(minutes: number): string {
   return `${sign}${h}h ${m}m`;
 }
 
+/** The current month as a 'YYYY-MM' key. */
+export function currentMonthKey(): string {
+  return format(new Date(), 'yyyy-MM');
+}
+
+/** "03 Jul 2026 · 6:00 PM" style string for the review deadline. */
+export function formatQueryDeadline(deadline: Date): string {
+  return `${formatDate(deadline)} · 6:00 PM`;
+}
+
 /** PDF filename per spec: PX_PaySlip_YYYY-MM_<EMPID>[_DRAFT].pdf */
 export function slipFilename(monthYear: string, empId: string, isDraft: boolean): string {
   const safeEmpId = empId.replace(/[^A-Za-z0-9-]/g, '');
