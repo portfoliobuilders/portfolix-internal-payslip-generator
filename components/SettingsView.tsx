@@ -31,8 +31,8 @@ export default function SettingsView() {
       <div>
         <h2 className="text-base font-semibold text-ink">Settings</h2>
         <p className="mt-1 text-sm text-muted">
-          These values print on every slip. Changes are saved to this browser and included in JSON
-          backups.
+          These values print on every slip. Entity branding is kept in this browser session; employees
+          and slip history are stored in Supabase.
         </p>
       </div>
 

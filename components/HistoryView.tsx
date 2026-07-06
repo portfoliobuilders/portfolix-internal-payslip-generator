@@ -10,8 +10,12 @@ import { useHRStore } from '@/store/useHRStore';
 import SalarySlip from './SalarySlip';
 import { btnSecondary, inputCls } from './ui';
 
-export default function HistoryView() {
-  const slipHistory = useHRStore((s) => s.slipHistory);
+interface HistoryViewProps {
+  slipHistory: SlipSnapshot[];
+  loading: boolean;
+}
+
+export default function HistoryView({ slipHistory, loading }: HistoryViewProps) {
   const settings = useHRStore((s) => s.settings);
 
   const [employeeFilter, setEmployeeFilter] = useState('');
@@ -62,6 +66,10 @@ export default function HistoryView() {
         Draft
       </span>
     );
+  }
+
+  if (loading) {
+    return <p className="py-20 text-center text-sm text-muted">Loading slip history from Supabase…</p>;
   }
 
   return (

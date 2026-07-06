@@ -2,44 +2,77 @@
 
 import { useState } from 'react';
 import { FilePlus2, Pencil, Timer, Trash2, UserPlus } from 'lucide-react';
+import { deleteEmployee } from '@/app/actions/payroll';
 import type { Employee } from '@/lib/types';
 import { formatINR, formatMinutes } from '@/lib/format';
 import { useHRStore } from '@/store/useHRStore';
 import { useUIStore } from '@/store/useUIStore';
-import BackupBar from './BackupBar';
 import EmployeeFormModal from './EmployeeFormModal';
 import FlexAdjustModal from './FlexAdjustModal';
 import { Modal, btnPrimary, btnSecondary } from './ui';
 
-export default function RosterView({ onGenerateFor }: { onGenerateFor: () => void }) {
-  const employees = useHRStore((s) => s.employees);
+interface RosterViewProps {
+  employees: Employee[];
+  loading: boolean;
+  onRefresh: () => Promise<void>;
+  onGenerateFor: () => void;
+}
+
+export default function RosterView({
+  employees,
+  loading,
+  onRefresh,
+  onGenerateFor,
+}: RosterViewProps) {
   const entities = useHRStore((s) => s.settings.entities);
-  const deleteEmployee = useHRStore((s) => s.deleteEmployee);
   const setGeneratorEmployeeId = useUIStore((s) => s.setGeneratorEmployeeId);
 
   const [formTarget, setFormTarget] = useState<Employee | null | 'new'>(null);
   const [flexTarget, setFlexTarget] = useState<Employee | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Employee | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
+
+  async function handleDelete() {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    setActionError(null);
+    const result = await deleteEmployee(deleteTarget.id);
+    setDeleting(false);
+    if (!result.ok) {
+      setActionError(result.error);
+      return;
+    }
+    setDeleteTarget(null);
+    await onRefresh();
+  }
 
   return (
     <div className="space-y-4">
-      <BackupBar />
-
       <div className="rounded-lg border border-hairline bg-paper">
         <div className="flex items-center justify-between border-b border-hairline px-4 py-3">
           <div>
             <h1 className="text-sm font-semibold">Employee Roster</h1>
             <p className="text-[12px] text-muted">
-              {employees.length} employee{employees.length === 1 ? '' : 's'} across Portfolix
-              entities
+              {loading
+                ? 'Loading employees…'
+                : `${employees.length} employee${employees.length === 1 ? '' : 's'} across Portfolix entities`}
             </p>
           </div>
-          <button className={btnPrimary} onClick={() => setFormTarget('new')}>
+          <button className={btnPrimary} onClick={() => setFormTarget('new')} disabled={loading}>
             <UserPlus size={14} /> Add employee
           </button>
         </div>
 
-        {employees.length === 0 ? (
+        {actionError && (
+          <p className="border-b border-hairline px-4 py-2 text-[12px] font-medium text-amber-brand">
+            {actionError}
+          </p>
+        )}
+
+        {loading ? (
+          <p className="px-4 py-14 text-center text-sm text-muted">Loading roster from Supabase…</p>
+        ) : employees.length === 0 ? (
           <p className="px-4 py-14 text-center text-sm text-muted">
             No employees yet. Add your first employee to start generating slips.
           </p>
@@ -124,9 +157,12 @@ export default function RosterView({ onGenerateFor }: { onGenerateFor: () => voi
         <EmployeeFormModal
           employee={formTarget === 'new' ? null : formTarget}
           onClose={() => setFormTarget(null)}
+          onSaved={onRefresh}
         />
       )}
-      {flexTarget && <FlexAdjustModal employee={flexTarget} onClose={() => setFlexTarget(null)} />}
+      {flexTarget && (
+        <FlexAdjustModal employee={flexTarget} onClose={() => setFlexTarget(null)} onSaved={onRefresh} />
+      )}
       {deleteTarget && (
         <Modal title="Delete employee?" onClose={() => setDeleteTarget(null)}>
           <p className="text-sm">
@@ -135,17 +171,11 @@ export default function RosterView({ onGenerateFor }: { onGenerateFor: () => voi
             them.
           </p>
           <div className="mt-5 flex justify-end gap-2">
-            <button className={btnSecondary} onClick={() => setDeleteTarget(null)}>
+            <button className={btnSecondary} onClick={() => setDeleteTarget(null)} disabled={deleting}>
               Cancel
             </button>
-            <button
-              className={btnPrimary}
-              onClick={() => {
-                deleteEmployee(deleteTarget.id);
-                setDeleteTarget(null);
-              }}
-            >
-              Delete
+            <button className={btnPrimary} onClick={() => void handleDelete()} disabled={deleting}>
+              {deleting ? 'Deleting…' : 'Delete'}
             </button>
           </div>
         </Modal>

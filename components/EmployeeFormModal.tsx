@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import type { Employee, EntityCode, PaymentMode } from '@/lib/types';
+import { upsertEmployee } from '@/app/actions/payroll';
 import { useHRStore } from '@/store/useHRStore';
 import { Field, Modal, btnPrimary, btnSecondary, inputAmountCls, inputCls } from './ui';
 
@@ -62,25 +63,32 @@ function validate(d: Draft): Partial<Record<keyof Draft, string>> {
 export default function EmployeeFormModal({
   employee,
   onClose,
+  onSaved,
 }: {
   /** null → add mode. */
   employee: Employee | null;
   onClose: () => void;
+  onSaved: () => Promise<void>;
 }) {
-  const addEmployee = useHRStore((s) => s.addEmployee);
-  const updateEmployee = useHRStore((s) => s.updateEmployee);
   const entities = useHRStore((s) => s.settings.entities);
   const [draft, setDraft] = useState<Draft>(() => toDraft(employee));
   const [touchedSave, setTouchedSave] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   const errors = validate(draft);
   const set = <K extends keyof Draft>(key: K, value: Draft[K]) =>
     setDraft((d) => ({ ...d, [key]: value }));
 
-  function handleSave() {
+  async function handleSave() {
     setTouchedSave(true);
     if (Object.keys(errors).length > 0) return;
+
+    setSaving(true);
+    setSaveError(null);
+
     const payload = {
+      ...(employee ? { id: employee.id, flexLog: employee.flexLog } : { flexLog: [] as Employee['flexLog'] }),
       fullName: draft.fullName.trim(),
       empId: draft.empId.trim().toUpperCase(),
       entityCode: draft.entityCode,
@@ -94,11 +102,16 @@ export default function EmployeeFormModal({
       panMasked: draft.panMasked.trim().toUpperCase(),
       flexBankBalance: Number(draft.flexBankBalance),
     };
-    if (employee) {
-      updateEmployee(employee.id, payload);
-    } else {
-      addEmployee(payload);
+
+    const result = await upsertEmployee(payload);
+    setSaving(false);
+
+    if (!result.ok) {
+      setSaveError(result.error);
+      return;
     }
+
+    await onSaved();
     onClose();
   }
 
@@ -106,6 +119,11 @@ export default function EmployeeFormModal({
 
   return (
     <Modal title={employee ? `Edit — ${employee.fullName}` : 'Add employee'} onClose={onClose} wide>
+      {saveError && (
+        <p className="mb-4 rounded-md border border-amber-edge bg-amber-tint px-3 py-2 text-[12px] font-medium text-amber-brand">
+          {saveError}
+        </p>
+      )}
       <div className="grid grid-cols-2 gap-4">
         <Field label="Full name" error={err('fullName')}>
           <input className={inputCls} value={draft.fullName} onChange={(e) => set('fullName', e.target.value)} placeholder="Asha Verma" />
@@ -170,9 +188,9 @@ export default function EmployeeFormModal({
       </div>
 
       <div className="mt-6 flex justify-end gap-2">
-        <button className={btnSecondary} onClick={onClose}>Cancel</button>
-        <button className={btnPrimary} onClick={handleSave}>
-          {employee ? 'Save changes' : 'Add employee'}
+        <button className={btnSecondary} onClick={onClose} disabled={saving}>Cancel</button>
+        <button className={btnPrimary} onClick={() => void handleSave()} disabled={saving}>
+          {saving ? 'Saving…' : employee ? 'Save changes' : 'Add employee'}
         </button>
       </div>
     </Modal>

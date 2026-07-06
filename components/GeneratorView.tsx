@@ -7,13 +7,11 @@ import { AlertTriangle, Download, Printer } from 'lucide-react';
 import { computePayroll, validateVariablePaid } from '@/lib/payroll-calc';
 import { formatINR, slipFilename } from '@/lib/format';
 import { exportElementToPdf } from '@/lib/pdf-export';
-import type { SlipSnapshot, SlipStatus } from '@/lib/types';
-import {
-  findFinalSlipForMonth,
-  findPreviousFinalSlip,
-  generateId,
-  useHRStore,
-} from '@/store/useHRStore';
+import { finalizePayrollSlip, savePayrollSlip } from '@/app/actions/payroll';
+import type { Employee, SlipSnapshot, SlipStatus } from '@/lib/types';
+import { generateId } from '@/lib/payroll-db';
+import { findFinalSlipForMonth, findPreviousFinalSlip } from '@/lib/payroll-helpers';
+import { useHRStore } from '@/store/useHRStore';
 import { useUIStore } from '@/store/useUIStore';
 import SalarySlip from './SalarySlip';
 import { Field, Modal, btnPrimary, btnSecondary, inputAmountCls, inputCls } from './ui';
@@ -97,14 +95,23 @@ function ScaledPreview({ children }: { children: React.ReactNode }) {
   );
 }
 
-export default function GeneratorView() {
-  const employees = useHRStore((s) => s.employees);
+interface GeneratorViewProps {
+  employees: Employee[];
+  slipHistory: SlipSnapshot[];
+  loading: boolean;
+  onRefresh: () => Promise<void>;
+}
+
+export default function GeneratorView({
+  employees,
+  slipHistory,
+  loading,
+  onRefresh,
+}: GeneratorViewProps) {
   const settings = useHRStore((s) => s.settings);
-  const slipHistory = useHRStore((s) => s.slipHistory);
-  const finalizeSlip = useHRStore((s) => s.finalizeSlip);
-  const recordDraftSlip = useHRStore((s) => s.recordDraftSlip);
   const preselectedId = useUIStore((s) => s.generatorEmployeeId);
   const setGeneratorEmployeeId = useUIStore((s) => s.setGeneratorEmployeeId);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   const currentMonth = format(new Date(), 'yyyy-MM');
   const [employeeId, setEmployeeId] = useState<string>(preselectedId ?? '');
@@ -297,10 +304,20 @@ export default function GeneratorView() {
         slipFilename(form.monthYear, employee.empId, status === 'draft'),
       );
       if (status === 'final') {
-        finalizeSlip(finalSnapshot, result.newFlexBalance);
+        const saveResult = await finalizePayrollSlip(finalSnapshot, result.newFlexBalance);
+        if (!saveResult.ok) {
+          setSaveError(saveResult.error);
+          return;
+        }
       } else {
-        recordDraftSlip(finalSnapshot);
+        const saveResult = await savePayrollSlip({ ...finalSnapshot, status: 'draft' });
+        if (!saveResult.ok) {
+          setSaveError(saveResult.error);
+          return;
+        }
       }
+      setSaveError(null);
+      await onRefresh();
     } finally {
       setExporting(false);
       setSupersedePending(false);
@@ -309,10 +326,21 @@ export default function GeneratorView() {
 
   const employeeOptions = [...employees].sort((a, b) => a.fullName.localeCompare(b.fullName));
 
+  if (loading) {
+    return (
+      <p className="py-20 text-center text-sm text-muted">Loading payroll data from Supabase…</p>
+    );
+  }
+
   return (
     <div className="grid grid-cols-1 gap-6 xl:grid-cols-[420px_minmax(0,1fr)]">
       {/* ================= Left panel — inputs ================= */}
       <div className="no-print space-y-4">
+        {saveError && (
+          <p className="rounded-md border border-amber-edge bg-amber-tint px-3 py-2 text-[12px] font-medium text-amber-brand">
+            Saved PDF locally, but Supabase sync failed: {saveError}
+          </p>
+        )}
         <div className="rounded-lg border border-hairline bg-paper p-4">
           <h1 className="mb-3 text-sm font-semibold">Slip Generator</h1>
           <div className="grid grid-cols-2 gap-3">

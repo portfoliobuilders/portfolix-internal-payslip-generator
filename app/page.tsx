@@ -1,12 +1,13 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { FileClock, FilePlus2, Settings, ShieldCheck, Users } from 'lucide-react';
+import { Cloud, FileClock, FilePlus2, Settings, Users } from 'lucide-react';
 import RosterView from '@/components/RosterView';
 import GeneratorView from '@/components/GeneratorView';
 import HistoryView from '@/components/HistoryView';
 import SettingsView from '@/components/SettingsView';
 import EntityLogo from '@/components/EntityLogo';
+import { usePayrollData } from '@/hooks/usePayrollData';
 import { useHRStore } from '@/store/useHRStore';
 
 type Tab = 'roster' | 'generator' | 'history' | 'settings';
@@ -21,8 +22,7 @@ const TABS: { id: Tab; label: string; icon: typeof Users }[] = [
 export default function Home() {
   const [tab, setTab] = useState<Tab>('roster');
   const pxEntity = useHRStore((s) => s.settings.entities.PX);
-  // Zustand persist rehydrates from localStorage only on the client;
-  // render the app after mount so server-exported HTML never mismatches.
+  const { employees, slipHistory, loading, error, refresh } = usePayrollData();
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
 
@@ -67,22 +67,42 @@ export default function Home() {
           </nav>
 
           <div className="ml-auto flex items-center gap-1.5 text-[11px] text-muted">
-            <ShieldCheck size={14} className="text-emerald-brand" />
-            Local-only · No network · Data never leaves this browser
+            <Cloud size={14} className="text-emerald-brand" />
+            Supabase-backed · Employees &amp; slips synced to cloud
           </div>
         </div>
       </header>
 
-      {/* no-print: window.print() renders only the portaled #slip-print-root sheet */}
       <main className="no-print mx-auto max-w-[1400px] px-6 py-6">
         {!mounted ? (
-          <p className="py-20 text-center text-sm text-muted">Loading local data…</p>
+          <p className="py-20 text-center text-sm text-muted">Loading…</p>
+        ) : error ? (
+          <div className="rounded-lg border border-amber-edge bg-amber-tint px-4 py-6 text-center">
+            <p className="text-sm font-medium text-amber-brand">Could not load payroll data</p>
+            <p className="mt-1 text-[12px] text-muted">{error}</p>
+            <button
+              className="mt-4 rounded-md bg-ink px-3 py-1.5 text-sm font-medium text-paper"
+              onClick={() => void refresh()}
+            >
+              Retry
+            </button>
+          </div>
         ) : tab === 'roster' ? (
-          <RosterView onGenerateFor={() => setTab('generator')} />
+          <RosterView
+            employees={employees}
+            loading={loading}
+            onRefresh={refresh}
+            onGenerateFor={() => setTab('generator')}
+          />
         ) : tab === 'generator' ? (
-          <GeneratorView />
+          <GeneratorView
+            employees={employees}
+            slipHistory={slipHistory}
+            loading={loading}
+            onRefresh={refresh}
+          />
         ) : tab === 'history' ? (
-          <HistoryView />
+          <HistoryView slipHistory={slipHistory} loading={loading} />
         ) : (
           <SettingsView />
         )}
