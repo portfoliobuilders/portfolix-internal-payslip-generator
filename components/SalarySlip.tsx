@@ -13,6 +13,7 @@ import { CheckCircle2 } from 'lucide-react';
 import { FIXED_DIVISOR } from '@/lib/payroll-calc';
 import { formatDate, formatINR, formatMinutes, formatMonthYear, payrollCycleDates } from '@/lib/format';
 import type { EntityInfo, SlipSnapshot } from '@/lib/types';
+import EntityLogo from '@/components/EntityLogo';
 
 interface SalarySlipProps {
   snapshot: SlipSnapshot;
@@ -74,7 +75,15 @@ export default function SalarySlip({
     >
       {/* ---------- Entity header ---------- */}
       <header className="flex items-start justify-between border-b-2 border-ink pb-4">
-        <div>
+        <div className="flex min-w-0 flex-1 items-start gap-4">
+          <div className="flex h-14 w-28 shrink-0 items-center justify-center overflow-hidden rounded bg-ink p-1.5">
+            <EntityLogo
+              entity={entity}
+              code={employee.entityCode}
+              className="max-h-full max-w-full"
+            />
+          </div>
+          <div className="min-w-0">
           <p className="text-[9px] font-semibold uppercase tracking-[0.25em] text-muted">
             {employee.entityCode} · Payroll Document
           </p>
@@ -87,6 +96,7 @@ export default function SalarySlip({
           <p className="mt-1 text-[9.5px] leading-snug text-muted">
             {entity.addressLines.join(' · ')}
           </p>
+          </div>
         </div>
         <div className="text-right">
           <p className="text-[15px] font-bold uppercase tracking-[0.12em]">Salary Slip</p>

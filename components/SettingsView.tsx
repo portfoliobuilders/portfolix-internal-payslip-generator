@@ -3,6 +3,7 @@
 import type { EntityCode } from '@/lib/types';
 import { useHRStore } from '@/store/useHRStore';
 import { Field, Input, NumberInput, Textarea } from '@/components/ui';
+import EntityLogoUpload from '@/components/EntityLogoUpload';
 import {
   currentMonthKey,
   formatDate,
@@ -80,6 +81,9 @@ export default function SettingsView() {
                 <h3 className="text-sm font-semibold text-ink">{entity.name || 'Entity'}</h3>
               </div>
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div className="sm:col-span-2">
+                  <EntityLogoUpload code={code} />
+                </div>
                 <Field label="Display name">
                   <Input
                     value={entity.name}

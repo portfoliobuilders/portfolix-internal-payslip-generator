@@ -15,8 +15,9 @@ official Portfolix EMS ships.
   toggle, PDF export (`PX_PaySlip_YYYY-MM_<EMPID>[_DRAFT].pdf`), print-identical `@media print` CSS.
 - **History** — immutable snapshots of every generated slip, filterable, re-downloadable from the
   stored snapshot (never recomputed).
-- **Settings** — edit payroll calendar, payroll contact, and per-entity branding (name, legal line,
-  address, contact). Included in JSON backups.
+- **Settings** — edit payroll calendar, payroll contact, per-entity branding (name, legal line,
+  address, contact), and **upload a logo** per entity (saved in this browser, included in JSON
+  backups). The app header uses the Portfolix Enterprise (PX) logo.
 
 ## Payroll rules (enforced by `lib/payroll-calc.ts`)
 

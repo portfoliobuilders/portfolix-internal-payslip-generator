@@ -18,7 +18,7 @@ import type {
 } from '@/lib/types';
 
 export const STORAGE_KEY = 'portfolix-slipgen-v1';
-export const SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION = 2;
 
 export const SEED_SETTINGS: Settings = {
   paydayDayOfMonth: 5,
@@ -29,24 +29,28 @@ export const SEED_SETTINGS: Settings = {
       legalLine: '',
       addressLines: ['Portfolix House, 2nd Floor', 'Sector 62, Noida, UP 201309, India'],
       contact: 'payroll@portfolix.tech',
+      logoDataUrl: null,
     },
     PB: {
       name: 'Portfolio Builders',
       legalLine: 'A unit of Portfolix Enterprise Pvt Ltd',
       addressLines: ['Portfolix House, 2nd Floor', 'Sector 62, Noida, UP 201309, India'],
       contact: 'payroll@portfolix.tech',
+      logoDataUrl: null,
     },
     PT: {
       name: 'Portfolix.tech',
       legalLine: 'A unit of Portfolix Enterprise Pvt Ltd',
       addressLines: ['Portfolix House, 2nd Floor', 'Sector 62, Noida, UP 201309, India'],
       contact: 'payroll@portfolix.tech',
+      logoDataUrl: null,
     },
     PH: {
       name: 'Portfolix Hub',
       legalLine: 'A unit of Portfolix Enterprise Pvt Ltd',
       addressLines: ['Portfolix House, 2nd Floor', 'Sector 62, Noida, UP 201309, India'],
       contact: 'payroll@portfolix.tech',
+      logoDataUrl: null,
     },
   },
 };
@@ -263,10 +267,16 @@ export const useHRStore = create<HRState>()(
       version: SCHEMA_VERSION,
       storage: createJSONStorage(() => localStorage),
       migrate: (persistedState, version) => {
-        // Migration stub: transform older persisted shapes here as the
-        // schema evolves (e.g. if (version === 1) { ...add new fields }).
-        void version;
-        return persistedState as HRState;
+        const state = persistedState as HRState;
+        if (version < 2 && state.settings?.entities) {
+          for (const code of ENTITY_CODES) {
+            const entity = state.settings.entities[code];
+            if (entity && entity.logoDataUrl === undefined) {
+              entity.logoDataUrl = null;
+            }
+          }
+        }
+        return state;
       },
     },
   ),

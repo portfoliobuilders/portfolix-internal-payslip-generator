@@ -11,6 +11,8 @@ export interface EntityInfo {
   legalLine: string;
   addressLines: string[];
   contact: string;
+  /** Custom logo as a data URL; null uses the bundled default for this entity. */
+  logoDataUrl: string | null;
 }
 
 export interface Settings {
