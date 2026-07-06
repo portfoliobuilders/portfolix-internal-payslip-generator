@@ -10,6 +10,7 @@ import { useHRStore } from '@/store/useHRStore';
 import { useUIStore } from '@/store/useUIStore';
 import EmployeeFormModal from './EmployeeFormModal';
 import FlexAdjustModal from './FlexAdjustModal';
+import Toast from './Toast';
 import { Modal, btnPrimary, btnSecondary } from './ui';
 
 interface RosterViewProps {
@@ -35,13 +36,12 @@ export default function RosterView({
   const [deleting, setDeleting] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
-  const [actionSuccess, setActionSuccess] = useState<string | null>(null);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   async function handleDelete() {
     if (!deleteTarget) return;
     setDeleting(true);
     setActionError(null);
-    setActionSuccess(null);
     const result = await deleteEmployee(deleteTarget.id);
     setDeleting(false);
     if (!result.ok) {
@@ -49,14 +49,13 @@ export default function RosterView({
       return;
     }
     setDeleteTarget(null);
-    setActionSuccess('Employee deleted.');
+    setToastMessage('Employee deleted.');
     await onRefresh();
   }
 
   async function handleBulkUpload(file: File) {
     setUploading(true);
     setActionError(null);
-    setActionSuccess(null);
 
     try {
       const { employees: parsedEmployees, errors } = await parseEmployeeSpreadsheet(file);
@@ -71,7 +70,7 @@ export default function RosterView({
         return;
       }
 
-      setActionSuccess(
+      setToastMessage(
         `Successfully uploaded ${result.data.count} employee${result.data.count === 1 ? '' : 's'}.`,
       );
       await onRefresh();
@@ -96,7 +95,7 @@ export default function RosterView({
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <button
-              className={btnSecondary}
+              className={btnPrimary}
               onClick={() => downloadEmployeeTemplate()}
               disabled={loading || uploading}
             >
@@ -109,18 +108,18 @@ export default function RosterView({
             >
               {uploading ? (
                 <>
-                  <Loader2 size={14} className="animate-spin" /> Uploading…
+                  <Loader2 size={14} className="animate-spin" /> Processing Upload...
                 </>
               ) : (
                 <>
-                  <Upload size={14} /> Bulk Upload (Excel/CSV)
+                  <Upload size={14} /> Bulk Upload Excel
                 </>
               )}
             </button>
             <input
               ref={fileInputRef}
               type="file"
-              accept=".xlsx,.xls,.csv"
+              accept=".xlsx,.csv"
               className="hidden"
               onChange={(e) => {
                 const file = e.target.files?.[0];
@@ -139,12 +138,6 @@ export default function RosterView({
             {actionError}
           </p>
         )}
-        {actionSuccess && (
-          <p className="border-b border-hairline px-4 py-2 text-[12px] font-medium text-emerald-deep">
-            {actionSuccess}
-          </p>
-        )}
-
         {loading ? (
           <p className="px-4 py-14 text-center text-sm text-muted">Loading roster from Supabase…</p>
         ) : employees.length === 0 ? (
@@ -255,6 +248,8 @@ export default function RosterView({
           </div>
         </Modal>
       )}
+
+      {toastMessage && <Toast message={toastMessage} onClose={() => setToastMessage(null)} />}
     </div>
   );
 }

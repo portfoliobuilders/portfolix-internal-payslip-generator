@@ -6,7 +6,7 @@ export const dynamic = 'force-dynamic';
 export const metadata: Metadata = {
   title: 'Portfolix SlipGen — Internal Salary Slip Generator',
   description:
-    'Local-first salary slip generator for Portfolix Enterprise Pvt Ltd. All data stays in this browser.',
+    'Internal salary slip generator for Portfolix Enterprise Pvt Ltd. Employees and payroll history synced to Supabase.',
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

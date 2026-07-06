@@ -36,7 +36,7 @@ export default function EntityLogoUpload({ code }: EntityLogoUploadProps) {
   return (
     <Field
       label="Logo"
-      hint="Shown on salary slips and in the app header (PX). Saved in this browser and included in JSON backups."
+      hint="Shown on salary slips and in the app header (PX). Saved in this browser session only."
       error={error}
     >
       <div className="flex flex-wrap items-center gap-4">

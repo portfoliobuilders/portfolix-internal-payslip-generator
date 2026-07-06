@@ -1,23 +1,22 @@
 # Portfolix Internal Salary Slip Generator
 
-A **local-first, frontend-only** salary slip generator for Portfolix Enterprise Pvt Ltd and its
-brands (Portfolio Builders, Portfolix.tech, Portfolix Hub). A stopgap for the HR team until the
-official Portfolix EMS ships.
+A salary slip generator for Portfolix Enterprise Pvt Ltd and its brands (Portfolio Builders,
+Portfolix.tech, Portfolix Hub). A stopgap for the HR team until the official Portfolix EMS ships.
 
-**No servers. No databases. No network calls.** All data lives in the browser's localStorage
-(key `portfolix-slipgen-v1`). Salary data never leaves the machine.
+**Supabase-backed.** Employees and slip history are stored in the cloud. Entity branding and
+payroll settings are kept in the browser session.
 
 ## Features
 
 - **Employee Roster** — add/edit/delete employees, inline Flex-Bank adjustments with a required
-  reason (audit-logged), JSON backup export/import with confirm-overwrite.
+  reason (audit-logged), **Excel template download** and **bulk upload** to Supabase.
 - **Generator** — split-screen: inputs on the left, live A4 preview on the right, Draft/Final
   toggle, PDF export (`PX_PaySlip_YYYY-MM_<EMPID>[_DRAFT].pdf`), print-identical `@media print` CSS.
 - **History** — immutable snapshots of every generated slip, filterable, re-downloadable from the
   stored snapshot (never recomputed).
 - **Settings** — edit payroll calendar, payroll contact, per-entity branding (name, legal line,
-  address, contact), and **upload a logo** per entity (saved in this browser, included in JSON
-  backups). The app header uses the Portfolix Enterprise (PX) logo.
+  address, contact), and **upload a logo** per entity. The app header uses the Portfolix Enterprise
+  (PX) logo.
 
 ## Payroll rules (enforced by `lib/payroll-calc.ts`)
 
@@ -39,17 +38,14 @@ npm install
 npm run dev        # local dev server
 npm run typecheck  # TypeScript strict check
 npm test           # payroll engine unit tests (vitest)
-npm run build      # static export → out/
+npm run build      # production build
 ```
 
 ## Deployment
 
-`next.config.mjs` uses `output: 'export'` — `npm run build` emits a fully static site in `out/`,
-deployable to Vercel free tier or any static host. Hosting publicly is safe by design: every
-visitor's browser sees only its own (empty) localStorage.
-
-**Operational discipline:** run payroll from one dedicated browser profile on the HR machine, and
-**export a JSON backup after every payroll run** (Roster tab → Export JSON).
+Requires Supabase environment variables (`NEXT_PUBLIC_SUPABASE_URL`,
+`NEXT_PUBLIC_SUPABASE_ANON_KEY`). Deploy to Vercel or any Node.js host that supports Next.js Server
+Actions.
 
 ## Payroll calendar
 
