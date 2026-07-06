@@ -1,0 +1,64 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+}
+
+body {
+  @apply bg-surface text-ink antialiased;
+}
+
+/* Every monetary figure aligns in columns. */
+.amount {
+  @apply tabular-nums;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Off-screen unscaled slip copy: rendered (so html2canvas can capture
+   it) but parked outside the viewport on screen. */
+@media screen {
+  #slip-print-root {
+    position: absolute;
+    top: 0;
+    left: -10000px;
+    width: 210mm;
+  }
+}
+
+/* ---------- A4 print: window.print() must match the PDF ---------- */
+@page {
+  size: A4;
+  margin: 0;
+}
+
+@media print {
+  body {
+    background: #ffffff;
+  }
+
+  /* Hide the entire app chrome; show only the slip sheet. */
+  .no-print {
+    display: none !important;
+  }
+
+  #slip-print-root {
+    position: absolute;
+    inset: 0;
+    margin: 0;
+    padding: 0;
+    background: #ffffff;
+  }
+
+  .slip-sheet {
+    width: 210mm !important;
+    min-height: 297mm !important;
+    margin: 0 !important;
+    box-shadow: none !important;
+    border: none !important;
+    transform: none !important;
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+  }
+}
