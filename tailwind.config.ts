@@ -17,12 +17,14 @@ const config: Config = {
         muted: '#6B7280',
         hairline: '#E5E7EB',
         emerald: {
+          600: '#059669',
           brand: '#059669',
           deep: '#065F46',
           tint: '#ECFDF5',
         },
         amber: {
-          brand: '#B45309',
+          600: '#D97706',
+          brand: '#D97706',
           tint: '#FFFBEB',
           edge: '#FCD34D',
         },

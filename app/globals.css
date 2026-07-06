@@ -16,6 +16,37 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
+/* Salary slip status accents — emerald-600 (final) / amber-600 (draft). */
+.slip-badge-draft {
+  @apply border-amber-300 bg-amber-50 text-amber-600;
+}
+
+.slip-badge-final {
+  @apply border-emerald-600 bg-emerald-50 text-emerald-600;
+}
+
+.slip-banner-draft {
+  @apply border-amber-300 bg-amber-50 text-amber-600;
+}
+
+.slip-banner-deferred {
+  @apply border-amber-300 bg-amber-50 text-amber-600;
+}
+
+.slip-net-band {
+  @apply border-emerald-600 bg-emerald-50 text-emerald-600;
+}
+
+/* Two-column amount rows — fixed right column for currency alignment. */
+.slip-amount-row {
+  @apply grid gap-x-4 py-[5px];
+  grid-template-columns: minmax(0, 1fr) 7.5rem;
+}
+
+.slip-amount-row > .amount {
+  @apply text-right;
+}
+
 /* Off-screen unscaled slip copy: rendered (so html2canvas can capture
    it) but parked outside the viewport on screen. */
 @media screen {
@@ -24,17 +55,23 @@ body {
     top: 0;
     left: -10000px;
     width: 210mm;
+    background: #ffffff;
   }
 }
 
 /* ---------- A4 print: window.print() must match the PDF ---------- */
 @page {
-  size: A4;
-  margin: 0;
+  size: A4 portrait;
+  margin: 6mm;
 }
 
 @media print {
+  html,
   body {
+    width: 210mm;
+    height: 297mm;
+    margin: 0;
+    padding: 0;
     background: #ffffff;
   }
 
@@ -43,22 +80,35 @@ body {
     display: none !important;
   }
 
-  #slip-print-root {
-    position: absolute;
-    inset: 0;
-    margin: 0;
-    padding: 0;
+  #slip-print-root,
+  #history-export-root {
+    position: static !important;
+    left: auto !important;
+    top: auto !important;
+    width: auto !important;
+    margin: 0 !important;
+    padding: 0 !important;
     background: #ffffff;
   }
 
   .slip-sheet {
-    width: 210mm !important;
-    min-height: 297mm !important;
-    margin: 0 !important;
+    box-sizing: border-box !important;
+    width: 198mm !important;
+    max-width: 198mm !important;
+    min-height: 281mm !important;
+    margin: 0 auto !important;
+    padding: 10mm 12mm !important;
     box-shadow: none !important;
     border: none !important;
     transform: none !important;
+    overflow: visible !important;
+    page-break-inside: avoid;
     print-color-adjust: exact;
     -webkit-print-color-adjust: exact;
+  }
+
+  .slip-remarks {
+    overflow-wrap: anywhere;
+    word-break: break-word;
   }
 }

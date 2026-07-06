@@ -4,6 +4,7 @@ import type { EntityCode } from '@/lib/types';
 import { useHRStore } from '@/store/useHRStore';
 import { Field, Input, NumberInput, Textarea } from '@/components/ui';
 import EntityLogoUpload from '@/components/EntityLogoUpload';
+import PayrollStressTestPanel from '@/components/PayrollStressTestPanel';
 import {
   currentMonthKey,
   formatDate,
@@ -125,6 +126,8 @@ export default function SettingsView() {
           );
         })}
       </div>
+
+      <PayrollStressTestPanel />
     </div>
   );
 }

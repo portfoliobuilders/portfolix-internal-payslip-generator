@@ -36,7 +36,7 @@ function Row({
   sub?: React.ReactNode;
 }) {
   return (
-    <div className={`flex items-baseline justify-between gap-4 py-[5px] ${bold ? 'font-semibold' : ''}`}>
+    <div className={`slip-amount-row ${bold ? 'font-semibold' : ''}`}>
       <div className="min-w-0">
         <span className="text-[11px] leading-snug">{label}</span>
         {sub && <div className="text-[9.5px] leading-snug text-muted">{sub}</div>}
@@ -70,7 +70,7 @@ export default function SalarySlip({
 
   return (
     <div
-      className="slip-sheet relative mx-auto flex flex-col bg-paper text-ink shadow-lg"
+      className="slip-sheet relative mx-auto box-border flex flex-col bg-paper text-ink shadow-lg"
       style={{ width: '210mm', minHeight: '297mm', padding: '14mm 16mm' }}
     >
       {/* ---------- Entity header ---------- */}
@@ -84,35 +84,29 @@ export default function SalarySlip({
             />
           </div>
           <div className="min-w-0">
-          <p className="text-[9px] font-semibold uppercase tracking-[0.25em] text-muted">
-            {employee.entityCode} · Payroll Document
-          </p>
-          <h1 className="mt-0.5 text-[22px] font-bold leading-tight tracking-tight">
-            {entity.name}
-          </h1>
-          {entity.legalLine && (
-            <p className="text-[10px] italic text-muted">{entity.legalLine}</p>
-          )}
-          <p className="mt-1 text-[9.5px] leading-snug text-muted">
-            {entity.addressLines.join(' · ')}
-          </p>
+            <p className="text-[9px] font-semibold uppercase tracking-[0.25em] text-muted">
+              {employee.entityCode} · Payroll Document
+            </p>
+            <h1 className="mt-0.5 text-[22px] font-bold leading-tight tracking-tight">
+              {entity.name}
+            </h1>
+            {entity.legalLine && (
+              <p className="text-[10px] italic text-muted">{entity.legalLine}</p>
+            )}
+            <p className="mt-1 text-[9.5px] leading-snug text-muted">
+              {entity.addressLines.join(' · ')}
+            </p>
           </div>
         </div>
         <div className="text-right">
           <p className="text-[15px] font-bold uppercase tracking-[0.12em]">Salary Slip</p>
           <p className="text-[11px] font-medium text-muted">{formatMonthYear(snapshot.monthYear)}</p>
           {isDraft ? (
-            <span
-              className="mt-1.5 inline-block rounded border px-2 py-0.5 text-[10px] font-bold uppercase tracking-widest"
-              style={{ color: '#B45309', borderColor: '#FCD34D', backgroundColor: '#FFFBEB' }}
-            >
+            <span className="slip-badge-draft mt-1.5 inline-block rounded border px-2 py-0.5 text-[10px] font-bold uppercase tracking-widest">
               Draft
             </span>
           ) : (
-            <span
-              className="mt-1.5 inline-flex items-center gap-1 rounded border px-2 py-0.5 text-[10px] font-bold uppercase tracking-widest"
-              style={{ color: '#065F46', borderColor: '#059669', backgroundColor: '#ECFDF5' }}
-            >
+            <span className="slip-badge-final mt-1.5 inline-flex items-center gap-1 rounded border px-2 py-0.5 text-[10px] font-bold uppercase tracking-widest">
               <CheckCircle2 size={11} strokeWidth={3} /> Final
             </span>
           )}
@@ -121,19 +115,13 @@ export default function SalarySlip({
 
       {/* ---------- Draft banner (exact required text) ---------- */}
       {isDraft && (
-        <div
-          className="mt-3 rounded border px-3 py-2 text-[10px] font-semibold"
-          style={{ color: '#B45309', borderColor: '#FCD34D', backgroundColor: '#FFFBEB' }}
-        >
+        <div className="slip-banner-draft mt-3 rounded border px-3 py-2 text-[10px] font-semibold">
           INTERNAL DRAFT: Invalid for financial or official use. Pending final HR approval.
         </div>
       )}
 
       {ledgerMismatch && (
-        <div
-          className="mt-2 rounded border px-3 py-2 text-[10px] font-semibold"
-          style={{ color: '#B45309', borderColor: '#FCD34D', backgroundColor: '#FFFBEB' }}
-        >
+        <div className="slip-banner-draft mt-2 rounded border px-3 py-2 text-[10px] font-semibold">
           LEDGER MISMATCH: the deferred opening balance on this slip does not match this
           employee&apos;s last finalized slip. Verify before issuing.
         </div>
@@ -216,7 +204,7 @@ export default function SalarySlip({
             Company-standard {FIXED_DIVISOR}-day rate basis · applied to all loss-of-pay calculations
           </p>
         </div>
-        <div className="mt-1.5 grid grid-cols-4 gap-x-4 text-[10px]">
+        <div className="mt-1.5 grid grid-cols-2 gap-x-6">
           <Row label="Absent days" value={String(inputs.absentDays)} />
           <Row label="Half days" value={String(inputs.halfDays)} />
           <Row label="Late minutes" value={formatMinutes(inputs.lateMinutes)} />
@@ -283,7 +271,9 @@ export default function SalarySlip({
           </div>
           <div className="px-3 py-2">
             <p className="text-[8.5px] font-semibold uppercase tracking-wider text-muted">Deferred</p>
-            <p className="amount text-[11.5px] font-semibold" style={computed.variableDeferred > 0 ? { color: '#B45309' } : undefined}>
+            <p
+              className={`amount text-[11.5px] font-semibold ${computed.variableDeferred > 0 ? 'text-amber-600' : ''}`}
+            >
               {formatINR(computed.variableDeferred)}
             </p>
           </div>
@@ -294,29 +284,26 @@ export default function SalarySlip({
           <p className="mb-1 text-[8.5px] font-semibold uppercase tracking-wider text-muted">
             Deferred variable — carry-forward ledger
           </p>
-          <div className="amount grid grid-cols-4 gap-2 text-[10px]">
+          <div className="grid grid-cols-4 gap-2 text-[10px]">
             <div>
               <span className="block text-[8.5px] text-muted">Opening</span>
-              {formatINR(computed.deferredOpening)}
+              <span className="amount block text-right tabular-nums">{formatINR(computed.deferredOpening)}</span>
             </div>
             <div>
               <span className="block text-[8.5px] text-muted">+ Earned</span>
-              {formatINR(computed.variableEarned)}
+              <span className="amount block text-right tabular-nums">{formatINR(computed.variableEarned)}</span>
             </div>
             <div>
               <span className="block text-[8.5px] text-muted">− Paid</span>
-              {formatINR(computed.variablePaid)}
+              <span className="amount block text-right tabular-nums">{formatINR(computed.variablePaid)}</span>
             </div>
             <div className="font-semibold">
               <span className="block text-[8.5px] font-normal text-muted">Closing</span>
-              {formatINR(computed.deferredClosing)}
+              <span className="amount block text-right tabular-nums">{formatINR(computed.deferredClosing)}</span>
             </div>
           </div>
           {computed.deferredClosing > 0 && (
-            <div
-              className="mt-2 rounded border px-2.5 py-1.5 text-[9.5px] font-semibold"
-              style={{ color: '#B45309', borderColor: '#FCD34D', backgroundColor: '#FFFBEB' }}
-            >
+            <div className="slip-banner-deferred mt-2 rounded border px-2.5 py-1.5 text-[9.5px] font-semibold">
               Deferred balance of {formatINR(computed.deferredClosing)} committed for payout on{' '}
               {computed.committedPayoutDate ? formatDate(computed.committedPayoutDate) : '— date pending —'}.
               Fixed wages are never deferred; this applies to the variable component only.
@@ -326,34 +313,29 @@ export default function SalarySlip({
       </section>
 
       {/* ---------- Net pay band ---------- */}
-      <section
-        className="mt-4 rounded border px-4 py-3"
-        style={{ backgroundColor: '#ECFDF5', borderColor: '#059669' }}
-      >
-        <div className="flex items-baseline justify-between">
-          <div>
-            <p className="text-[9px] font-bold uppercase tracking-[0.15em]" style={{ color: '#065F46' }}>
-              Net Pay — A − B + C
-            </p>
-            <p className="amount mt-0.5 text-[10px]" style={{ color: '#065F46' }}>
+      <section className="slip-net-band mt-4 rounded border px-4 py-3">
+        <div className="flex items-baseline justify-between gap-4">
+          <div className="min-w-0">
+            <p className="text-[9px] font-bold uppercase tracking-[0.15em]">Net Pay — A − B + C</p>
+            <p className="amount mt-0.5 text-[10px]">
               {formatINR(computed.grossFixed)} − {formatINR(computed.totalDeductions)} +{' '}
               {formatINR(computed.variablePaid)}
             </p>
           </div>
-          <p className="amount text-[22px] font-bold" style={{ color: '#065F46' }}>
-            {formatINR(computed.netPay)}
-          </p>
+          <p className="amount shrink-0 text-[22px] font-bold">{formatINR(computed.netPay)}</p>
         </div>
-        <p className="mt-1 border-t pt-1 text-[9.5px] font-medium" style={{ color: '#065F46', borderColor: '#059669' }}>
+        <p className="mt-1 border-t border-emerald-600/30 pt-1 text-[9.5px] font-medium">
           {computed.netPayWords}
         </p>
       </section>
 
       {/* ---------- Remarks ---------- */}
       {inputs.remarks.trim() && (
-        <section className="mt-3">
+        <section className="mt-3 min-w-0">
           <SectionTitle tag="03">Remarks / Operations Note</SectionTitle>
-          <p className="whitespace-pre-wrap text-[10px] leading-snug">{inputs.remarks.trim()}</p>
+          <p className="slip-remarks max-w-full whitespace-pre-wrap break-words text-[10px] leading-snug">
+            {inputs.remarks.trim()}
+          </p>
         </section>
       )}
 

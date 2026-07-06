@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Download, Eye, X } from 'lucide-react';
+import { Download, Eye, Printer, X } from 'lucide-react';
 import { formatDate, formatINR, formatMonthYear, slipFilename } from '@/lib/format';
 import { exportElementToPdf } from '@/lib/pdf-export';
 import type { SlipSnapshot } from '@/lib/types';
@@ -155,6 +155,9 @@ export default function HistoryView() {
         >
           <div className="mx-auto w-fit">
             <div className="mb-2 flex justify-end gap-2">
+              <button className={`${btnSecondary} bg-paper`} onClick={() => window.print()}>
+                <Printer size={14} /> Print
+              </button>
               <button className={`${btnSecondary} bg-paper`} onClick={() => void redownload(viewing)}>
                 <Download size={14} /> Re-download PDF
               </button>

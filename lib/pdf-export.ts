@@ -8,6 +8,8 @@
 
 const A4_WIDTH_MM = 210;
 const A4_HEIGHT_MM = 297;
+/** Safe inset so captures never clip at the page edge. */
+const MARGIN_MM = 6;
 
 export async function exportElementToPdf(element: HTMLElement, filename: string): Promise<void> {
   const [{ default: html2canvas }, { jsPDF }] = await Promise.all([
@@ -17,28 +19,29 @@ export async function exportElementToPdf(element: HTMLElement, filename: string)
 
   const canvas = await html2canvas(element, {
     scale: 2,
-    useCORS: false,
+    useCORS: true,
     logging: false,
     backgroundColor: '#FFFFFF',
+    windowWidth: element.scrollWidth,
+    windowHeight: element.scrollHeight,
   });
 
   const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
   const imgData = canvas.toDataURL('image/png');
 
-  // Fit the capture to the A4 width; paginate if the sheet overflows one page.
-  const imgHeightMm = (canvas.height * A4_WIDTH_MM) / canvas.width;
+  const contentWidth = A4_WIDTH_MM - MARGIN_MM * 2;
+  const contentHeight = A4_HEIGHT_MM - MARGIN_MM * 2;
+  const imgHeightMm = (canvas.height * contentWidth) / canvas.width;
 
-  if (imgHeightMm <= A4_HEIGHT_MM + 1) {
-    pdf.addImage(imgData, 'PNG', 0, 0, A4_WIDTH_MM, imgHeightMm);
+  if (imgHeightMm <= contentHeight + 0.5) {
+    pdf.addImage(imgData, 'PNG', MARGIN_MM, MARGIN_MM, contentWidth, imgHeightMm);
   } else {
-    let remaining = imgHeightMm;
-    let offset = 0;
-    while (remaining > 0) {
-      if (offset > 0) pdf.addPage();
-      pdf.addImage(imgData, 'PNG', 0, -offset, A4_WIDTH_MM, imgHeightMm);
-      offset += A4_HEIGHT_MM;
-      remaining -= A4_HEIGHT_MM;
-    }
+    // Scale down to fit a single A4 page when content is slightly tall.
+    const scale = contentHeight / imgHeightMm;
+    const scaledWidth = contentWidth * scale;
+    const scaledHeight = imgHeightMm * scale;
+    const x = MARGIN_MM + (contentWidth - scaledWidth) / 2;
+    pdf.addImage(imgData, 'PNG', x, MARGIN_MM, scaledWidth, scaledHeight);
   }
 
   pdf.save(filename);
