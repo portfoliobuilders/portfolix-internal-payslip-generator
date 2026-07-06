@@ -7,6 +7,13 @@ export type SupabaseEnv = {
 };
 
 export function getSupabaseEnv(): SupabaseEnv | null {
+  console.log('[Supabase Config Check]:', {
+    hasUrl: !!process.env.NEXT_PUBLIC_SUPABASE_URL,
+    hasAnonKey: !!process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+    hasPublishableKey: !!process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY,
+    nodeEnv: process.env.NODE_ENV,
+  });
+
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key =
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
