@@ -1,9 +1,10 @@
 'use client';
 
-import { useState } from 'react';
-import { FilePlus2, Pencil, Timer, Trash2, UserPlus } from 'lucide-react';
-import { deleteEmployee } from '@/app/actions/payroll';
+import { useRef, useState } from 'react';
+import { Download, FilePlus2, Loader2, Pencil, Timer, Trash2, Upload, UserPlus } from 'lucide-react';
+import { bulkUpsertEmployees, deleteEmployee } from '@/app/actions/payroll';
 import type { Employee } from '@/lib/types';
+import { downloadEmployeeTemplate, parseEmployeeSpreadsheet } from '@/lib/employee-excel';
 import { formatINR, formatMinutes } from '@/lib/format';
 import { useHRStore } from '@/store/useHRStore';
 import { useUIStore } from '@/store/useUIStore';
@@ -26,17 +27,21 @@ export default function RosterView({
 }: RosterViewProps) {
   const entities = useHRStore((s) => s.settings.entities);
   const setGeneratorEmployeeId = useUIStore((s) => s.setGeneratorEmployeeId);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [formTarget, setFormTarget] = useState<Employee | null | 'new'>(null);
   const [flexTarget, setFlexTarget] = useState<Employee | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Employee | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [uploading, setUploading] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [actionSuccess, setActionSuccess] = useState<string | null>(null);
 
   async function handleDelete() {
     if (!deleteTarget) return;
     setDeleting(true);
     setActionError(null);
+    setActionSuccess(null);
     const result = await deleteEmployee(deleteTarget.id);
     setDeleting(false);
     if (!result.ok) {
@@ -44,13 +49,43 @@ export default function RosterView({
       return;
     }
     setDeleteTarget(null);
+    setActionSuccess('Employee deleted.');
     await onRefresh();
+  }
+
+  async function handleBulkUpload(file: File) {
+    setUploading(true);
+    setActionError(null);
+    setActionSuccess(null);
+
+    try {
+      const { employees: parsedEmployees, errors } = await parseEmployeeSpreadsheet(file);
+      if (errors.length > 0) {
+        setActionError(errors.slice(0, 5).join(' ') + (errors.length > 5 ? ` (+${errors.length - 5} more)` : ''));
+        return;
+      }
+
+      const result = await bulkUpsertEmployees(parsedEmployees);
+      if (!result.ok) {
+        setActionError(result.error);
+        return;
+      }
+
+      setActionSuccess(
+        `Successfully uploaded ${result.data.count} employee${result.data.count === 1 ? '' : 's'}.`,
+      );
+      await onRefresh();
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : 'Failed to upload employees.');
+    } finally {
+      setUploading(false);
+    }
   }
 
   return (
     <div className="space-y-4">
       <div className="rounded-lg border border-hairline bg-paper">
-        <div className="flex items-center justify-between border-b border-hairline px-4 py-3">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-hairline px-4 py-3">
           <div>
             <h1 className="text-sm font-semibold">Employee Roster</h1>
             <p className="text-[12px] text-muted">
@@ -59,9 +94,44 @@ export default function RosterView({
                 : `${employees.length} employee${employees.length === 1 ? '' : 's'} across Portfolix entities`}
             </p>
           </div>
-          <button className={btnPrimary} onClick={() => setFormTarget('new')} disabled={loading}>
-            <UserPlus size={14} /> Add employee
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              className={btnSecondary}
+              onClick={() => downloadEmployeeTemplate()}
+              disabled={loading || uploading}
+            >
+              <Download size={14} /> Download Excel Template
+            </button>
+            <button
+              className={btnSecondary}
+              onClick={() => fileInputRef.current?.click()}
+              disabled={loading || uploading}
+            >
+              {uploading ? (
+                <>
+                  <Loader2 size={14} className="animate-spin" /> Uploading…
+                </>
+              ) : (
+                <>
+                  <Upload size={14} /> Bulk Upload (Excel/CSV)
+                </>
+              )}
+            </button>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".xlsx,.xls,.csv"
+              className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) void handleBulkUpload(file);
+                e.target.value = '';
+              }}
+            />
+            <button className={btnPrimary} onClick={() => setFormTarget('new')} disabled={loading || uploading}>
+              <UserPlus size={14} /> Add employee
+            </button>
+          </div>
         </div>
 
         {actionError && (
@@ -69,12 +139,17 @@ export default function RosterView({
             {actionError}
           </p>
         )}
+        {actionSuccess && (
+          <p className="border-b border-hairline px-4 py-2 text-[12px] font-medium text-emerald-deep">
+            {actionSuccess}
+          </p>
+        )}
 
         {loading ? (
           <p className="px-4 py-14 text-center text-sm text-muted">Loading roster from Supabase…</p>
         ) : employees.length === 0 ? (
           <p className="px-4 py-14 text-center text-sm text-muted">
-            No employees yet. Add your first employee to start generating slips.
+            No employees yet. Download the Excel template or add your first employee manually.
           </p>
         ) : (
           <table className="w-full text-sm">

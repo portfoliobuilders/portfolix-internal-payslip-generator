@@ -11,6 +11,7 @@ import {
   type EmployeeRow,
   type PayrollSlipRow,
 } from '@/lib/payroll-db';
+import type { BulkEmployeeInput } from '@/lib/employee-excel';
 import { createClient } from '@/utils/supabase/server';
 
 export type ActionResult<T> =
@@ -78,6 +79,52 @@ export async function upsertEmployee(
     return { ok: true, data: rowToEmployee(data as EmployeeRow) };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : 'Failed to save employee.' };
+  }
+}
+
+/** Inserts or updates many employees in one request (matched by employee_id). */
+export async function bulkUpsertEmployees(
+  employees: BulkEmployeeInput[],
+): Promise<ActionResult<{ count: number; employees: Employee[] }>> {
+  if (employees.length === 0) {
+    return { ok: false, error: 'No employees to upload.' };
+  }
+
+  try {
+    const supabase = await getSupabase();
+
+    const existingResult = await supabase.from('employees').select('*');
+    if (existingResult.error) return { ok: false, error: existingResult.error.message };
+
+    const existingByEmpId = new Map(
+      (existingResult.data as EmployeeRow[]).map((row) => [row.employee_id, row]),
+    );
+
+    const rows = employees.map((employee) => {
+      const existing = existingByEmpId.get(employee.empId);
+      const flexLog = existing ? rowToEmployee(existing).flexLog : [];
+      return employeeToRow({
+        ...employee,
+        id: existing?.id ?? generateId(),
+        flexLog,
+      });
+    });
+
+    const { data, error } = await supabase
+      .from('employees')
+      .upsert(rows, { onConflict: 'id' })
+      .select('*');
+
+    if (error) return { ok: false, error: error.message };
+
+    revalidatePayrollViews();
+    const saved = (data as EmployeeRow[]).map(rowToEmployee);
+    return { ok: true, data: { count: saved.length, employees: saved } };
+  } catch (err) {
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : 'Failed to bulk upload employees.',
+    };
   }
 }
 
