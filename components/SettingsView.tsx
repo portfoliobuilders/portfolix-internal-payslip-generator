@@ -12,6 +12,7 @@ import {
   formatQueryDeadline,
   payrollCycleDates,
 } from '@/lib/format';
+import { AlertTriangle, CheckCircle2, Loader2 } from 'lucide-react';
 
 const ENTITY_ORDER: EntityCode[] = ['PX', 'PB', 'PT', 'PH'];
 
@@ -19,6 +20,8 @@ export default function SettingsView() {
   const settings = useHRStore((s) => s.settings);
   const updateSettings = useHRStore((s) => s.updateSettings);
   const updateEntity = useHRStore((s) => s.updateEntity);
+  const saveState = useHRStore((s) => s.saveState);
+  const saveError = useHRStore((s) => s.saveError);
 
   const previewMonth = currentMonthKey();
   const { creditDate, reviewDeadline } = payrollCycleDates(
@@ -28,12 +31,44 @@ export default function SettingsView() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-base font-semibold text-ink">Settings</h2>
-        <p className="mt-1 text-sm text-muted">
-          These values print on every slip. Entity branding is kept in this browser session; employees
-          and slip history are stored in Supabase.
-        </p>
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <h2 className="text-base font-semibold text-ink">Settings</h2>
+          <p className="mt-1 text-sm text-muted">
+            These values print on every slip. Settings and entity branding are stored in Supabase;
+            changes save automatically.
+          </p>
+        </div>
+        {saveState !== 'idle' && (
+          <div
+            className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[11px] font-medium ${
+              saveState === 'error'
+                ? 'bg-amber-tint text-amber-brand'
+                : saveState === 'saved'
+                  ? 'bg-emerald-tint text-emerald-deep'
+                  : 'bg-surface text-muted'
+            }`}
+          >
+            {saveState === 'saving' && (
+              <>
+                <Loader2 size={12} className="animate-spin" />
+                Saving…
+              </>
+            )}
+            {saveState === 'saved' && (
+              <>
+                <CheckCircle2 size={12} />
+                All changes saved
+              </>
+            )}
+            {saveState === 'error' && (
+              <>
+                <AlertTriangle size={12} />
+                {saveError ?? 'Could not save'}
+              </>
+            )}
+          </div>
+        )}
       </div>
 
       <div className="rounded-lg border border-hairline bg-paper p-5">

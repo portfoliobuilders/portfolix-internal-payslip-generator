@@ -5,7 +5,7 @@ import type { EntityCode } from '@/lib/types';
 import { useHRStore } from '@/store/useHRStore';
 import { Field } from '@/components/ui';
 import EntityLogo from '@/components/EntityLogo';
-import { readImageFileAsDataUrl } from '@/lib/logos';
+import { uploadEntityLogo } from '@/lib/logos';
 
 interface EntityLogoUploadProps {
   code: EntityCode;
@@ -23,8 +23,8 @@ export default function EntityLogoUpload({ code }: EntityLogoUploadProps) {
     setBusy(true);
     setError(null);
     try {
-      const dataUrl = await readImageFileAsDataUrl(file);
-      updateEntity(code, { logoDataUrl: dataUrl });
+      const logoUrl = await uploadEntityLogo(file, code);
+      updateEntity(code, { logoDataUrl: logoUrl });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Upload failed.');
     } finally {
@@ -36,7 +36,7 @@ export default function EntityLogoUpload({ code }: EntityLogoUploadProps) {
   return (
     <Field
       label="Logo"
-      hint="Shown on salary slips and in the app header (PX). Saved in this browser session only."
+      hint="Shown on salary slips and in the app header (PX). Uploaded to Supabase Storage and saved with your settings."
       error={error}
     >
       <div className="flex flex-wrap items-center gap-4">

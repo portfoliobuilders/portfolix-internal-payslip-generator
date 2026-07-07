@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { Cloud, FileClock, FilePlus2, Settings, Users } from 'lucide-react';
+import { fetchSettings } from '@/app/actions/settings';
 import RosterView from '@/components/RosterView';
 import GeneratorView from '@/components/GeneratorView';
 import HistoryView from '@/components/HistoryView';
@@ -22,9 +23,20 @@ const TABS: { id: Tab; label: string; icon: typeof Users }[] = [
 export default function Home() {
   const [tab, setTab] = useState<Tab>('roster');
   const pxEntity = useHRStore((s) => s.settings.entities.PX);
+  const setSettings = useHRStore((s) => s.setSettings);
   const { employees, slipHistory, loading, error, refresh } = usePayrollData();
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
+
+  useEffect(() => {
+    void fetchSettings().then((result) => {
+      if (result.ok) {
+        setSettings(result.data);
+      } else {
+        console.error('[settings] fetch failed:', result.error);
+      }
+    });
+  }, [setSettings]);
 
   return (
     <div className="min-h-screen">
@@ -68,7 +80,7 @@ export default function Home() {
 
           <div className="ml-auto flex items-center gap-1.5 text-[11px] text-muted">
             <Cloud size={14} className="text-emerald-brand" />
-            Supabase-backed · Employees &amp; slips synced to cloud
+            Supabase-backed · Employees, slips &amp; settings synced to cloud
           </div>
         </div>
       </header>
