@@ -9,11 +9,12 @@ export type ActionResult<T> =
   | { ok: true; data: T }
   | { ok: false; error: string };
 
-const APP_SETTINGS_ID = 'default';
+/** Singleton row in public.app_settings (id integer, data jsonb). */
+const APP_SETTINGS_ID = 1;
 
 interface AppSettingsRow {
-  id: string;
-  settings_json: Partial<Settings> | null;
+  id: number;
+  data: Partial<Settings> | null;
   updated_at: string;
 }
 
@@ -43,19 +44,18 @@ export async function fetchSettings(): Promise<ActionResult<Settings>> {
     const supabase = await getSupabase();
     const { data, error } = await supabase
       .from('app_settings')
-      .select('id,settings_json,updated_at')
+      .select('id,data,updated_at')
       .eq('id', APP_SETTINGS_ID)
       .maybeSingle();
 
     if (error) return { ok: false, error: error.message };
 
     if (!data) {
-      const seedResult = await saveSettings(SEED_SETTINGS);
-      return seedResult;
+      return saveSettings(SEED_SETTINGS);
     }
 
     const row = data as AppSettingsRow;
-    return { ok: true, data: mergeSettings(row.settings_json) };
+    return { ok: true, data: mergeSettings(row.data) };
   } catch (err) {
     return {
       ok: false,
@@ -71,21 +71,21 @@ export async function saveSettings(settings: Settings): Promise<ActionResult<Set
     const normalized = normalizeSettings(settings);
     const payload = {
       id: APP_SETTINGS_ID,
-      settings_json: normalized,
+      data: normalized,
       updated_at: new Date().toISOString(),
     };
 
     const { data, error } = await supabase
       .from('app_settings')
       .upsert(payload, { onConflict: 'id' })
-      .select('settings_json')
+      .select('data')
       .single();
 
     if (error) return { ok: false, error: error.message };
 
-    const row = data as Pick<AppSettingsRow, 'settings_json'>;
+    const row = data as Pick<AppSettingsRow, 'data'>;
     revalidateSettingsViews();
-    return { ok: true, data: mergeSettings(row.settings_json) };
+    return { ok: true, data: mergeSettings(row.data) };
   } catch (err) {
     return {
       ok: false,

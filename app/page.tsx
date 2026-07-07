@@ -30,7 +30,11 @@ export default function Home() {
 
   useEffect(() => {
     void fetchSettings().then((result) => {
-      if (result.ok) setSettings(result.data);
+      if (result.ok) {
+        setSettings(result.data);
+      } else {
+        console.error('[settings] fetch failed:', result.error);
+      }
     });
   }, [setSettings]);
 
