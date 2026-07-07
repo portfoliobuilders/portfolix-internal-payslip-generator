@@ -52,3 +52,97 @@ Legend for recommendations:
 Deferred pending manual review:
 - `origin/cursor/payroll-slip-fk-fix-df21`
 
+## Final consolidation outcome
+
+### Branches merged into integration
+
+1. `origin/cursor/settings-supabase-migration-5dd9`
+2. `origin/cursor/persistence-routing-19c1`
+3. `origin/cursor/workforce-payment-statements-2a00`
+4. `origin/cursor/app-router-navigation-fix-8649`
+5. `origin/cursor/handbook-reference-audit-1b92`
+
+### Branches skipped
+
+- `origin/cursor/payroll-slip-fk-fix-df21` (`NEEDS_MANUAL_REVIEW`: FK policy/migration change not auto-merged without explicit approval)
+- `origin/cursor/static-company-config-f116` (`SKIP_EXPERIMENTAL`: static settings direction conflicts with Supabase persistence objective)
+- `origin/cursor/payroll-rules-architecture-7420` (`SKIP_EXPERIMENTAL`: agent/tooling docs only)
+- `origin/cursor/supabase-mcp-setup-2de9` (`SKIP_EXPERIMENTAL`: local agent-skill/tooling payload)
+- `origin/cursor/supabase-setup-0d18` (`SKIP_EXPERIMENTAL`: MCP/demo setup not required for app runtime)
+- `origin/cursor/portfolix-salary-slip-generator-c2b1` (`SKIP_OLD`)
+- `origin/cursor/portfolix-salary-slip-generator-915a` (`SKIP_OLD`)
+- `origin/cursor/step1-foundation-049e` (`SKIP_OLD`)
+- `origin/cursor/portfolix-salary-slip-generator-5fd7` (`SKIP_EXPERIMENTAL`)
+- `origin/cursor/step1-scaffold-slipgen-4fda` (`SKIP_OLD`)
+- `origin/cursor/step4-slip-pdf-history-7650` (`SKIP_OLD`)
+- `origin/cursor/generator-step3-7650` (`SKIP_OLD`)
+- `origin/cursor/employee-roster-step2-7650` (`SKIP_OLD`)
+- `origin/cursor/scaffold-step1-payslip-7650` (`SKIP_OLD`)
+- `origin/cursor/supabase-payroll-migration-241d` (`SKIP_DUPLICATE`)
+- `origin/cursor/slip-finalize-audit-9f09` (`SKIP_DUPLICATE`)
+- `origin/cursor/entity-logo-upload-9f09` (`SKIP_DUPLICATE`)
+- `origin/cursor/add-settings-tab-9f09` (`SKIP_DUPLICATE`)
+- `origin/cursor/portfolix-salary-slip-generator-c1f1` (`SKIP_DUPLICATE`)
+
+### Conflicts resolved
+
+- `README.md`: kept latest Supabase-persistence description and retained handbook reference-only note.
+- `components/EntityLogoUpload.tsx`, `components/SettingsView.tsx`, `store/useHRStore.ts`: kept Supabase-backed settings hydration/save model from persistence routing line.
+- `app/page.tsx`: preserved redirect `/` -> `/employee-roster`.
+- `components/RosterView.tsx`, `lib/payroll-db.ts`: merged workforce classification updates with existing Supabase settings mapping.
+- Route duplication fix: removed `app/(main)/*` duplicate pages to satisfy Next.js single-route resolution and preserve canonical routed pages under `/employee-roster`, `/generator`, `/history`, `/settings`.
+
+### Supabase persistence audit status
+
+- `localStorage` / `sessionStorage`: only metadata reference comment found (`lib/logos.ts`); no business-data persistence to browser storage.
+- Employees: fetched/saved through Supabase actions (`fetchEmployees`, `upsertEmployee`, `bulkUpsertEmployees`).
+- Slip/history: fetched/saved via Supabase (`fetchPayrollHistory`, `savePayrollSlip`, `finalizePayrollSlip`).
+- Settings + entity branding/logo: loaded/saved through Supabase (`getAppSettings`, `upsertAppSettings`, `app_settings` mapping, logo upload server action).
+- History snapshots remain immutable snapshots in `payroll_slips` / `payment_statements` model.
+
+### Routing audit status
+
+- Confirmed routes exist:
+  - `/employee-roster`
+  - `/generator`
+  - `/history`
+  - `/settings`
+- `/` redirects to `/employee-roster` (`app/page.tsx`).
+- Header navigation is URL-based (`Link` + `usePathname`) not tab-only local state.
+- Deep-link/reload compatibility is route-driven by Next app pages.
+
+### Migration audit status
+
+Present in `supabase/migrations`:
+- `employees` evolution (`002_employee_details_json.sql`, `003_workforce_payment_statements.sql`)
+- statement/history tables (`payroll_slips` indexes + `payment_statements`)
+- settings tables:
+  - `003_app_settings.sql`
+  - `003_company_settings.sql` (also merged from settings branch)
+
+No destructive migration added. No table drops introduced.
+
+### Environment setup audit status
+
+- `package-lock.json`: present.
+- install mode: `npm ci` usage documented/added.
+- `scripts/setup-env.sh`: present and executable.
+- `environment.json`: present.
+- cache paths include `~/.npm`, `node_modules`, `.next/cache` in environment config.
+
+### Verification results
+
+- `npm ci`: PASS
+- `npm run typecheck`: PASS
+- `npm test`: PASS (39/39)
+- `npm run build`: PASS (after removing duplicate parallel route-group pages)
+
+### Remaining risks / follow-up
+
+- `origin/cursor/payroll-slip-fk-fix-df21` remains intentionally unmerged pending explicit approval because it alters FK/migration behavior.
+- Build shows a non-blocking Edge Runtime warning from Supabase dependency usage in middleware import chain.
+- Vercel production branch/env configuration cannot be confirmed from repository-only access; verify in Vercel dashboard:
+  1. Production branch is `main`
+  2. `NEXT_PUBLIC_SUPABASE_URL` is set
+  3. `NEXT_PUBLIC_SUPABASE_ANON_KEY` is set
+
