@@ -45,12 +45,14 @@ export const SEED_SETTINGS: Settings = {
 
 interface HRState {
   settings: Settings;
+  setSettings: (settings: Settings) => void;
   updateSettings: (patch: Partial<Settings>) => void;
   updateEntity: (code: EntityCode, patch: Partial<EntityInfo>) => void;
 }
 
 export const useHRStore = create<HRState>((set) => ({
   settings: SEED_SETTINGS,
+  setSettings: (settings) => set({ settings }),
 
   updateSettings: (patch) =>
     set((state) => ({ settings: { ...state.settings, ...patch } })),
