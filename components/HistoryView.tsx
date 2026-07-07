@@ -13,9 +13,11 @@ import { btnSecondary, inputCls } from './ui';
 interface HistoryViewProps {
   slipHistory: SlipSnapshot[];
   loading: boolean;
+  error?: string | null;
+  onRefresh?: () => Promise<void>;
 }
 
-export default function HistoryView({ slipHistory, loading }: HistoryViewProps) {
+export default function HistoryView({ slipHistory, loading, error, onRefresh }: HistoryViewProps) {
   const settings = useHRStore((s) => s.settings);
 
   const [employeeFilter, setEmployeeFilter] = useState('');
@@ -72,6 +74,23 @@ export default function HistoryView({ slipHistory, loading }: HistoryViewProps) 
     return <p className="py-20 text-center text-sm text-muted">Loading slip history from Supabase…</p>;
   }
 
+  if (error) {
+    return (
+      <div className="rounded-lg border border-amber-edge bg-amber-tint px-4 py-6 text-center">
+        <p className="text-sm font-medium text-amber-brand">Could not load slip history</p>
+        <p className="mt-1 text-[12px] text-muted">{error}</p>
+        {onRefresh && (
+          <button
+            className="mt-4 rounded-md bg-ink px-3 py-1.5 text-sm font-medium text-paper"
+            onClick={() => void onRefresh()}
+          >
+            Retry
+          </button>
+        )}
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-end gap-3 rounded-lg border border-hairline bg-paper px-4 py-3">
@@ -102,7 +121,9 @@ export default function HistoryView({ slipHistory, loading }: HistoryViewProps) 
       <div className="rounded-lg border border-hairline bg-paper">
         {filtered.length === 0 ? (
           <p className="px-4 py-14 text-center text-sm text-muted">
-            No slips match. Generate a slip from the Generator tab — every export lands here.
+            {slipHistory.length === 0
+              ? 'No slips yet. Generate a slip from the Generator page — every export is saved to Supabase.'
+              : 'No slips match the current filters.'}
           </p>
         ) : (
           <table className="w-full text-sm">

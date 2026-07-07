@@ -64,11 +64,15 @@ export default function EmployeeFormModal({
   employee,
   onClose,
   onSaved,
+  onSaveStart,
+  onSaveFailed,
 }: {
   /** null → add mode. */
   employee: Employee | null;
   onClose: () => void;
   onSaved: () => Promise<void>;
+  onSaveStart?: () => void;
+  onSaveFailed?: (message: string) => void;
 }) {
   const entities = useHRStore((s) => s.settings.entities);
   const [draft, setDraft] = useState<Draft>(() => toDraft(employee));
@@ -86,6 +90,7 @@ export default function EmployeeFormModal({
 
     setSaving(true);
     setSaveError(null);
+    onSaveStart?.();
 
     const payload = {
       ...(employee ? { id: employee.id, flexLog: employee.flexLog } : { flexLog: [] as Employee['flexLog'] }),
@@ -108,6 +113,7 @@ export default function EmployeeFormModal({
 
     if (!result.ok) {
       setSaveError(result.error);
+      onSaveFailed?.(result.error);
       return;
     }
 

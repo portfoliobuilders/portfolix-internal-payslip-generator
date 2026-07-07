@@ -3,7 +3,16 @@
  * Extended employee fields (department, flex log, etc.) live in details_json.
  */
 
-import type { Employee, EntityCode, FlexLogEntry, PaymentMode, SlipSnapshot } from '@/lib/types';
+import type {
+  Employee,
+  EntityCode,
+  EntityInfo,
+  FlexLogEntry,
+  PaymentMode,
+  Settings,
+  SlipSnapshot,
+} from '@/lib/types';
+import { SEED_SETTINGS } from '@/lib/seed-settings';
 
 export interface EmployeeDetailsJson {
   department: string;
@@ -118,4 +127,52 @@ export function slipToRow(snapshot: SlipSnapshot): Omit<PayrollSlipRow, 'id'> & 
 export function generateId(): string {
   if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) return crypto.randomUUID();
   return `id-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+export interface AppSettingsRow {
+  id: string;
+  payday_day_of_month: number;
+  payroll_contact: string;
+  entity_branding: Record<EntityCode, EntityInfo> | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export const APP_SETTINGS_ID = 'default';
+
+function mergeEntityBranding(
+  stored: Record<EntityCode, EntityInfo> | null | undefined,
+): Record<EntityCode, EntityInfo> {
+  const merged = { ...SEED_SETTINGS.entities };
+  if (!stored) return merged;
+  for (const code of ENTITY_CODES) {
+    if (stored[code]) {
+      merged[code] = { ...merged[code], ...stored[code] };
+    }
+  }
+  return merged;
+}
+
+/** Maps a Supabase app_settings row to the app's Settings type. */
+export function rowToSettings(row: AppSettingsRow): Settings {
+  return {
+    paydayDayOfMonth: row.payday_day_of_month,
+    payrollContact: row.payroll_contact,
+    entities: mergeEntityBranding(row.entity_branding),
+  };
+}
+
+/** Maps app Settings to a Supabase upsert row. */
+export function settingsToRow(settings: Settings): Omit<AppSettingsRow, 'created_at' | 'updated_at'> {
+  return {
+    id: APP_SETTINGS_ID,
+    payday_day_of_month: settings.paydayDayOfMonth,
+    payroll_contact: settings.payrollContact,
+    entity_branding: settings.entities,
+  };
+}
+
+/** Default settings used when seeding the app_settings row. */
+export function defaultSettingsRow(): Omit<AppSettingsRow, 'created_at' | 'updated_at'> {
+  return settingsToRow(SEED_SETTINGS);
 }

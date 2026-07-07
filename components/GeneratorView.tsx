@@ -14,6 +14,7 @@ import { findFinalSlipForMonth, findPreviousFinalSlip } from '@/lib/payroll-help
 import { useHRStore } from '@/store/useHRStore';
 import { useUIStore } from '@/store/useUIStore';
 import SalarySlip from './SalarySlip';
+import Toast from './Toast';
 import { Field, Modal, btnPrimary, btnSecondary, inputAmountCls, inputCls } from './ui';
 
 interface FormState {
@@ -112,6 +113,7 @@ export default function GeneratorView({
   const preselectedId = useUIStore((s) => s.generatorEmployeeId);
   const setGeneratorEmployeeId = useUIStore((s) => s.setGeneratorEmployeeId);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   const currentMonth = format(new Date(), 'yyyy-MM');
   const [employeeId, setEmployeeId] = useState<string>(preselectedId ?? '');
@@ -309,12 +311,14 @@ export default function GeneratorView({
           setSaveError(saveResult.error);
           return;
         }
+        setToastMessage('Final slip saved to Supabase history.');
       } else {
         const saveResult = await savePayrollSlip({ ...finalSnapshot, status: 'draft' });
         if (!saveResult.ok) {
           setSaveError(saveResult.error);
           return;
         }
+        setToastMessage('Draft slip saved to Supabase history.');
       }
       setSaveError(null);
       await onRefresh();
@@ -551,6 +555,7 @@ export default function GeneratorView({
           </div>
         </Modal>
       )}
+      {toastMessage && <Toast message={toastMessage} onClose={() => setToastMessage(null)} />}
     </div>
   );
 }
