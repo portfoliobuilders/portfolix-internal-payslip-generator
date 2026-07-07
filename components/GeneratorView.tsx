@@ -8,11 +8,12 @@ import { computePayroll, validateVariablePaid } from '@/lib/payroll-calc';
 import { formatINR, slipFilename } from '@/lib/format';
 import { exportElementToPdf } from '@/lib/pdf-export';
 import { finalizePayrollSlip, savePayrollSlip } from '@/app/actions/payroll';
-import type { Employee, SlipSnapshot, SlipStatus } from '@/lib/types';
+import type { Employee, EntityInfo, SlipSnapshot, SlipStatus } from '@/lib/types';
 import { generateId } from '@/lib/payroll-db';
 import { findFinalSlipForMonth, findPreviousFinalSlip } from '@/lib/payroll-helpers';
 import { useHRStore } from '@/store/useHRStore';
 import { useUIStore } from '@/store/useUIStore';
+import { COMPANY_ENTITIES, PAYROLL_CONTACT } from '@/lib/constants/company';
 import SalarySlip from './SalarySlip';
 import { Field, Modal, btnPrimary, btnSecondary, inputAmountCls, inputCls } from './ui';
 
@@ -115,6 +116,7 @@ export default function GeneratorView({
 
   const currentMonth = format(new Date(), 'yyyy-MM');
   const [employeeId, setEmployeeId] = useState<string>(preselectedId ?? '');
+  const [selectedEntityId, setSelectedEntityId] = useState<string>(COMPANY_ENTITIES[0].id);
   const [form, setForm] = useState<FormState>(() => emptyForm(currentMonth));
   const [status, setStatus] = useState<SlipStatus>('draft');
   const [supersedePending, setSupersedePending] = useState(false);
@@ -129,7 +131,36 @@ export default function GeneratorView({
   }, [preselectedId, setGeneratorEmployeeId]);
 
   const employee = employees.find((e) => e.id === employeeId) ?? null;
-  const entity = employee ? settings.entities[employee.entityCode] : null;
+
+  useEffect(() => {
+    if (!employee) return;
+    const defaultEntityIdByCode: Record<string, string> = {
+      PX: 'portfolix-enterprise',
+      PT: 'portfolix-tech',
+      PB: 'portfolio-builders',
+      PH: 'portfolix-hub',
+    };
+    const suggestedEntityId = defaultEntityIdByCode[employee.entityCode];
+    if (suggestedEntityId) setSelectedEntityId(suggestedEntityId);
+  }, [employee]);
+
+  const selectedCompanyEntity = useMemo(
+    () => COMPANY_ENTITIES.find((entity) => entity.id === selectedEntityId) ?? COMPANY_ENTITIES[0],
+    [selectedEntityId],
+  );
+  const entity: EntityInfo | null = useMemo(
+    () =>
+      employee
+        ? {
+            name: selectedCompanyEntity.displayName,
+            legalLine: selectedCompanyEntity.legalLine,
+            addressLines: selectedCompanyEntity.address.split('\n'),
+            contact: PAYROLL_CONTACT,
+            logoDataUrl: selectedCompanyEntity.logoPath,
+          }
+        : null,
+    [employee, selectedCompanyEntity],
+  );
 
   // Rule 7: deferred opening auto-fills from the most recent FINAL slip.
   const previousFinal = useMemo(
@@ -360,6 +391,21 @@ export default function GeneratorView({
                 </select>
               </Field>
             </div>
+            <div className="col-span-2">
+              <Field label="Company entity shown on slip">
+                <select
+                  className={inputCls}
+                  value={selectedEntityId}
+                  onChange={(e) => setSelectedEntityId(e.target.value)}
+                >
+                  {COMPANY_ENTITIES.map((companyEntity) => (
+                    <option key={companyEntity.id} value={companyEntity.id}>
+                      {companyEntity.displayName}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+            </div>
             <Field label="Pay month" error={errors.monthYear ?? null}>
               <input
                 type="month"
@@ -503,7 +549,7 @@ export default function GeneratorView({
             <SalarySlip
               snapshot={snapshot}
               entity={entity}
-              payrollContact={settings.payrollContact}
+              payrollContact={PAYROLL_CONTACT}
               paydayDayOfMonth={settings.paydayDayOfMonth}
               ledgerMismatch={ledgerMismatch}
             />
@@ -523,7 +569,7 @@ export default function GeneratorView({
             <SalarySlip
               snapshot={snapshot}
               entity={entity}
-              payrollContact={settings.payrollContact}
+              payrollContact={PAYROLL_CONTACT}
               paydayDayOfMonth={settings.paydayDayOfMonth}
               ledgerMismatch={ledgerMismatch}
             />

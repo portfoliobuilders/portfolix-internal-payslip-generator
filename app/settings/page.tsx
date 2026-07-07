@@ -1,25 +1,23 @@
-'use client';
-
 import { COMPANY_ENTITIES, PAYROLL_CONTACT } from '@/lib/constants/company';
 
-export default function SettingsView() {
+export default function SettingsPage() {
   return (
-    <div className="space-y-6">
+    <main className="mx-auto max-w-4xl space-y-6 px-6 py-8">
       <div>
-        <h2 className="text-base font-semibold text-ink">Settings</h2>
+        <h1 className="text-xl font-semibold text-ink">Settings</h1>
         <p className="mt-1 text-sm text-muted">
           Company details are configured statically in the codebase.
         </p>
       </div>
 
-      <div className="rounded-lg border border-hairline bg-paper p-5">
-        <h3 className="text-sm font-semibold text-ink">Payroll contact</h3>
+      <section className="rounded-lg border border-hairline bg-paper p-5">
+        <h2 className="text-sm font-semibold text-ink">Payroll contact</h2>
         <p className="mt-2 text-sm text-muted">{PAYROLL_CONTACT}</p>
-      </div>
+      </section>
 
-      <div className="space-y-4">
+      <section className="space-y-4">
         {COMPANY_ENTITIES.map((entity) => (
-          <div key={entity.id} className="rounded-lg border border-hairline bg-paper p-5">
+          <article key={entity.id} className="rounded-lg border border-hairline bg-paper p-5">
             <div className="grid gap-4 sm:grid-cols-2">
               <div>
                 <p className="text-[11px] font-semibold uppercase tracking-wide text-muted">
@@ -44,9 +42,9 @@ export default function SettingsView() {
                 <p className="text-sm text-ink">{entity.logoPath}</p>
               </div>
             </div>
-          </div>
+          </article>
         ))}
-      </div>
-    </div>
+      </section>
+    </main>
   );
 }

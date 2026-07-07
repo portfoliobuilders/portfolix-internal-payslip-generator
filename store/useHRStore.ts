@@ -7,38 +7,46 @@
 
 import { create } from 'zustand';
 import type { EntityCode, EntityInfo, Settings } from '@/lib/types';
+import { COMPANY_ENTITIES, PAYROLL_CONTACT } from '@/lib/constants/company';
+
+const ENTITY_BY_ID = {
+  'portfolix-enterprise': COMPANY_ENTITIES[0],
+  'portfolio-builders': COMPANY_ENTITIES[2],
+  'portfolix-tech': COMPANY_ENTITIES[1],
+  'portfolix-hub': COMPANY_ENTITIES[3],
+} as const;
 
 export const SEED_SETTINGS: Settings = {
   paydayDayOfMonth: 5,
-  payrollContact: 'payroll@portfolix.tech',
+  payrollContact: PAYROLL_CONTACT,
   entities: {
     PX: {
-      name: 'Portfolix Enterprise Pvt Ltd',
-      legalLine: '',
-      addressLines: ['Portfolix House, 2nd Floor', 'Sector 62, Noida, UP 201309, India'],
-      contact: 'payroll@portfolix.tech',
-      logoDataUrl: null,
+      name: ENTITY_BY_ID['portfolix-enterprise'].displayName,
+      legalLine: ENTITY_BY_ID['portfolix-enterprise'].legalLine,
+      addressLines: ENTITY_BY_ID['portfolix-enterprise'].address.split('\n'),
+      contact: PAYROLL_CONTACT,
+      logoDataUrl: ENTITY_BY_ID['portfolix-enterprise'].logoPath,
     },
     PB: {
-      name: 'Portfolio Builders',
-      legalLine: 'A unit of Portfolix Enterprise Pvt Ltd',
-      addressLines: ['Portfolix House, 2nd Floor', 'Sector 62, Noida, UP 201309, India'],
-      contact: 'payroll@portfolix.tech',
-      logoDataUrl: null,
+      name: ENTITY_BY_ID['portfolio-builders'].displayName,
+      legalLine: ENTITY_BY_ID['portfolio-builders'].legalLine,
+      addressLines: ENTITY_BY_ID['portfolio-builders'].address.split('\n'),
+      contact: PAYROLL_CONTACT,
+      logoDataUrl: ENTITY_BY_ID['portfolio-builders'].logoPath,
     },
     PT: {
-      name: 'Portfolix.tech',
-      legalLine: 'A unit of Portfolix Enterprise Pvt Ltd',
-      addressLines: ['Portfolix House, 2nd Floor', 'Sector 62, Noida, UP 201309, India'],
-      contact: 'payroll@portfolix.tech',
-      logoDataUrl: null,
+      name: ENTITY_BY_ID['portfolix-tech'].displayName,
+      legalLine: ENTITY_BY_ID['portfolix-tech'].legalLine,
+      addressLines: ENTITY_BY_ID['portfolix-tech'].address.split('\n'),
+      contact: PAYROLL_CONTACT,
+      logoDataUrl: ENTITY_BY_ID['portfolix-tech'].logoPath,
     },
     PH: {
-      name: 'Portfolix Hub',
-      legalLine: 'A unit of Portfolix Enterprise Pvt Ltd',
-      addressLines: ['Portfolix House, 2nd Floor', 'Sector 62, Noida, UP 201309, India'],
-      contact: 'payroll@portfolix.tech',
-      logoDataUrl: null,
+      name: ENTITY_BY_ID['portfolix-hub'].displayName,
+      legalLine: ENTITY_BY_ID['portfolix-hub'].legalLine,
+      addressLines: ENTITY_BY_ID['portfolix-hub'].address.split('\n'),
+      contact: PAYROLL_CONTACT,
+      logoDataUrl: ENTITY_BY_ID['portfolix-hub'].logoPath,
     },
   },
 };
