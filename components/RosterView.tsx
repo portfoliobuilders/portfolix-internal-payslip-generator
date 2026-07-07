@@ -36,46 +36,55 @@ export default function RosterView({
   const [deleting, setDeleting] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'failed'>('idle');
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   async function handleDelete() {
     if (!deleteTarget) return;
     setDeleting(true);
     setActionError(null);
+    setSaveStatus('saving');
     const result = await deleteEmployee(deleteTarget.id);
     setDeleting(false);
     if (!result.ok) {
       setActionError(result.error);
+      setSaveStatus('failed');
       return;
     }
     setDeleteTarget(null);
-    setToastMessage('Employee deleted.');
+    setSaveStatus('saved');
+    setToastMessage('Employee deleted from Supabase.');
     await onRefresh();
   }
 
   async function handleBulkUpload(file: File) {
     setUploading(true);
     setActionError(null);
+    setSaveStatus('saving');
 
     try {
       const { employees: parsedEmployees, errors } = await parseEmployeeSpreadsheet(file);
       if (errors.length > 0) {
         setActionError(errors.slice(0, 5).join(' ') + (errors.length > 5 ? ` (+${errors.length - 5} more)` : ''));
+        setSaveStatus('failed');
         return;
       }
 
       const result = await bulkUpsertEmployees(parsedEmployees);
       if (!result.ok) {
         setActionError(result.error);
+        setSaveStatus('failed');
         return;
       }
 
+      setSaveStatus('saved');
       setToastMessage(
-        `Successfully uploaded ${result.data.count} employee${result.data.count === 1 ? '' : 's'}.`,
+        `Successfully uploaded ${result.data.count} employee${result.data.count === 1 ? '' : 's'} to Supabase.`,
       );
       await onRefresh();
     } catch (err) {
       setActionError(err instanceof Error ? err.message : 'Failed to upload employees.');
+      setSaveStatus('failed');
     } finally {
       setUploading(false);
     }
@@ -91,6 +100,9 @@ export default function RosterView({
               {loading
                 ? 'Loading employees…'
                 : `${employees.length} employee${employees.length === 1 ? '' : 's'} across Portfolix entities`}
+              {saveStatus === 'saving' && ' · Saving…'}
+              {saveStatus === 'saved' && ' · Saved'}
+              {saveStatus === 'failed' && ' · Save failed'}
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -225,11 +237,30 @@ export default function RosterView({
         <EmployeeFormModal
           employee={formTarget === 'new' ? null : formTarget}
           onClose={() => setFormTarget(null)}
-          onSaved={onRefresh}
+          onSaved={async () => {
+            setSaveStatus('saved');
+            setToastMessage(
+              formTarget === 'new' ? 'Employee added to Supabase.' : 'Employee updated in Supabase.',
+            );
+            await onRefresh();
+          }}
+          onSaveStart={() => setSaveStatus('saving')}
+          onSaveFailed={(message) => {
+            setSaveStatus('failed');
+            setActionError(message);
+          }}
         />
       )}
       {flexTarget && (
-        <FlexAdjustModal employee={flexTarget} onClose={() => setFlexTarget(null)} onSaved={onRefresh} />
+        <FlexAdjustModal
+          employee={flexTarget}
+          onClose={() => setFlexTarget(null)}
+          onSaved={async () => {
+            setSaveStatus('saved');
+            setToastMessage('Flex bank updated in Supabase.');
+            await onRefresh();
+          }}
+        />
       )}
       {deleteTarget && (
         <Modal title="Delete employee?" onClose={() => setDeleteTarget(null)}>
