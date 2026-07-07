@@ -29,6 +29,8 @@ Friendly aliases (e.g. `/roster`, `/EmployeeRoster`, `/Settings`) redirect to th
 
 Temporary UI state (active modal, filter text, generator form drafts) stays in the browser only.
 
+> The old handbook has been added as a reference source only. It is not automatically enforced by the app. Any policy implementation requires founder approval.
+
 ## Features
 
 - **Workforce Roster** — supports regular employees, probation/notice period staff, interns/trainees/apprentices, contract employees, freelancers, and consultants.
