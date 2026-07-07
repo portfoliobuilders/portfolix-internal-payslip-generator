@@ -37,7 +37,7 @@ export default function Home() {
               ) : (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img
-                  src="/logos/portfolix-enterprise.svg"
+                  src="/logos/portfolix-enterprise.png"
                   alt="Portfolix Enterprise Pvt Ltd"
                   className="max-h-full max-w-full object-contain"
                 />
