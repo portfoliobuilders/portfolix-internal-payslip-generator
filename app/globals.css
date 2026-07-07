@@ -80,6 +80,14 @@ body {
     display: none !important;
   }
 
+  /* The app wrapper keeps min-h-screen (100vh). With its children hidden by
+     .no-print it still reserves a full viewport height, which prints as a
+     blank leading page before the slip (the classic "extra blank sheet").
+     Collapse it in print so only the slip sheet is emitted. */
+  .min-h-screen {
+    min-height: 0 !important;
+  }
+
   #slip-print-root,
   #history-export-root {
     position: static !important;
