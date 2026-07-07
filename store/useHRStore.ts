@@ -1,61 +1,71 @@
 'use client';
 
 /**
- * In-memory settings store. Entity branding and payroll calendar stay in the
- * browser; employees and slip history are persisted in Supabase.
+ * Client-side settings store. Edits autosave to Supabase after a short debounce.
  */
 
 import { create } from 'zustand';
+import { saveSettings } from '@/app/actions/settings';
+import { SEED_SETTINGS } from '@/lib/settings-defaults';
 import type { EntityCode, EntityInfo, Settings } from '@/lib/types';
 
-export const SEED_SETTINGS: Settings = {
-  paydayDayOfMonth: 5,
-  payrollContact: 'payroll@portfolix.tech',
-  entities: {
-    PX: {
-      name: 'Portfolix Enterprise Pvt Ltd',
-      legalLine: '',
-      addressLines: ['Portfolix House, 2nd Floor', 'Sector 62, Noida, UP 201309, India'],
-      contact: 'payroll@portfolix.tech',
-      logoDataUrl: null,
-    },
-    PB: {
-      name: 'Portfolio Builders',
-      legalLine: 'A unit of Portfolix Enterprise Pvt Ltd',
-      addressLines: ['Portfolix House, 2nd Floor', 'Sector 62, Noida, UP 201309, India'],
-      contact: 'payroll@portfolix.tech',
-      logoDataUrl: null,
-    },
-    PT: {
-      name: 'Portfolix.tech',
-      legalLine: 'A unit of Portfolix Enterprise Pvt Ltd',
-      addressLines: ['Portfolix House, 2nd Floor', 'Sector 62, Noida, UP 201309, India'],
-      contact: 'payroll@portfolix.tech',
-      logoDataUrl: null,
-    },
-    PH: {
-      name: 'Portfolix Hub',
-      legalLine: 'A unit of Portfolix Enterprise Pvt Ltd',
-      addressLines: ['Portfolix House, 2nd Floor', 'Sector 62, Noida, UP 201309, India'],
-      contact: 'payroll@portfolix.tech',
-      logoDataUrl: null,
-    },
-  },
-};
+export type SettingsSaveState = 'idle' | 'saving' | 'saved' | 'error';
+
+const AUTOSAVE_MS = 700;
+
+let autosaveTimer: ReturnType<typeof setTimeout> | null = null;
+let suppressAutosave = false;
 
 interface HRState {
   settings: Settings;
+  saveState: SettingsSaveState;
+  saveError: string | null;
+  setSettings: (settings: Settings) => void;
   updateSettings: (patch: Partial<Settings>) => void;
   updateEntity: (code: EntityCode, patch: Partial<EntityInfo>) => void;
 }
 
-export const useHRStore = create<HRState>((set) => ({
+function scheduleAutosave(get: () => HRState, set: (partial: Partial<HRState>) => void) {
+  if (suppressAutosave) return;
+
+  if (autosaveTimer) clearTimeout(autosaveTimer);
+
+  set({ saveState: 'saving', saveError: null });
+
+  autosaveTimer = setTimeout(() => {
+    autosaveTimer = null;
+    void (async () => {
+      const result = await saveSettings(get().settings);
+      if (result.ok) {
+        set({ settings: result.data, saveState: 'saved', saveError: null });
+      } else {
+        set({ saveState: 'error', saveError: result.error });
+      }
+    })();
+  }, AUTOSAVE_MS);
+}
+
+export const useHRStore = create<HRState>((set, get) => ({
   settings: SEED_SETTINGS,
+  saveState: 'idle',
+  saveError: null,
 
-  updateSettings: (patch) =>
-    set((state) => ({ settings: { ...state.settings, ...patch } })),
+  setSettings: (settings) => {
+    suppressAutosave = true;
+    if (autosaveTimer) {
+      clearTimeout(autosaveTimer);
+      autosaveTimer = null;
+    }
+    set({ settings, saveState: 'idle', saveError: null });
+    suppressAutosave = false;
+  },
 
-  updateEntity: (code, patch) =>
+  updateSettings: (patch) => {
+    set((state) => ({ settings: { ...state.settings, ...patch } }));
+    scheduleAutosave(get, set);
+  },
+
+  updateEntity: (code, patch) => {
     set((state) => ({
       settings: {
         ...state.settings,
@@ -64,5 +74,7 @@ export const useHRStore = create<HRState>((set) => ({
           [code]: { ...state.settings.entities[code], ...patch },
         },
       },
-    })),
+    }));
+    scheduleAutosave(get, set);
+  },
 }));
