@@ -5,7 +5,7 @@ import { createPortal } from 'react-dom';
 import { format } from 'date-fns';
 import { AlertTriangle, Download, Printer } from 'lucide-react';
 import { computePayroll, validateVariablePaid } from '@/lib/payroll-calc';
-import { formatINR, slipFilename } from '@/lib/format';
+import { formatINR, formatMinutes, slipFilename } from '@/lib/format';
 import { exportElementToPdf } from '@/lib/pdf-export';
 import { finalizePayrollSlip, savePayrollSlip } from '@/app/actions/payroll';
 import type { Employee, SlipSnapshot, SlipStatus } from '@/lib/types';
@@ -392,6 +392,72 @@ export default function GeneratorView({
             </Field>
           </div>
         </div>
+
+        {employee && result && (
+          <div className="rounded-lg border border-hairline bg-surface px-4 py-3">
+            <div className="mb-2 flex items-center justify-between">
+              <h2 className="text-[12px] font-semibold uppercase tracking-wide text-muted">
+                Flex bank
+              </h2>
+              <span className="amount text-[12px] font-semibold text-ink">
+                {formatMinutes(result.flexAvailable)} available
+              </span>
+            </div>
+            <div className="grid grid-cols-3 gap-2 text-[11px]">
+              <div>
+                <p className="text-muted">Carried in</p>
+                <p className="amount font-semibold text-ink">{formatMinutes(flexBankBase)}</p>
+              </div>
+              <div>
+                <p className="text-muted">+ Earned this month</p>
+                <p className="amount font-semibold text-ink">
+                  {formatMinutes(num(form.flexMinutesEarned))}
+                </p>
+              </div>
+              <div>
+                <p className="text-muted">= Available</p>
+                <p className="amount font-semibold text-ink">
+                  {formatMinutes(result.flexAvailable)}
+                </p>
+              </div>
+            </div>
+            <div className="mt-2 border-t border-hairline pt-2 text-[11px] leading-relaxed">
+              {num(form.lateMinutes) > 0 ? (
+                <p className="text-ink">
+                  Absorbs{' '}
+                  <span className="amount font-semibold text-emerald-deep">
+                    {formatMinutes(result.flexOffsetMinutes)}
+                  </span>{' '}
+                  of {formatMinutes(num(form.lateMinutes))} late this month
+                  {result.unpaidLateMinutes > 0 ? (
+                    <>
+                      {' · '}
+                      <span className="amount font-semibold text-amber-brand">
+                        {formatMinutes(result.unpaidLateMinutes)}
+                      </span>{' '}
+                      unpaid → {result.lopFromLateness.toFixed(1)} LOP day(s)
+                    </>
+                  ) : (
+                    <> · no loss of pay</>
+                  )}
+                  {' · '}balance after:{' '}
+                  <span className="amount font-semibold text-ink">
+                    {formatMinutes(result.newFlexBalance)}
+                  </span>
+                </p>
+              ) : (
+                <p className="text-muted">
+                  No late minutes this month — the flex bank is{' '}
+                  <span className="font-semibold text-ink">untouched</span> and{' '}
+                  <span className="amount font-semibold text-ink">
+                    {formatMinutes(result.newFlexBalance)}
+                  </span>{' '}
+                  carries forward. Flex only reduces pay when there are late minutes to absorb.
+                </p>
+              )}
+            </div>
+          </div>
+        )}
 
         <div className="rounded-lg border border-hairline bg-paper p-4">
           <h2 className="mb-3 text-[12px] font-semibold uppercase tracking-wide text-muted">
