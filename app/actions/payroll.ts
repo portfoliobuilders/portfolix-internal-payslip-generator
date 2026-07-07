@@ -193,7 +193,9 @@ export async function finalizePayrollSlip(
   const employeesResult = await fetchEmployees();
   if (!employeesResult.ok) return employeesResult;
 
-  const employee = employeesResult.data.find((e) => e.id === snapshot.employeeId);
+  const employee = employeesResult.data.find(
+    (e) => e.empId === snapshot.employeeId || e.id === snapshot.employeeId,
+  );
   if (!employee) {
     return { ok: false, error: 'Employee not found after saving slip.' };
   }
