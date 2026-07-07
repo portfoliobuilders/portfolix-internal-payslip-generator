@@ -2,16 +2,17 @@
 
 import { useRef, useState } from 'react';
 import type { EntityCode } from '@/lib/types';
+import { updateCompanySettings, uploadCompanyLogo } from '@/app/actions/settings';
 import { useHRStore } from '@/store/useHRStore';
 import { Field } from '@/components/ui';
 import EntityLogo from '@/components/EntityLogo';
-import { readImageFileAsDataUrl } from '@/lib/logos';
 
 interface EntityLogoUploadProps {
   code: EntityCode;
 }
 
 export default function EntityLogoUpload({ code }: EntityLogoUploadProps) {
+  const settings = useHRStore((s) => s.settings);
   const entity = useHRStore((s) => s.settings.entities[code]);
   const updateEntity = useHRStore((s) => s.updateEntity);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -23,8 +24,14 @@ export default function EntityLogoUpload({ code }: EntityLogoUploadProps) {
     setBusy(true);
     setError(null);
     try {
-      const dataUrl = await readImageFileAsDataUrl(file);
-      updateEntity(code, { logoDataUrl: dataUrl });
+      const formData = new FormData();
+      formData.set('file', file);
+      const result = await uploadCompanyLogo(formData);
+      if (!result.ok) {
+        setError(result.error);
+        return;
+      }
+      updateEntity(code, { logoDataUrl: result.data });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Upload failed.');
     } finally {
@@ -34,11 +41,7 @@ export default function EntityLogoUpload({ code }: EntityLogoUploadProps) {
   }
 
   return (
-    <Field
-      label="Logo"
-      hint="Shown on salary slips and in the app header (PX). Saved in this browser session only."
-      error={error}
-    >
+    <Field label="Logo" hint="Shown on salary slips and in the app header." error={error}>
       <div className="flex flex-wrap items-center gap-4">
         <div className="flex h-16 w-40 items-center justify-center overflow-hidden rounded-md border border-hairline bg-ink p-2">
           <EntityLogo entity={entity} code={code} className="max-h-full max-w-full" />
@@ -57,14 +60,33 @@ export default function EntityLogoUpload({ code }: EntityLogoUploadProps) {
             onClick={() => inputRef.current?.click()}
             className="inline-flex items-center rounded-md border border-hairline bg-paper px-3 py-1.5 text-sm font-medium text-ink hover:bg-surface disabled:opacity-50"
           >
-            {busy ? 'Uploading…' : entity.logoDataUrl ? 'Replace logo' : 'Upload logo'}
+            {busy ? 'Uploading...' : entity.logoDataUrl ? 'Replace logo' : 'Upload logo'}
           </button>
           {entity.logoDataUrl && (
             <button
               type="button"
-              onClick={() => {
-                updateEntity(code, { logoDataUrl: null });
+              onClick={async () => {
+                setBusy(true);
                 setError(null);
+                try {
+                  const result = await updateCompanySettings({
+                    payday_day: settings.paydayDayOfMonth,
+                    payroll_contact: settings.payrollContact,
+                    display_name: settings.entities.PX.name,
+                    legal_line: settings.entities.PX.legalLine,
+                    address: settings.entities.PX.addressLines.join('\n'),
+                    logo_url: null,
+                  });
+                  if (!result.ok) {
+                    setError(result.error);
+                    return;
+                  }
+                  updateEntity(code, { logoDataUrl: null });
+                } catch (err) {
+                  setError(err instanceof Error ? err.message : 'Could not remove logo.');
+                } finally {
+                  setBusy(false);
+                }
               }}
               className="text-left text-[11px] font-medium text-muted hover:text-ink"
             >
