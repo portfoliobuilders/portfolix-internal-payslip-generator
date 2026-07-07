@@ -18,6 +18,7 @@ import {
 } from '@/lib/payroll-db';
 import type { BulkEmployeeInput } from '@/lib/employee-excel';
 import { createClient } from '@/utils/supabase/server';
+import { statementMetaFor } from '@/lib/workforce';
 
 export type ActionResult<T> =
   | { ok: true; data: T }
@@ -145,11 +146,42 @@ export async function deleteEmployee(id: string): Promise<ActionResult<{ id: str
   }
 }
 
+/** Soft-offboards an employee while retaining complete roster history. */
+export async function archiveEmployee(
+  id: string,
+  offboardingDate: string,
+): Promise<ActionResult<{ id: string }>> {
+  try {
+    const employeesResult = await fetchEmployees();
+    if (!employeesResult.ok) return employeesResult;
+    const employee = employeesResult.data.find((entry) => entry.id === id);
+    if (!employee) return { ok: false, error: 'Employee not found.' };
+    const result = await upsertEmployee({
+      ...employee,
+      employmentStatus: 'offboarded',
+      offboardingDate,
+    });
+    if (!result.ok) return result;
+    return { ok: true, data: { id } };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : 'Failed to offboard employee.' };
+  }
+}
+
 /** Inserts a new payroll slip snapshot into payroll_slips. */
-export async function savePayrollSlip(slipData: SlipSnapshot): Promise<ActionResult<SlipSnapshot>> {
+export async function savePayrollSlip(
+  slipData: SlipSnapshot,
+  settingsSnapshot?: Settings,
+): Promise<ActionResult<SlipSnapshot>> {
   try {
     const supabase = await getSupabase();
     const row = slipToRow(slipData);
+    const [year, month] = slipData.monthYear.split('-').map(Number);
+    const statementMeta = statementMetaFor(
+      slipData.employee.paymentType,
+      slipData.employee.engagementType,
+      slipData.employee.employmentStatus,
+    );
 
     const { data, error } = await supabase
       .from('payroll_slips')
@@ -158,6 +190,42 @@ export async function savePayrollSlip(slipData: SlipSnapshot): Promise<ActionRes
       .single();
 
     if (error) return { ok: false, error: error.message };
+
+    const { error: statementError } = await supabase.from('payment_statements').insert({
+      id: slipData.id,
+      person_id: slipData.employeeId,
+      employee_id: slipData.employee.empId,
+      person_name: slipData.employee.fullName,
+      entity_id: slipData.employee.entityCode,
+      engagement_type: slipData.employee.engagementType,
+      employment_status: slipData.employee.employmentStatus,
+      payment_type: slipData.employee.paymentType,
+      statement_title: statementMeta.statementTitle,
+      month,
+      year,
+      gross_pay: slipData.computed.grossFixed,
+      net_pay: slipData.computed.netPay,
+      compensation_amount: slipData.inputs.compensationAmount,
+      earnings: {
+        main: slipData.inputs.compensationAmount,
+        fixedAllowance: slipData.inputs.fixedAllowance,
+        variablePaid: slipData.computed.variablePaid,
+      },
+      deductions: {
+        lopDeduction: slipData.computed.lopDeduction,
+        otherDeductions: slipData.computed.otherDeductions,
+      },
+      payment_mode: slipData.employee.paymentMode,
+      transaction_reference: null,
+      generated_by: 'system',
+      generated_at: slipData.generatedAt,
+      pdf_url: null,
+      pdf_data: null,
+      snapshot_person_data: slipData.employee,
+      snapshot_settings_data: settingsSnapshot ?? null,
+      snapshot_data: slipData,
+    });
+    if (statementError) return { ok: false, error: statementError.message };
 
     revalidatePayrollViews();
     return { ok: true, data: rowToSlip(data as PayrollSlipRow) };
@@ -173,6 +241,19 @@ export async function savePayrollSlip(slipData: SlipSnapshot): Promise<ActionRes
 export async function fetchPayrollHistory(): Promise<ActionResult<SlipSnapshot[]>> {
   try {
     const supabase = await getSupabase();
+    const { data: statementsData, error: statementsError } = await supabase
+      .from('payment_statements')
+      .select('snapshot_data')
+      .order('generated_at', { ascending: false });
+
+    if (!statementsError && statementsData) {
+      const snapshots = statementsData
+        .map((row) => (row as { snapshot_data: SlipSnapshot | null }).snapshot_data)
+        .filter((snapshot): snapshot is SlipSnapshot => Boolean(snapshot));
+      snapshots.sort((a, b) => b.generatedAt.localeCompare(a.generatedAt));
+      return { ok: true, data: snapshots };
+    }
+
     const { data, error } = await supabase
       .from('payroll_slips')
       .select('*')
@@ -195,8 +276,9 @@ export async function fetchPayrollHistory(): Promise<ActionResult<SlipSnapshot[]
 export async function finalizePayrollSlip(
   snapshot: SlipSnapshot,
   newFlexBalance: number,
+  settingsSnapshot?: Settings,
 ): Promise<ActionResult<{ slip: SlipSnapshot; employee: Employee }>> {
-  const slipResult = await savePayrollSlip({ ...snapshot, status: 'final' });
+  const slipResult = await savePayrollSlip({ ...snapshot, status: 'final' }, settingsSnapshot);
   if (!slipResult.ok) return slipResult;
 
   const employeesResult = await fetchEmployees();

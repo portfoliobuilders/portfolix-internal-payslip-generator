@@ -9,6 +9,7 @@ import type { SlipSnapshot } from '@/lib/types';
 import { useHRStore } from '@/store/useHRStore';
 import SalarySlip from './SalarySlip';
 import { btnSecondary, inputCls } from './ui';
+import { statementMetaFor } from '@/lib/workforce';
 
 interface HistoryViewProps {
   slipHistory: SlipSnapshot[];
@@ -22,6 +23,7 @@ export default function HistoryView({ slipHistory, loading, error, onRefresh }: 
 
   const [employeeFilter, setEmployeeFilter] = useState('');
   const [monthFilter, setMonthFilter] = useState('');
+  const [statementFilter, setStatementFilter] = useState('');
   const [viewing, setViewing] = useState<SlipSnapshot | null>(null);
   const [exportTarget, setExportTarget] = useState<SlipSnapshot | null>(null);
 
@@ -36,8 +38,13 @@ export default function HistoryView({ slipHistory, loading, error, onRefresh }: 
       [...slipHistory]
         .filter((s) => (employeeFilter ? s.employeeId === employeeFilter : true))
         .filter((s) => (monthFilter ? s.monthYear === monthFilter : true))
+        .filter((s) => {
+          if (!statementFilter) return true;
+          const title = statementMetaFor(s.employee.paymentType, s.employee.engagementType, s.employee.employmentStatus).statementTitle;
+          return title === statementFilter;
+        })
         .sort((a, b) => b.generatedAt.localeCompare(a.generatedAt)),
-    [slipHistory, employeeFilter, monthFilter],
+    [slipHistory, employeeFilter, monthFilter, statementFilter],
   );
 
   /**
@@ -52,7 +59,16 @@ export default function HistoryView({ slipHistory, loading, error, onRefresh }: 
     if (el) {
       await exportElementToPdf(
         el,
-        slipFilename(snapshot.monthYear, snapshot.employee.empId, snapshot.status === 'draft'),
+        slipFilename(
+          snapshot.monthYear,
+          snapshot.employee.empId,
+          snapshot.status === 'draft',
+          statementMetaFor(
+            snapshot.employee.paymentType,
+            snapshot.employee.engagementType,
+            snapshot.employee.employmentStatus,
+          ).statementTitle.replace(/\s+/g, ''),
+        ),
       );
     }
     setExportTarget(null);
@@ -95,7 +111,7 @@ export default function HistoryView({ slipHistory, loading, error, onRefresh }: 
     <div className="space-y-4">
       <div className="flex flex-wrap items-end gap-3 rounded-lg border border-hairline bg-paper px-4 py-3">
         <div>
-          <h1 className="text-sm font-semibold">Slip History</h1>
+            <h1 className="text-sm font-semibold">Payment History</h1>
           <p className="text-[12px] text-muted">
             {filtered.length} of {slipHistory.length} snapshot{slipHistory.length === 1 ? '' : 's'} ·
             re-downloads always use the stored snapshot, never recomputed
@@ -109,6 +125,16 @@ export default function HistoryView({ slipHistory, loading, error, onRefresh }: 
               {employeeOptions.map(([id, label]) => (
                 <option key={id} value={id}>{label}</option>
               ))}
+            </select>
+          </label>
+          <label className="block">
+            <span className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-muted">Type</span>
+            <select className={`${inputCls} w-56`} value={statementFilter} onChange={(e) => setStatementFilter(e.target.value)}>
+              <option value="">All statements</option>
+              <option value="Salary Slip">Salary Slips</option>
+              <option value="Stipend Statement">Stipend Statements</option>
+              <option value="Professional Fee Statement">Professional Fee Statements</option>
+              <option value="Consultancy Fee Statement">Consultancy Fee Statements</option>
             </select>
           </label>
           <label className="block">
@@ -132,6 +158,7 @@ export default function HistoryView({ slipHistory, loading, error, onRefresh }: 
                 <th className="px-4 py-2 font-semibold">Employee</th>
                 <th className="px-4 py-2 font-semibold">Pay month</th>
                 <th className="px-4 py-2 font-semibold">Status</th>
+                <th className="px-4 py-2 font-semibold">Engagement / Payment</th>
                 <th className="px-4 py-2 text-right font-semibold">Net pay</th>
                 <th className="px-4 py-2 font-semibold">Generated</th>
                 <th className="px-4 py-2 text-right font-semibold">Actions</th>
@@ -146,6 +173,7 @@ export default function HistoryView({ slipHistory, loading, error, onRefresh }: 
                   </td>
                   <td className="px-4 py-2.5">{formatMonthYear(s.monthYear)}</td>
                   <td className="px-4 py-2.5"><StatusBadge status={s.status} /></td>
+                  <td className="px-4 py-2.5 text-[12px] text-muted">{s.employee.engagementType} / {s.employee.paymentType}</td>
                   <td className="amount px-4 py-2.5 text-right font-medium">{formatINR(s.computed.netPay)}</td>
                   <td className="px-4 py-2.5 text-[12px] text-muted">{formatDate(s.generatedAt)}</td>
                   <td className="px-4 py-2.5">

@@ -1,6 +1,6 @@
-# Portfolix Internal Salary Slip Generator
+# Portfolix Internal Workforce Payment Statement Generator
 
-A salary slip generator for Portfolix Enterprise Pvt Ltd and its brands (Portfolio Builders,
+A workforce payment statement generator for Portfolix Enterprise Pvt Ltd and its brands (Portfolio Builders,
 Portfolix.tech, Portfolix Hub). A stopgap for the HR team until the official Portfolix EMS ships.
 
 **Supabase-backed.** Employees, slip history, payroll settings, and entity branding (including
@@ -31,11 +31,12 @@ Temporary UI state (active modal, filter text, generator form drafts) stays in t
 
 ## Features
 
-- **Employee Roster** — add/edit/delete employees, inline Flex-Bank adjustments with a required
+- **Workforce Roster** — supports regular employees, probation/notice period staff, interns/trainees/apprentices, contract employees, freelancers, and consultants.
+- **Roster management** — add/edit/archive people, inline Flex-Bank adjustments with a required
   reason (audit-logged), **Excel template download** and **bulk upload** to Supabase.
 - **Generator** — split-screen: inputs on the left, live A4 preview on the right, Draft/Final
-  toggle, PDF export (`PX_PaySlip_YYYY-MM_<EMPID>[_DRAFT].pdf`), print-identical `@media print` CSS.
-- **History** — immutable snapshots of every generated slip, filterable, re-downloadable from the
+  toggle, dynamic output (Salary Slip / Stipend Statement / Payment Statement), print-identical `@media print` CSS.
+- **Payment History** — immutable snapshots of every generated statement, filterable, re-downloadable from the
   stored snapshot (never recomputed).
 - **Settings** — edit payroll calendar, payroll contact, per-entity branding (name, legal line,
   address, contact), and **upload a logo** per entity. Click **Save Settings** to persist changes.

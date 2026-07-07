@@ -16,6 +16,7 @@ import { useUIStore } from '@/store/useUIStore';
 import SalarySlip from './SalarySlip';
 import Toast from './Toast';
 import { Field, Modal, btnPrimary, btnSecondary, inputAmountCls, inputCls } from './ui';
+import { statementMetaFor } from '@/lib/workforce';
 
 interface FormState {
   monthYear: string;
@@ -168,7 +169,7 @@ export default function GeneratorView({
   const result = useMemo(() => {
     if (!employee) return null;
     return computePayroll({
-      baseSalary: employee.baseSalary,
+      baseSalary: employee.compensationAmount,
       flexBankBalance: flexBankBase,
       flexMinutesEarned: num(form.flexMinutesEarned),
       totalLateMinutes: num(form.lateMinutes),
@@ -239,7 +240,8 @@ export default function GeneratorView({
         committedPayoutDate: form.committedPayoutDate || null,
         remarks: form.remarks,
         flexBankBalanceBefore: flexBankBase,
-        baseSalary: employee.baseSalary,
+        baseSalary: employee.compensationAmount,
+        compensationAmount: employee.compensationAmount,
       },
       computed: {
         perDayRate: result.perDayRate,
@@ -272,6 +274,10 @@ export default function GeneratorView({
         joiningDate: employee.joiningDate,
         employeeAddress: employee.employeeAddress,
         paymentMode: employee.paymentMode,
+        engagementType: employee.engagementType,
+        employmentStatus: employee.employmentStatus,
+        paymentType: employee.paymentType,
+        compensationAmount: employee.compensationAmount,
         bankLast4: employee.bankLast4,
         panMasked: employee.panMasked,
       },
@@ -303,17 +309,23 @@ export default function GeneratorView({
       if (!el) throw new Error('Slip element not ready');
       await exportElementToPdf(
         el,
-        slipFilename(form.monthYear, employee.empId, status === 'draft'),
+        slipFilename(
+          form.monthYear,
+          employee.empId,
+          status === 'draft',
+          statementMetaFor(employee.paymentType, employee.engagementType, employee.employmentStatus)
+            .statementTitle.replace(/\s+/g, ''),
+        ),
       );
       if (status === 'final') {
-        const saveResult = await finalizePayrollSlip(finalSnapshot, result.newFlexBalance);
+        const saveResult = await finalizePayrollSlip(finalSnapshot, result.newFlexBalance, settings);
         if (!saveResult.ok) {
           setSaveError(saveResult.error);
           return;
         }
         setToastMessage('Final slip saved to Supabase history.');
       } else {
-        const saveResult = await savePayrollSlip({ ...finalSnapshot, status: 'draft' });
+        const saveResult = await savePayrollSlip({ ...finalSnapshot, status: 'draft' }, settings);
         if (!saveResult.ok) {
           setSaveError(saveResult.error);
           return;
@@ -346,7 +358,7 @@ export default function GeneratorView({
           </p>
         )}
         <div className="rounded-lg border border-hairline bg-paper p-4">
-          <h1 className="mb-3 text-sm font-semibold">Slip Generator</h1>
+          <h1 className="mb-3 text-sm font-semibold">Payment Statement Generator</h1>
           <div className="grid grid-cols-2 gap-3">
             <div className="col-span-2">
               <Field label="Employee" error={errors.employee ?? null}>
@@ -364,6 +376,13 @@ export default function GeneratorView({
                 </select>
               </Field>
             </div>
+            {employee && (
+              <div className="col-span-2 rounded border border-hairline bg-surface px-3 py-2 text-xs">
+                <p><strong>Engagement:</strong> {employee.engagementType}</p>
+                <p><strong>Status:</strong> {employee.employmentStatus}</p>
+                <p><strong>Payment Type:</strong> {employee.paymentType}</p>
+              </div>
+            )}
             <Field label="Pay month" error={errors.monthYear ?? null}>
               <input
                 type="month"
@@ -388,10 +407,10 @@ export default function GeneratorView({
             >
               <input type="number" min={0} step={1} className={inputAmountCls} value={form.flexMinutesEarned} onChange={(e) => set('flexMinutesEarned', e.target.value)} />
             </Field>
-            <Field label="Fixed allowance (₹)" error={errors.fixedAllowance ?? null}>
+            <Field label={employee?.paymentType === 'stipend' ? 'Adjustments (₹)' : 'Allowances / Adjustments (₹)'} error={errors.fixedAllowance ?? null}>
               <input type="number" min={0} step="0.01" className={inputAmountCls} value={form.fixedAllowance} onChange={(e) => set('fixedAllowance', e.target.value)} />
             </Field>
-            <Field label="Other deductions (₹)" error={errors.otherDeductions ?? null}>
+            <Field label={employee?.paymentType === 'professional_fee' || employee?.paymentType === 'consultancy_fee' ? 'TDS / Deductions (₹)' : 'Other deductions (₹)'} error={errors.otherDeductions ?? null}>
               <input type="number" min={0} step="0.01" className={inputAmountCls} value={form.otherDeductions} onChange={(e) => set('otherDeductions', e.target.value)} />
             </Field>
           </div>
@@ -497,7 +516,15 @@ export default function GeneratorView({
               }
             >
               <Download size={14} />
-              {exporting ? 'Exporting…' : status === 'final' ? 'Download PDF & finalize' : 'Download draft PDF'}
+              {exporting
+                ? 'Exporting…'
+                : status === 'final'
+                  ? employee?.paymentType === 'salary'
+                    ? 'Generate Salary Slip'
+                    : employee?.paymentType === 'stipend'
+                      ? 'Generate Stipend Statement'
+                      : 'Generate Payment Statement'
+                  : 'Download draft PDF'}
             </button>
           </div>
         </div>

@@ -81,7 +81,12 @@ export function formatQueryDeadline(deadline: Date): string {
 }
 
 /** PDF filename per spec: PX_PaySlip_YYYY-MM_<EMPID>[_DRAFT].pdf */
-export function slipFilename(monthYear: string, empId: string, isDraft: boolean): string {
+export function slipFilename(
+  monthYear: string,
+  empId: string,
+  isDraft: boolean,
+  prefix = 'PaymentStatement',
+): string {
   const safeEmpId = empId.replace(/[^A-Za-z0-9-]/g, '');
-  return `PX_PaySlip_${monthYear}_${safeEmpId}${isDraft ? '_DRAFT' : ''}.pdf`;
+  return `PX_${prefix}_${monthYear}_${safeEmpId}${isDraft ? '_DRAFT' : ''}.pdf`;
 }

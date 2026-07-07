@@ -1,13 +1,30 @@
 'use client';
 
 import { useState } from 'react';
-import type { Employee, EntityCode, PaymentMode } from '@/lib/types';
+import type {
+  AgreementType,
+  DocumentsStatus,
+  Employee,
+  EmploymentStatus,
+  EngagementType,
+  EntityCode,
+  PaymentMode,
+  PaymentType,
+  WorkMode,
+} from '@/lib/types';
 import { upsertEmployee } from '@/app/actions/payroll';
 import { useHRStore } from '@/store/useHRStore';
 import { Field, Modal, btnPrimary, btnSecondary, inputAmountCls, inputCls } from './ui';
+import { compensationLabelForPaymentType, defaultPaymentTypeForEngagement } from '@/lib/workforce';
 
 const ENTITY_CODES: EntityCode[] = ['PX', 'PB', 'PT', 'PH'];
 const PAYMENT_MODES: PaymentMode[] = ['Bank Transfer', 'UPI', 'Cheque', 'Cash'];
+const ENGAGEMENT_TYPES: EngagementType[] = ['regular_employee', 'probation_employee', 'notice_period_employee', 'intern', 'trainee', 'apprentice', 'contract_employee', 'freelancer', 'consultant'];
+const EMPLOYMENT_STATUSES: EmploymentStatus[] = ['active', 'probation', 'notice_period', 'completed', 'resigned', 'terminated', 'offboarded', 'inactive'];
+const PAYMENT_TYPES: PaymentType[] = ['salary', 'stipend', 'professional_fee', 'consultancy_fee', 'contract_remuneration', 'honorarium'];
+const WORK_MODES: WorkMode[] = ['office', 'remote', 'hybrid'];
+const AGREEMENT_TYPES: AgreementType[] = ['offer_letter', 'internship_offer', 'freelancer_agreement', 'consultancy_agreement', 'contract_agreement', 'apprenticeship_contract'];
+const DOCUMENT_STATUSES: DocumentsStatus[] = ['pending', 'partially_collected', 'completed'];
 
 type Draft = {
   fullName: string;
@@ -18,7 +35,25 @@ type Draft = {
   joiningDate: string;
   employeeAddress: string;
   baseSalary: string;
+  compensationAmount: string;
+  engagementType: EngagementType;
+  employmentStatus: EmploymentStatus;
+  paymentType: PaymentType;
   paymentMode: PaymentMode;
+  internshipStartDate: string;
+  internshipEndDate: string;
+  probationStartDate: string;
+  probationEndDate: string;
+  noticeStartDate: string;
+  noticeEndDate: string;
+  contractStartDate: string;
+  contractEndDate: string;
+  offboardingDate: string;
+  reportingManager: string;
+  workMode: WorkMode;
+  agreementType: AgreementType;
+  documentsStatus: DocumentsStatus;
+  notes: string;
   bankLast4: string;
   panMasked: string;
   flexBankBalance: string;
@@ -34,7 +69,25 @@ function toDraft(e: Employee | null): Draft {
     joiningDate: e?.joiningDate ?? '',
     employeeAddress: e?.employeeAddress ?? '',
     baseSalary: e ? String(e.baseSalary) : '',
+    compensationAmount: e ? String(e.compensationAmount) : '',
+    engagementType: e?.engagementType ?? 'regular_employee',
+    employmentStatus: e?.employmentStatus ?? 'active',
+    paymentType: e?.paymentType ?? 'salary',
     paymentMode: e?.paymentMode ?? 'Bank Transfer',
+    internshipStartDate: e?.internshipStartDate ?? '',
+    internshipEndDate: e?.internshipEndDate ?? '',
+    probationStartDate: e?.probationStartDate ?? '',
+    probationEndDate: e?.probationEndDate ?? '',
+    noticeStartDate: e?.noticeStartDate ?? '',
+    noticeEndDate: e?.noticeEndDate ?? '',
+    contractStartDate: e?.contractStartDate ?? '',
+    contractEndDate: e?.contractEndDate ?? '',
+    offboardingDate: e?.offboardingDate ?? '',
+    reportingManager: e?.reportingManager ?? '',
+    workMode: e?.workMode ?? 'office',
+    agreementType: e?.agreementType ?? 'offer_letter',
+    documentsStatus: e?.documentsStatus ?? 'pending',
+    notes: e?.notes ?? '',
     bankLast4: e?.bankLast4 ?? '',
     panMasked: e?.panMasked ?? '',
     flexBankBalance: e ? String(e.flexBankBalance) : '0',
@@ -48,9 +101,17 @@ function validate(d: Draft): Partial<Record<keyof Draft, string>> {
   else if (!d.empId.trim().toUpperCase().startsWith(d.entityCode))
     errors.empId = `Must be prefixed by the entity code (e.g. ${d.entityCode}-2024-042).`;
   if (!d.joiningDate) errors.joiningDate = 'Joining date is required.';
+  const compensation = Number(d.compensationAmount);
+  if (!d.compensationAmount || !Number.isFinite(compensation) || compensation <= 0)
+    errors.compensationAmount = 'Compensation amount must be above zero.';
   const salary = Number(d.baseSalary);
-  if (!d.baseSalary || !Number.isFinite(salary) || salary <= 0)
-    errors.baseSalary = 'Enter a base salary above zero.';
+  if (!d.baseSalary || !Number.isFinite(salary) || salary <= 0) errors.baseSalary = 'Enter a valid amount.';
+  if (d.employmentStatus === 'notice_period' && !d.noticeStartDate) {
+    errors.noticeStartDate = 'Notice start date is required for notice period status.';
+  }
+  if ((d.employmentStatus === 'offboarded' || d.employmentStatus === 'completed') && !d.offboardingDate && !d.noticeEndDate && !d.contractEndDate && !d.internshipEndDate) {
+    errors.offboardingDate = 'Offboarding/end date is required for offboarded/completed status.';
+  }
   if (d.bankLast4 && !/^\d{4}$/.test(d.bankLast4))
     errors.bankLast4 = 'Exactly 4 digits — never store the full account number.';
   if (d.panMasked && /^[A-Z]{5}\d{4}[A-Z]$/i.test(d.panMasked.trim()))
@@ -102,7 +163,25 @@ export default function EmployeeFormModal({
       joiningDate: draft.joiningDate,
       employeeAddress: draft.employeeAddress.trim(),
       baseSalary: Number(draft.baseSalary),
+      compensationAmount: Number(draft.compensationAmount),
+      engagementType: draft.engagementType,
+      employmentStatus: draft.employmentStatus,
+      paymentType: draft.paymentType,
       paymentMode: draft.paymentMode,
+      internshipStartDate: draft.internshipStartDate || null,
+      internshipEndDate: draft.internshipEndDate || null,
+      probationStartDate: draft.probationStartDate || null,
+      probationEndDate: draft.probationEndDate || null,
+      noticeStartDate: draft.noticeStartDate || null,
+      noticeEndDate: draft.noticeEndDate || null,
+      contractStartDate: draft.contractStartDate || null,
+      contractEndDate: draft.contractEndDate || null,
+      offboardingDate: draft.offboardingDate || null,
+      reportingManager: draft.reportingManager.trim(),
+      workMode: draft.workMode,
+      agreementType: draft.agreementType,
+      documentsStatus: draft.documentsStatus,
+      notes: draft.notes.trim(),
       bankLast4: draft.bankLast4.trim(),
       panMasked: draft.panMasked.trim().toUpperCase(),
       flexBankBalance: Number(draft.flexBankBalance),
@@ -173,6 +252,28 @@ export default function EmployeeFormModal({
         <Field label="Base salary (monthly, ₹)" error={err('baseSalary')}>
           <input type="number" min={0} step="0.01" className={inputAmountCls} value={draft.baseSalary} onChange={(e) => set('baseSalary', e.target.value)} placeholder="25000" />
         </Field>
+        <Field label={`Compensation amount (${compensationLabelForPaymentType(draft.paymentType)}, ₹)`} error={err('compensationAmount')}>
+          <input type="number" min={0} step="0.01" className={inputAmountCls} value={draft.compensationAmount} onChange={(e) => set('compensationAmount', e.target.value)} placeholder="25000" />
+        </Field>
+        <Field label="Engagement type">
+          <select className={inputCls} value={draft.engagementType} onChange={(e) => {
+            const engagementType = e.target.value as EngagementType;
+            set('engagementType', engagementType);
+            set('paymentType', defaultPaymentTypeForEngagement(engagementType));
+          }}>
+            {ENGAGEMENT_TYPES.map((value) => <option key={value} value={value}>{value}</option>)}
+          </select>
+        </Field>
+        <Field label="Employment status">
+          <select className={inputCls} value={draft.employmentStatus} onChange={(e) => set('employmentStatus', e.target.value as EmploymentStatus)}>
+            {EMPLOYMENT_STATUSES.map((value) => <option key={value} value={value}>{value}</option>)}
+          </select>
+        </Field>
+        <Field label="Payment type">
+          <select className={inputCls} value={draft.paymentType} onChange={(e) => set('paymentType', e.target.value as PaymentType)}>
+            {PAYMENT_TYPES.map((value) => <option key={value} value={value}>{value}</option>)}
+          </select>
+        </Field>
         <Field label="Payment mode">
           <select className={inputCls} value={draft.paymentMode} onChange={(e) => set('paymentMode', e.target.value as PaymentMode)}>
             {PAYMENT_MODES.map((m) => (
@@ -186,6 +287,34 @@ export default function EmployeeFormModal({
         <Field label="PAN (masked)" error={err('panMasked')} hint="e.g. ABXXXXXX1F — never the full number">
           <input className={inputCls} maxLength={10} value={draft.panMasked} onChange={(e) => set('panMasked', e.target.value)} placeholder="ABXXXXXX1F" />
         </Field>
+        <Field label="Reporting manager">
+          <input className={inputCls} value={draft.reportingManager} onChange={(e) => set('reportingManager', e.target.value)} />
+        </Field>
+        <Field label="Work mode">
+          <select className={inputCls} value={draft.workMode} onChange={(e) => set('workMode', e.target.value as WorkMode)}>
+            {WORK_MODES.map((value) => <option key={value} value={value}>{value}</option>)}
+          </select>
+        </Field>
+        <Field label="Agreement type">
+          <select className={inputCls} value={draft.agreementType} onChange={(e) => set('agreementType', e.target.value as AgreementType)}>
+            {AGREEMENT_TYPES.map((value) => <option key={value} value={value}>{value}</option>)}
+          </select>
+        </Field>
+        <Field label="Documents status">
+          <select className={inputCls} value={draft.documentsStatus} onChange={(e) => set('documentsStatus', e.target.value as DocumentsStatus)}>
+            {DOCUMENT_STATUSES.map((value) => <option key={value} value={value}>{value}</option>)}
+          </select>
+        </Field>
+        <Field label="Internship start date"><input type="date" className={inputCls} value={draft.internshipStartDate} onChange={(e) => set('internshipStartDate', e.target.value)} /></Field>
+        <Field label="Internship end date"><input type="date" className={inputCls} value={draft.internshipEndDate} onChange={(e) => set('internshipEndDate', e.target.value)} /></Field>
+        <Field label="Probation start date"><input type="date" className={inputCls} value={draft.probationStartDate} onChange={(e) => set('probationStartDate', e.target.value)} /></Field>
+        <Field label="Probation end date"><input type="date" className={inputCls} value={draft.probationEndDate} onChange={(e) => set('probationEndDate', e.target.value)} /></Field>
+        <Field label="Notice start date" error={err('noticeStartDate')}><input type="date" className={inputCls} value={draft.noticeStartDate} onChange={(e) => set('noticeStartDate', e.target.value)} /></Field>
+        <Field label="Notice end date"><input type="date" className={inputCls} value={draft.noticeEndDate} onChange={(e) => set('noticeEndDate', e.target.value)} /></Field>
+        <Field label="Contract start date"><input type="date" className={inputCls} value={draft.contractStartDate} onChange={(e) => set('contractStartDate', e.target.value)} /></Field>
+        <Field label="Contract end date"><input type="date" className={inputCls} value={draft.contractEndDate} onChange={(e) => set('contractEndDate', e.target.value)} /></Field>
+        <Field label="Offboarding date" error={err('offboardingDate')}><input type="date" className={inputCls} value={draft.offboardingDate} onChange={(e) => set('offboardingDate', e.target.value)} /></Field>
+        <div className="col-span-2"><Field label="Notes"><textarea className={`${inputCls} resize-none`} rows={2} value={draft.notes} onChange={(e) => set('notes', e.target.value)} /></Field></div>
         {!employee && (
           <Field label="Opening flex-bank balance (minutes)" error={err('flexBankBalance')}>
             <input type="number" min={0} className={inputAmountCls} value={draft.flexBankBalance} onChange={(e) => set('flexBankBalance', e.target.value)} />
