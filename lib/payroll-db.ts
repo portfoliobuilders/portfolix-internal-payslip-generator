@@ -3,7 +3,20 @@
  * Extended employee fields (department, flex log, etc.) live in details_json.
  */
 
-import type { Employee, EntityCode, FlexLogEntry, PaymentMode, SlipSnapshot } from '@/lib/types';
+import type {
+  AgreementType,
+  DocumentsStatus,
+  Employee,
+  EmploymentStatus,
+  EngagementType,
+  EntityCode,
+  FlexLogEntry,
+  PaymentMode,
+  PaymentType,
+  SlipSnapshot,
+  WorkMode,
+} from '@/lib/types';
+import { defaultPaymentTypeForEngagement } from './workforce';
 
 export interface EmployeeDetailsJson {
   department: string;
@@ -12,6 +25,11 @@ export interface EmployeeDetailsJson {
   bankLast4: string;
   panMasked: string;
   flexLog: FlexLogEntry[];
+  reportingManager?: string;
+  workMode?: WorkMode;
+  agreementType?: AgreementType;
+  documentsStatus?: DocumentsStatus;
+  notes?: string;
 }
 
 export interface EmployeeRow {
@@ -22,6 +40,19 @@ export interface EmployeeRow {
   joining_date: string;
   designation: string;
   base_salary: number;
+  compensation_amount: number | null;
+  engagement_type: EngagementType | null;
+  employment_status: EmploymentStatus | null;
+  payment_type: PaymentType | null;
+  internship_start_date: string | null;
+  internship_end_date: string | null;
+  probation_start_date: string | null;
+  probation_end_date: string | null;
+  notice_start_date: string | null;
+  notice_end_date: string | null;
+  contract_start_date: string | null;
+  contract_end_date: string | null;
+  offboarding_date: string | null;
   flex_bank_balance: number;
   details_json: EmployeeDetailsJson | null;
 }
@@ -44,6 +75,11 @@ function emptyDetails(): EmployeeDetailsJson {
     bankLast4: '',
     panMasked: '',
     flexLog: [],
+    reportingManager: '',
+    workMode: 'office',
+    agreementType: 'offer_letter',
+    documentsStatus: 'pending',
+    notes: '',
   };
 }
 
@@ -63,7 +99,26 @@ export function rowToEmployee(row: EmployeeRow): Employee {
     joiningDate: row.joining_date,
     employeeAddress: details.employeeAddress,
     baseSalary: row.base_salary,
+    compensationAmount: row.compensation_amount ?? row.base_salary,
+    engagementType: row.engagement_type ?? 'regular_employee',
+    employmentStatus: row.employment_status ?? 'active',
+    paymentType:
+      row.payment_type ?? defaultPaymentTypeForEngagement(row.engagement_type ?? 'regular_employee'),
     paymentMode: details.paymentMode,
+    internshipStartDate: row.internship_start_date,
+    internshipEndDate: row.internship_end_date,
+    probationStartDate: row.probation_start_date,
+    probationEndDate: row.probation_end_date,
+    noticeStartDate: row.notice_start_date,
+    noticeEndDate: row.notice_end_date,
+    contractStartDate: row.contract_start_date,
+    contractEndDate: row.contract_end_date,
+    offboardingDate: row.offboarding_date,
+    reportingManager: details.reportingManager ?? '',
+    workMode: details.workMode ?? 'office',
+    agreementType: details.agreementType ?? 'offer_letter',
+    documentsStatus: details.documentsStatus ?? 'pending',
+    notes: details.notes ?? '',
     bankLast4: details.bankLast4,
     panMasked: details.panMasked,
     flexBankBalance: row.flex_bank_balance,
@@ -82,6 +137,19 @@ export function employeeToRow(
     joining_date: employee.joiningDate,
     designation: employee.designation,
     base_salary: employee.baseSalary,
+    compensation_amount: employee.compensationAmount,
+    engagement_type: employee.engagementType,
+    employment_status: employee.employmentStatus,
+    payment_type: employee.paymentType,
+    internship_start_date: employee.internshipStartDate,
+    internship_end_date: employee.internshipEndDate,
+    probation_start_date: employee.probationStartDate,
+    probation_end_date: employee.probationEndDate,
+    notice_start_date: employee.noticeStartDate,
+    notice_end_date: employee.noticeEndDate,
+    contract_start_date: employee.contractStartDate,
+    contract_end_date: employee.contractEndDate,
+    offboarding_date: employee.offboardingDate,
     flex_bank_balance: employee.flexBankBalance,
     details_json: {
       department: employee.department,
@@ -90,6 +158,11 @@ export function employeeToRow(
       bankLast4: employee.bankLast4,
       panMasked: employee.panMasked,
       flexLog: employee.flexLog,
+      reportingManager: employee.reportingManager,
+      workMode: employee.workMode,
+      agreementType: employee.agreementType,
+      documentsStatus: employee.documentsStatus,
+      notes: employee.notes,
     },
   };
 }

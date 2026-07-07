@@ -22,6 +22,41 @@ export interface Settings {
 }
 
 export type PaymentMode = 'Bank Transfer' | 'UPI' | 'Cheque' | 'Cash';
+export type EngagementType =
+  | 'regular_employee'
+  | 'probation_employee'
+  | 'notice_period_employee'
+  | 'intern'
+  | 'trainee'
+  | 'apprentice'
+  | 'contract_employee'
+  | 'freelancer'
+  | 'consultant';
+export type EmploymentStatus =
+  | 'active'
+  | 'probation'
+  | 'notice_period'
+  | 'completed'
+  | 'resigned'
+  | 'terminated'
+  | 'offboarded'
+  | 'inactive';
+export type PaymentType =
+  | 'salary'
+  | 'stipend'
+  | 'professional_fee'
+  | 'consultancy_fee'
+  | 'contract_remuneration'
+  | 'honorarium';
+export type WorkMode = 'office' | 'remote' | 'hybrid';
+export type AgreementType =
+  | 'offer_letter'
+  | 'internship_offer'
+  | 'freelancer_agreement'
+  | 'consultancy_agreement'
+  | 'contract_agreement'
+  | 'apprenticeship_contract';
+export type DocumentsStatus = 'pending' | 'partially_collected' | 'completed';
 
 export interface FlexLogEntry {
   /** ISO date string of the adjustment. */
@@ -43,7 +78,25 @@ export interface Employee {
   joiningDate: string;
   employeeAddress: string;
   baseSalary: number;
+  compensationAmount: number;
+  engagementType: EngagementType;
+  employmentStatus: EmploymentStatus;
+  paymentType: PaymentType;
   paymentMode: PaymentMode;
+  internshipStartDate: string | null;
+  internshipEndDate: string | null;
+  probationStartDate: string | null;
+  probationEndDate: string | null;
+  noticeStartDate: string | null;
+  noticeEndDate: string | null;
+  contractStartDate: string | null;
+  contractEndDate: string | null;
+  offboardingDate: string | null;
+  reportingManager: string;
+  workMode: WorkMode;
+  agreementType: AgreementType;
+  documentsStatus: DocumentsStatus;
+  notes: string;
   /** Only the last 4 digits are ever stored. */
   bankLast4: string;
   /** Masked PAN, e.g. 'ABXXXXXX1F'. Never store the full number. */
@@ -73,6 +126,7 @@ export interface SlipInputs {
   /** Flex balance the computation started from (for audit). */
   flexBankBalanceBefore: number;
   baseSalary: number;
+  compensationAmount: number;
 }
 
 /** Every derived number on a slip — produced only by lib/payroll-calc.ts. */
@@ -107,8 +161,48 @@ export interface SlipEmployeeInfo {
   joiningDate: string;
   employeeAddress: string;
   paymentMode: PaymentMode;
+  engagementType: EngagementType;
+  employmentStatus: EmploymentStatus;
+  paymentType: PaymentType;
+  compensationAmount: number;
   bankLast4: string;
   panMasked: string;
+}
+
+export interface PaymentStatementMeta {
+  statementTitle: string;
+  mainEarningLabel: string;
+  disclaimer: string | null;
+  statusBadge: 'Probation' | 'Notice Period' | null;
+}
+
+export interface PaymentStatementHistoryEntry {
+  statementId: string;
+  personId: string;
+  employeeId: string;
+  personName: string;
+  entityId: string;
+  engagementType: EngagementType;
+  employmentStatus: EmploymentStatus;
+  paymentType: PaymentType;
+  statementTitle: string;
+  month: number;
+  year: number;
+  grossPay: number;
+  netPay: number;
+  compensationAmount: number;
+  earnings: Record<string, number>;
+  deductions: Record<string, number>;
+  paymentMode: PaymentMode;
+  transactionReference: string | null;
+  generatedBy: string;
+  generatedAt: string;
+  pdfUrl: string | null;
+  pdfData: string | null;
+  snapshotPersonData: SlipEmployeeInfo;
+  snapshotSettingsData: Settings;
+  createdAt: string;
+  snapshot: SlipSnapshot;
 }
 
 export interface SlipSnapshot {
