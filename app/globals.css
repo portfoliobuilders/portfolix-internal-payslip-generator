@@ -16,6 +16,16 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
+/* Hide the scrollbar on horizontally scrollable elements (e.g. the mobile
+   nav tab bar) while keeping them scrollable. */
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
 /* Salary slip status accents — emerald-600 (final) / amber-600 (draft). */
 .slip-badge-draft {
   @apply border-amber-300 bg-amber-50 text-amber-600;
@@ -37,10 +47,11 @@ body {
   @apply border-emerald-600 bg-emerald-50 text-emerald-600;
 }
 
-/* Two-column amount rows — fixed right column for currency alignment. */
+/* Two-column amount rows — fixed right column for currency alignment.
+   Widened to 8.5rem so 7-figure amounts never wrap. */
 .slip-amount-row {
   @apply grid gap-x-4 py-[5px];
-  grid-template-columns: minmax(0, 1fr) 7.5rem;
+  grid-template-columns: minmax(0, 1fr) 8.5rem;
 }
 
 .slip-amount-row > .amount {

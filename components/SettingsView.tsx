@@ -71,9 +71,9 @@ export default function SettingsView() {
         )}
       </div>
 
-      <div className="rounded-lg border border-hairline bg-paper p-5">
+      <div className="rounded-lg border border-hairline bg-paper p-5 shadow-card">
         <h3 className="mb-4 text-sm font-semibold text-ink">Payroll calendar &amp; contact</h3>
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
           <Field
             label="Payday day of month"
             hint="Salary credit date. The query deadline is derived as payday − 2 at 6:00 PM."
@@ -109,15 +109,15 @@ export default function SettingsView() {
         {ENTITY_ORDER.map((code) => {
           const entity = settings.entities[code];
           return (
-            <div key={code} className="rounded-lg border border-hairline bg-paper p-5">
+            <div key={code} className="rounded-lg border border-hairline bg-paper p-5 shadow-card">
               <div className="mb-4 flex items-center gap-2">
                 <span className="rounded bg-surface px-1.5 py-0.5 text-[11px] font-semibold text-ink">
                   {code}
                 </span>
                 <h3 className="text-sm font-semibold text-ink">{entity.name || 'Entity'}</h3>
               </div>
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <div className="sm:col-span-2">
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                <div className="md:col-span-2">
                   <EntityLogoUpload code={code} />
                 </div>
                 <Field label="Display name">
