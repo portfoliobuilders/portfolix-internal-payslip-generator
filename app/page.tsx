@@ -40,10 +40,10 @@ export default function Home() {
 
   return (
     <div className="min-h-screen">
-      <header className="no-print sticky top-0 z-40 border-b border-hairline bg-paper">
-        <div className="mx-auto flex max-w-[1400px] items-center gap-6 px-6 py-3">
-          <div className="flex items-center gap-2">
-            <div className="flex h-9 w-24 items-center justify-center overflow-hidden rounded-md bg-ink p-1">
+      <header className="no-print sticky top-0 z-40 border-b border-hairline bg-paper/90 backdrop-blur supports-[backdrop-filter]:bg-paper/80">
+        <div className="mx-auto flex max-w-[1400px] flex-col gap-2.5 px-4 py-3 sm:px-6 md:flex-row md:items-center md:gap-6 lg:px-8">
+          <div className="flex items-center gap-2.5">
+            <div className="flex h-9 w-24 shrink-0 items-center justify-center overflow-hidden rounded-md bg-ink p-1">
               {mounted ? (
                 <EntityLogo entity={pxEntity} code="PX" className="max-h-full max-w-full" />
               ) : (
@@ -61,12 +61,12 @@ export default function Home() {
             </div>
           </div>
 
-          <nav className="flex items-center gap-1">
+          <nav className="no-scrollbar -mx-4 flex items-center gap-1 overflow-x-auto px-4 sm:-mx-6 sm:px-6 md:mx-0 md:overflow-visible md:px-0">
             {TABS.map(({ id, label, icon: Icon }) => (
               <button
                 key={id}
                 onClick={() => setTab(id)}
-                className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
+                className={`flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md px-3 py-1.5 text-sm font-medium transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink/20 ${
                   tab === id
                     ? 'bg-ink text-paper'
                     : 'text-muted hover:bg-surface hover:text-ink'
@@ -78,14 +78,15 @@ export default function Home() {
             ))}
           </nav>
 
-          <div className="ml-auto flex items-center gap-1.5 text-[11px] text-muted">
+          <div className="ml-auto hidden items-center gap-1.5 text-[11px] text-muted md:flex">
             <Cloud size={14} className="text-emerald-brand" />
-            Supabase-backed · Employees, slips &amp; settings synced to cloud
+            <span className="hidden lg:inline">Supabase-backed · Employees, slips &amp; settings synced to cloud</span>
+            <span className="lg:hidden">Supabase-backed</span>
           </div>
         </div>
       </header>
 
-      <main className="no-print mx-auto max-w-[1400px] px-6 py-6">
+      <main className="no-print mx-auto max-w-[1400px] px-4 py-6 sm:px-6 lg:px-8">
         {!mounted ? (
           <p className="py-20 text-center text-sm text-muted">Loading…</p>
         ) : error ? (

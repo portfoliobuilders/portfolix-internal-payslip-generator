@@ -73,7 +73,7 @@ export default function SettingsView() {
 
       <div className="rounded-lg border border-hairline bg-paper p-5">
         <h3 className="mb-4 text-sm font-semibold text-ink">Payroll calendar &amp; contact</h3>
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
           <Field
             label="Payday day of month"
             hint="Salary credit date. The query deadline is derived as payday − 2 at 6:00 PM."
@@ -116,8 +116,8 @@ export default function SettingsView() {
                 </span>
                 <h3 className="text-sm font-semibold text-ink">{entity.name || 'Entity'}</h3>
               </div>
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <div className="sm:col-span-2">
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                <div className="md:col-span-2">
                   <EntityLogoUpload code={code} />
                 </div>
                 <Field label="Display name">

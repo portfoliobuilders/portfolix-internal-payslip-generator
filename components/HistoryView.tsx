@@ -72,9 +72,30 @@ export default function HistoryView({ slipHistory, loading }: HistoryViewProps) 
     return <p className="py-20 text-center text-sm text-muted">Loading slip history from Supabase…</p>;
   }
 
+  const iconAction =
+    'flex h-11 w-11 items-center justify-center rounded-md text-muted transition-colors duration-150 hover:bg-surface hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink/20 disabled:cursor-not-allowed disabled:opacity-40 md:h-9 md:w-9';
+  const dtCls = 'text-[10px] font-semibold uppercase tracking-wide text-muted';
+
+  const renderActions = (s: SlipSnapshot) => (
+    <div className="flex justify-end gap-1">
+      <button title="View slip" aria-label="View slip" className={iconAction} onClick={() => setViewing(s)}>
+        <Eye size={16} />
+      </button>
+      <button
+        title="Re-download PDF (from stored snapshot)"
+        aria-label="Re-download PDF"
+        className={iconAction}
+        disabled={exportTarget !== null}
+        onClick={() => void redownload(s)}
+      >
+        <Download size={16} />
+      </button>
+    </div>
+  );
+
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-end gap-3 rounded-lg border border-hairline bg-paper px-4 py-3">
+      <div className="flex flex-col gap-3 rounded-lg border border-hairline bg-paper px-4 py-3 shadow-card sm:flex-row sm:flex-wrap sm:items-end">
         <div>
           <h1 className="text-sm font-semibold">Slip History</h1>
           <p className="text-[12px] text-muted">
@@ -82,10 +103,10 @@ export default function HistoryView({ slipHistory, loading }: HistoryViewProps) 
             re-downloads always use the stored snapshot, never recomputed
           </p>
         </div>
-        <div className="ml-auto flex items-end gap-2">
+        <div className="flex flex-col gap-3 sm:ml-auto sm:flex-row sm:items-end sm:gap-2">
           <label className="block">
-            <span className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-muted">Employee</span>
-            <select className={`${inputCls} w-56`} value={employeeFilter} onChange={(e) => setEmployeeFilter(e.target.value)}>
+            <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-[0.08em] text-muted">Employee</span>
+            <select className={`${inputCls} w-full sm:w-56`} value={employeeFilter} onChange={(e) => setEmployeeFilter(e.target.value)}>
               <option value="">All employees</option>
               {employeeOptions.map(([id, label]) => (
                 <option key={id} value={id}>{label}</option>
@@ -93,70 +114,87 @@ export default function HistoryView({ slipHistory, loading }: HistoryViewProps) 
             </select>
           </label>
           <label className="block">
-            <span className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-muted">Month</span>
-            <input type="month" className={`${inputCls} w-40`} value={monthFilter} onChange={(e) => setMonthFilter(e.target.value)} />
+            <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-[0.08em] text-muted">Month</span>
+            <input type="month" className={`${inputCls} w-full sm:w-40`} value={monthFilter} onChange={(e) => setMonthFilter(e.target.value)} />
           </label>
         </div>
       </div>
 
-      <div className="rounded-lg border border-hairline bg-paper">
+      <div className="overflow-hidden rounded-lg border border-hairline bg-paper shadow-card">
         {filtered.length === 0 ? (
           <p className="px-4 py-14 text-center text-sm text-muted">
             No slips match. Generate a slip from the Generator tab — every export lands here.
           </p>
         ) : (
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-hairline text-left text-[11px] uppercase tracking-wide text-muted">
-                <th className="px-4 py-2 font-semibold">Employee</th>
-                <th className="px-4 py-2 font-semibold">Pay month</th>
-                <th className="px-4 py-2 font-semibold">Status</th>
-                <th className="px-4 py-2 text-right font-semibold">Net pay</th>
-                <th className="px-4 py-2 font-semibold">Generated</th>
-                <th className="px-4 py-2 text-right font-semibold">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-hairline">
+          <>
+            {/* Mobile (< md): stacked cards. */}
+            <div className="divide-y divide-hairline md:hidden">
               {filtered.map((s) => (
-                <tr key={s.id} className="hover:bg-surface/60">
-                  <td className="px-4 py-2.5">
-                    <p className="font-medium">{s.employee.fullName}</p>
-                    <p className="text-[12px] text-muted">{s.employee.empId}</p>
-                  </td>
-                  <td className="px-4 py-2.5">{formatMonthYear(s.monthYear)}</td>
-                  <td className="px-4 py-2.5"><StatusBadge status={s.status} /></td>
-                  <td className="amount px-4 py-2.5 text-right font-medium">{formatINR(s.computed.netPay)}</td>
-                  <td className="px-4 py-2.5 text-[12px] text-muted">{formatDate(s.generatedAt)}</td>
-                  <td className="px-4 py-2.5">
-                    <div className="flex justify-end gap-1">
-                      <button
-                        title="View slip"
-                        className="rounded p-1.5 text-muted hover:bg-surface hover:text-ink"
-                        onClick={() => setViewing(s)}
-                      >
-                        <Eye size={15} />
-                      </button>
-                      <button
-                        title="Re-download PDF (from stored snapshot)"
-                        className="rounded p-1.5 text-muted hover:bg-surface hover:text-ink"
-                        disabled={exportTarget !== null}
-                        onClick={() => void redownload(s)}
-                      >
-                        <Download size={15} />
-                      </button>
+                <div key={s.id} className="space-y-3 px-4 py-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="truncate font-medium">{s.employee.fullName}</p>
+                      <p className="text-[12px] text-muted">{s.employee.empId}</p>
                     </div>
-                  </td>
-                </tr>
+                    <StatusBadge status={s.status} />
+                  </div>
+                  <dl className="grid grid-cols-2 gap-x-4 gap-y-3 text-[12px]">
+                    <div>
+                      <dt className={dtCls}>Pay month</dt>
+                      <dd>{formatMonthYear(s.monthYear)}</dd>
+                    </div>
+                    <div>
+                      <dt className={dtCls}>Net pay</dt>
+                      <dd className="amount font-medium">{formatINR(s.computed.netPay)}</dd>
+                    </div>
+                    <div>
+                      <dt className={dtCls}>Generated</dt>
+                      <dd className="text-muted">{formatDate(s.generatedAt)}</dd>
+                    </div>
+                  </dl>
+                  {renderActions(s)}
+                </div>
               ))}
-            </tbody>
-          </table>
+            </div>
+
+            {/* md+ : full table. */}
+            <div className="hidden md:block">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-hairline text-left text-[11px] uppercase tracking-wide text-muted">
+                    <th className="px-4 py-2.5 font-semibold">Employee</th>
+                    <th className="px-4 py-2.5 font-semibold">Pay month</th>
+                    <th className="px-4 py-2.5 font-semibold">Status</th>
+                    <th className="px-4 py-2.5 text-right font-semibold">Net pay</th>
+                    <th className="px-4 py-2.5 font-semibold">Generated</th>
+                    <th className="px-4 py-2.5 text-right font-semibold">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-hairline">
+                  {filtered.map((s) => (
+                    <tr key={s.id} className="transition-colors duration-150 hover:bg-surface/60">
+                      <td className="px-4 py-2.5">
+                        <p className="font-medium">{s.employee.fullName}</p>
+                        <p className="text-[12px] text-muted">{s.employee.empId}</p>
+                      </td>
+                      <td className="px-4 py-2.5">{formatMonthYear(s.monthYear)}</td>
+                      <td className="px-4 py-2.5"><StatusBadge status={s.status} /></td>
+                      <td className="amount px-4 py-2.5 text-right font-medium">{formatINR(s.computed.netPay)}</td>
+                      <td className="px-4 py-2.5 text-[12px] text-muted">{formatDate(s.generatedAt)}</td>
+                      <td className="px-4 py-2.5">{renderActions(s)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
         )}
       </div>
 
       {/* Full-size viewer */}
       {viewing && (
         <div
-          className="no-print fixed inset-0 z-50 overflow-y-auto bg-ink/50 p-6"
+          className="no-print fixed inset-0 z-50 overflow-auto bg-ink/50 p-4 backdrop-blur-[2px] sm:p-6"
           onMouseDown={(e) => {
             if (e.target === e.currentTarget) setViewing(null);
           }}

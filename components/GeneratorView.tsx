@@ -343,8 +343,8 @@ export default function GeneratorView({
         )}
         <div className="rounded-lg border border-hairline bg-paper p-4">
           <h1 className="mb-3 text-sm font-semibold">Slip Generator</h1>
-          <div className="grid grid-cols-2 gap-3">
-            <div className="col-span-2">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div className="sm:col-span-2">
               <Field label="Employee" error={errors.employee ?? null}>
                 <select
                   className={inputCls}
@@ -397,8 +397,8 @@ export default function GeneratorView({
           <h2 className="mb-3 text-[12px] font-semibold uppercase tracking-wide text-muted">
             Variable component
           </h2>
-          <div className="grid grid-cols-2 gap-3">
-            <div className="col-span-2">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div className="sm:col-span-2">
               <Field label="Label">
                 <input className={inputCls} value={form.variableLabel} onChange={(e) => set('variableLabel', e.target.value)} placeholder="Performance incentive" />
               </Field>

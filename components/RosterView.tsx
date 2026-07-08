@@ -81,9 +81,49 @@ export default function RosterView({
     }
   }
 
+  const iconAction =
+    'flex h-11 w-11 items-center justify-center rounded-md text-muted transition-colors duration-150 hover:bg-surface hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink/20 md:h-9 md:w-9';
+
+  const renderActions = (e: Employee) => (
+    <div className="flex justify-end gap-1">
+      <button
+        title="Generate slip"
+        aria-label="Generate slip"
+        className={iconAction}
+        onClick={() => {
+          setGeneratorEmployeeId(e.id);
+          onGenerateFor();
+        }}
+      >
+        <FilePlus2 size={16} />
+      </button>
+      <button
+        title="Adjust flex bank"
+        aria-label="Adjust flex bank"
+        className={iconAction}
+        onClick={() => setFlexTarget(e)}
+      >
+        <Timer size={16} />
+      </button>
+      <button title="Edit" aria-label="Edit employee" className={iconAction} onClick={() => setFormTarget(e)}>
+        <Pencil size={16} />
+      </button>
+      <button
+        title="Delete"
+        aria-label="Delete employee"
+        className={`${iconAction} hover:text-amber-brand`}
+        onClick={() => setDeleteTarget(e)}
+      >
+        <Trash2 size={16} />
+      </button>
+    </div>
+  );
+
+  const dtCls = 'text-[10px] font-semibold uppercase tracking-wide text-muted';
+
   return (
     <div className="space-y-4">
-      <div className="rounded-lg border border-hairline bg-paper">
+      <div className="overflow-hidden rounded-lg border border-hairline bg-paper shadow-card">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-hairline px-4 py-3">
           <div>
             <h1 className="text-sm font-semibold">Employee Roster</h1>
@@ -145,79 +185,89 @@ export default function RosterView({
             No employees yet. Download the Excel template or add your first employee manually.
           </p>
         ) : (
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-hairline text-left text-[11px] uppercase tracking-wide text-muted">
-                <th className="px-4 py-2 font-semibold">Employee</th>
-                <th className="px-4 py-2 font-semibold">Entity</th>
-                <th className="px-4 py-2 font-semibold">Role</th>
-                <th className="px-4 py-2 text-right font-semibold">Base salary</th>
-                <th className="px-4 py-2 text-right font-semibold">Flex bank</th>
-                <th className="px-4 py-2 text-right font-semibold">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-hairline">
+          <>
+            {/* Mobile (< md): stacked cards so the table never overflows. */}
+            <div className="divide-y divide-hairline md:hidden">
               {employees.map((e) => (
-                <tr key={e.id} className="hover:bg-surface/60">
-                  <td className="px-4 py-2.5">
-                    <p className="font-medium">{e.fullName}</p>
-                    <p className="text-[12px] text-muted">{e.empId}</p>
-                  </td>
-                  <td className="px-4 py-2.5">
-                    <span className="rounded bg-surface px-1.5 py-0.5 text-[11px] font-semibold">
-                      {e.entityCode}
-                    </span>{' '}
-                    <span className="text-[12px] text-muted">{entities[e.entityCode].name}</span>
-                  </td>
-                  <td className="px-4 py-2.5">
-                    <p>{e.designation || '—'}</p>
-                    <p className="text-[12px] text-muted">{e.department}</p>
-                  </td>
-                  <td className="amount px-4 py-2.5 text-right font-medium">
-                    {formatINR(e.baseSalary)}
-                  </td>
-                  <td className="amount px-4 py-2.5 text-right">
-                    {formatMinutes(e.flexBankBalance)}
-                  </td>
-                  <td className="px-4 py-2.5">
-                    <div className="flex justify-end gap-1">
-                      <button
-                        title="Generate slip"
-                        className="rounded p-1.5 text-muted hover:bg-surface hover:text-ink"
-                        onClick={() => {
-                          setGeneratorEmployeeId(e.id);
-                          onGenerateFor();
-                        }}
-                      >
-                        <FilePlus2 size={15} />
-                      </button>
-                      <button
-                        title="Adjust flex bank"
-                        className="rounded p-1.5 text-muted hover:bg-surface hover:text-ink"
-                        onClick={() => setFlexTarget(e)}
-                      >
-                        <Timer size={15} />
-                      </button>
-                      <button
-                        title="Edit"
-                        className="rounded p-1.5 text-muted hover:bg-surface hover:text-ink"
-                        onClick={() => setFormTarget(e)}
-                      >
-                        <Pencil size={15} />
-                      </button>
-                      <button
-                        title="Delete"
-                        className="rounded p-1.5 text-muted hover:bg-surface hover:text-amber-brand"
-                        onClick={() => setDeleteTarget(e)}
-                      >
-                        <Trash2 size={15} />
-                      </button>
+                <div key={e.id} className="space-y-3 px-4 py-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="truncate font-medium">{e.fullName}</p>
+                      <p className="text-[12px] text-muted">{e.empId}</p>
                     </div>
-                  </td>
-                </tr>
+                    <span className="shrink-0 rounded bg-surface px-1.5 py-0.5 text-[11px] font-semibold">
+                      {e.entityCode}
+                    </span>
+                  </div>
+                  <dl className="grid grid-cols-2 gap-x-4 gap-y-3 text-[12px]">
+                    <div className="min-w-0">
+                      <dt className={dtCls}>Entity</dt>
+                      <dd className="truncate text-muted">{entities[e.entityCode].name}</dd>
+                    </div>
+                    <div className="min-w-0">
+                      <dt className={dtCls}>Role</dt>
+                      <dd className="truncate">
+                        {e.designation || '—'}
+                        {e.department ? ` · ${e.department}` : ''}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt className={dtCls}>Base salary</dt>
+                      <dd className="amount font-medium">{formatINR(e.baseSalary)}</dd>
+                    </div>
+                    <div>
+                      <dt className={dtCls}>Flex bank</dt>
+                      <dd className="amount">{formatMinutes(e.flexBankBalance)}</dd>
+                    </div>
+                  </dl>
+                  {renderActions(e)}
+                </div>
               ))}
-            </tbody>
-          </table>
+            </div>
+
+            {/* md+ : full table. */}
+            <div className="hidden md:block">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-hairline text-left text-[11px] uppercase tracking-wide text-muted">
+                    <th className="px-4 py-2.5 font-semibold">Employee</th>
+                    <th className="px-4 py-2.5 font-semibold">Entity</th>
+                    <th className="px-4 py-2.5 font-semibold">Role</th>
+                    <th className="px-4 py-2.5 text-right font-semibold">Base salary</th>
+                    <th className="px-4 py-2.5 text-right font-semibold">Flex bank</th>
+                    <th className="px-4 py-2.5 text-right font-semibold">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-hairline">
+                  {employees.map((e) => (
+                    <tr key={e.id} className="transition-colors duration-150 hover:bg-surface/60">
+                      <td className="px-4 py-2.5">
+                        <p className="font-medium">{e.fullName}</p>
+                        <p className="text-[12px] text-muted">{e.empId}</p>
+                      </td>
+                      <td className="px-4 py-2.5">
+                        <span className="rounded bg-surface px-1.5 py-0.5 text-[11px] font-semibold">
+                          {e.entityCode}
+                        </span>{' '}
+                        <span className="text-[12px] text-muted">{entities[e.entityCode].name}</span>
+                      </td>
+                      <td className="px-4 py-2.5">
+                        <p>{e.designation || '—'}</p>
+                        <p className="text-[12px] text-muted">{e.department}</p>
+                      </td>
+                      <td className="amount px-4 py-2.5 text-right font-medium">
+                        {formatINR(e.baseSalary)}
+                      </td>
+                      <td className="amount px-4 py-2.5 text-right">
+                        {formatMinutes(e.flexBankBalance)}
+                      </td>
+                      <td className="px-4 py-2.5">{renderActions(e)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
         )}
       </div>
 

@@ -16,6 +16,16 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
+/* Hide the scrollbar on horizontally scrollable elements (e.g. the mobile
+   nav tab bar) while keeping them scrollable. */
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
 /* Salary slip status accents — emerald-600 (final) / amber-600 (draft). */
 .slip-badge-draft {
   @apply border-amber-300 bg-amber-50 text-amber-600;

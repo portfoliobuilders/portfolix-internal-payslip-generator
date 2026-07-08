@@ -124,7 +124,7 @@ export default function EmployeeFormModal({
           {saveError}
         </p>
       )}
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <Field label="Full name" error={err('fullName')}>
           <input className={inputCls} value={draft.fullName} onChange={(e) => set('fullName', e.target.value)} placeholder="Asha Verma" />
         </Field>
@@ -153,7 +153,7 @@ export default function EmployeeFormModal({
         <Field label="Designation">
           <input className={inputCls} value={draft.designation} onChange={(e) => set('designation', e.target.value)} placeholder="Frontend Developer" />
         </Field>
-        <div className="col-span-2">
+        <div className="sm:col-span-2">
           <Field label="Employee address">
             <textarea
               className={`${inputCls} resize-none`}
