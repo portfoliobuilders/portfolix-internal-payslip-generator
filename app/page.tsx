@@ -66,7 +66,7 @@ export default function Home() {
               <button
                 key={id}
                 onClick={() => setTab(id)}
-                className={`flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md px-3 py-1.5 text-sm font-medium transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink/20 ${
+                className={`flex min-h-[44px] shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md px-3 py-1.5 text-sm font-medium transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink/20 md:min-h-0 ${
                   tab === id
                     ? 'bg-ink text-paper'
                     : 'text-muted hover:bg-surface hover:text-ink'
@@ -78,10 +78,9 @@ export default function Home() {
             ))}
           </nav>
 
-          <div className="ml-auto hidden items-center gap-1.5 text-[11px] text-muted md:flex">
+          <div className="ml-auto hidden shrink-0 items-center gap-1.5 text-[11px] text-muted lg:flex">
             <Cloud size={14} className="text-emerald-brand" />
-            <span className="hidden lg:inline">Supabase-backed · Employees, slips &amp; settings synced to cloud</span>
-            <span className="lg:hidden">Supabase-backed</span>
+            Supabase-backed · Employees, slips &amp; settings synced to cloud
           </div>
         </div>
       </header>

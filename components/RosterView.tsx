@@ -133,16 +133,16 @@ export default function RosterView({
                 : `${employees.length} employee${employees.length === 1 ? '' : 's'} across Portfolix entities`}
             </p>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:flex-wrap sm:items-center">
             <button
-              className={btnPrimary}
+              className={`${btnPrimary} w-full sm:w-auto`}
               onClick={() => downloadEmployeeTemplate()}
               disabled={loading || uploading}
             >
               <Download size={14} /> Download Excel Template
             </button>
             <button
-              className={btnSecondary}
+              className={`${btnSecondary} w-full sm:w-auto`}
               onClick={() => fileInputRef.current?.click()}
               disabled={loading || uploading}
             >
@@ -167,7 +167,11 @@ export default function RosterView({
                 e.target.value = '';
               }}
             />
-            <button className={btnPrimary} onClick={() => setFormTarget('new')} disabled={loading || uploading}>
+            <button
+              className={`${btnPrimary} w-full sm:w-auto`}
+              onClick={() => setFormTarget('new')}
+              disabled={loading || uploading}
+            >
               <UserPlus size={14} /> Add employee
             </button>
           </div>

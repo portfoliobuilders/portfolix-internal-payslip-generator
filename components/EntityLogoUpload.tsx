@@ -55,7 +55,7 @@ export default function EntityLogoUpload({ code }: EntityLogoUploadProps) {
             type="button"
             disabled={busy}
             onClick={() => inputRef.current?.click()}
-            className="inline-flex items-center justify-center rounded-md border border-hairline bg-paper px-3.5 py-2 text-sm font-medium text-ink transition duration-150 hover:border-muted/30 hover:bg-surface active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink/20 focus-visible:ring-offset-2 focus-visible:ring-offset-paper disabled:opacity-50 disabled:active:scale-100"
+            className="inline-flex min-h-[44px] items-center justify-center rounded-md border border-hairline bg-paper px-3.5 py-2 text-sm font-medium text-ink transition duration-150 hover:border-muted/30 hover:bg-surface active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink/20 focus-visible:ring-offset-2 focus-visible:ring-offset-paper disabled:opacity-50 disabled:active:scale-100 sm:min-h-0"
           >
             {busy ? 'Uploading…' : entity.logoDataUrl ? 'Replace logo' : 'Upload logo'}
           </button>
