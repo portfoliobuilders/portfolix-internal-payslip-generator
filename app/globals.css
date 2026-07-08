@@ -47,10 +47,11 @@ body {
   @apply border-emerald-600 bg-emerald-50 text-emerald-600;
 }
 
-/* Two-column amount rows — fixed right column for currency alignment. */
+/* Two-column amount rows — fixed right column for currency alignment.
+   Widened to 8.5rem so 7-figure amounts never wrap. */
 .slip-amount-row {
   @apply grid gap-x-4 py-[5px];
-  grid-template-columns: minmax(0, 1fr) 7.5rem;
+  grid-template-columns: minmax(0, 1fr) 8.5rem;
 }
 
 .slip-amount-row > .amount {

@@ -74,7 +74,7 @@ export default function SalarySlip({
       style={{ width: '210mm', minHeight: '297mm', padding: '14mm 16mm' }}
     >
       {/* ---------- Entity header ---------- */}
-      <header className="flex items-start justify-between border-b-2 border-ink pb-4">
+      <header className="flex items-start justify-between gap-6 border-b-2 border-ink pb-4">
         <div className="flex min-w-0 flex-1 items-start gap-4">
           <div className="flex h-14 w-28 shrink-0 items-center justify-center overflow-hidden rounded bg-ink p-1.5">
             <EntityLogo
@@ -98,7 +98,7 @@ export default function SalarySlip({
             </p>
           </div>
         </div>
-        <div className="text-right">
+        <div className="shrink-0 text-right">
           <p className="text-[15px] font-bold uppercase tracking-[0.12em]">Salary Slip</p>
           <p className="text-[11px] font-medium text-muted">{formatMonthYear(snapshot.monthYear)}</p>
           {isDraft ? (
@@ -224,34 +224,39 @@ export default function SalarySlip({
 
       {/* ---------- Earnings & deductions ---------- */}
       <section className="mt-4 grid grid-cols-2 gap-5">
-        <div>
+        <div className="flex h-full flex-col">
           <SectionTitle tag="A">Fixed Earnings</SectionTitle>
-          <Row label="Basic salary" value={formatINR(inputs.baseSalary)} />
-          <Row label="Fixed allowance" value={formatINR(inputs.fixedAllowance)} />
-          <div className="border-t border-ink/60">
+          <div className="flex-1">
+            <Row label="Basic salary" value={formatINR(inputs.baseSalary)} />
+            <Row label="Fixed allowance" value={formatINR(inputs.fixedAllowance)} />
+          </div>
+          <div className="mt-auto border-t border-ink/60">
             <Row label="Gross fixed (A)" value={formatINR(computed.grossFixed)} bold />
           </div>
         </div>
-        <div>
+        <div className="flex h-full flex-col">
           <SectionTitle tag="B">Deductions</SectionTitle>
-          <Row
-            label={
-              <>
-                Loss of pay —{' '}
-                <span className="amount">
-                  {computed.lopDays.toFixed(1)} day(s) × {formatINR(computed.perDayRate)}/day
-                </span>
-              </>
-            }
-            sub={
-              isDraft
-                ? `${inputs.absentDays} absent + ${inputs.halfDays} × 0.5 half-day + ${computed.lopFromLateness.toFixed(1)} from lateness`
-                : undefined
-            }
-            value={formatINR(computed.lopDeduction)}
-          />
-          <Row label="Other deductions" value={formatINR(computed.otherDeductions)} />
-          <div className="border-t border-ink/60">
+          <div className="flex-1">
+            <Row
+              label={`Loss of pay — ${computed.lopDays.toFixed(1)} day(s)`}
+              sub={
+                <>
+                  <span className="amount whitespace-nowrap">
+                    × {formatINR(computed.perDayRate)}/day
+                  </span>
+                  {isDraft && (
+                    <span className="block">
+                      {inputs.absentDays} absent + {inputs.halfDays} × 0.5 half-day +{' '}
+                      {computed.lopFromLateness.toFixed(1)} from lateness
+                    </span>
+                  )}
+                </>
+              }
+              value={formatINR(computed.lopDeduction)}
+            />
+            <Row label="Other deductions" value={formatINR(computed.otherDeductions)} />
+          </div>
+          <div className="mt-auto border-t border-ink/60">
             <Row label="Total deductions (B)" value={formatINR(computed.totalDeductions)} bold />
           </div>
         </div>
