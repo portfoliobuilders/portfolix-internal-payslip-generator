@@ -82,7 +82,7 @@ export default function RosterView({
   }
 
   const iconAction =
-    'flex h-11 w-11 items-center justify-center rounded-md text-muted transition-colors duration-150 hover:bg-surface hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink/20 md:h-9 md:w-9';
+    'flex h-11 w-11 items-center justify-center rounded-md text-muted transition-colors duration-150 hover:bg-surface hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink/20 lg:h-9 lg:w-9';
 
   const renderActions = (e: Employee) => (
     <div className="flex justify-end gap-1">
@@ -229,9 +229,9 @@ export default function RosterView({
               ))}
             </div>
 
-            {/* md+ : full table. */}
-            <div className="hidden md:block">
-              <table className="w-full text-sm">
+            {/* md+ : full table. Scrolls horizontally if it ever exceeds the card. */}
+            <div className="hidden overflow-x-auto md:block">
+              <table className="w-full min-w-[860px] text-sm">
                 <thead>
                   <tr className="border-b border-hairline text-left text-[11px] uppercase tracking-wide text-muted">
                     <th className="px-4 py-2.5 font-semibold">Employee</th>

@@ -61,19 +61,22 @@ export default function Home() {
             </div>
           </div>
 
+          {/* Icon-only tabs on mobile so all four always fit at 360px; labels from sm+. */}
           <nav className="no-scrollbar -mx-4 flex items-center gap-1 overflow-x-auto px-4 sm:-mx-6 sm:px-6 md:mx-0 md:overflow-visible md:px-0">
             {TABS.map(({ id, label, icon: Icon }) => (
               <button
                 key={id}
                 onClick={() => setTab(id)}
-                className={`flex min-h-[44px] shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md px-3 py-1.5 text-sm font-medium transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink/20 md:min-h-0 ${
+                title={label}
+                aria-label={label}
+                className={`flex min-h-[44px] flex-1 shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-md px-3 py-1.5 text-sm font-medium transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink/20 sm:flex-none md:min-h-0 ${
                   tab === id
                     ? 'bg-ink text-paper'
                     : 'text-muted hover:bg-surface hover:text-ink'
                 }`}
               >
-                <Icon size={15} strokeWidth={2} />
-                {label}
+                <Icon size={18} strokeWidth={2} className="sm:h-[15px] sm:w-[15px]" />
+                <span className="hidden sm:inline">{label}</span>
               </button>
             ))}
           </nav>
