@@ -498,6 +498,26 @@ export default function GeneratorView({
           </div>
         </div>
 
+        {hasErrors && (
+          <div className="flex items-start gap-2 rounded-lg border border-amber-edge bg-amber-tint px-4 py-2.5 text-[12px] font-medium text-amber-brand">
+            <AlertTriangle size={14} className="mt-0.5 shrink-0" />
+            <span>
+              {needsPayoutDate && !form.committedPayoutDate ? (
+                <>
+                  Export blocked: {formatINR(result?.deferredClosing ?? 0)} is deferred (variable
+                  earned − paid). Set a <strong>Committed payout date</strong> in the Variable
+                  component below, or make paid ≥ earned so nothing is deferred.
+                </>
+              ) : (
+                <>
+                  Export blocked — fix the highlighted fields in the left panel to enable Print and
+                  Download.
+                </>
+              )}
+            </span>
+          </div>
+        )}
+
         {snapshot && entity ? (
           <ScaledPreview>
             <SalarySlip
