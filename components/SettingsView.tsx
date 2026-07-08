@@ -71,7 +71,7 @@ export default function SettingsView() {
         )}
       </div>
 
-      <div className="rounded-lg border border-hairline bg-paper p-5">
+      <div className="rounded-lg border border-hairline bg-paper p-5 shadow-card">
         <h3 className="mb-4 text-sm font-semibold text-ink">Payroll calendar &amp; contact</h3>
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
           <Field
@@ -109,7 +109,7 @@ export default function SettingsView() {
         {ENTITY_ORDER.map((code) => {
           const entity = settings.entities[code];
           return (
-            <div key={code} className="rounded-lg border border-hairline bg-paper p-5">
+            <div key={code} className="rounded-lg border border-hairline bg-paper p-5 shadow-card">
               <div className="mb-4 flex items-center gap-2">
                 <span className="rounded bg-surface px-1.5 py-0.5 text-[11px] font-semibold text-ink">
                   {code}

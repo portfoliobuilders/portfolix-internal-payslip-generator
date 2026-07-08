@@ -90,11 +90,11 @@ export default function Home() {
         {!mounted ? (
           <p className="py-20 text-center text-sm text-muted">Loading…</p>
         ) : error ? (
-          <div className="rounded-lg border border-amber-edge bg-amber-tint px-4 py-6 text-center">
+          <div className="rounded-lg border border-amber-edge bg-amber-tint px-4 py-6 text-center shadow-card">
             <p className="text-sm font-medium text-amber-brand">Could not load payroll data</p>
             <p className="mt-1 text-[12px] text-muted">{error}</p>
             <button
-              className="mt-4 rounded-md bg-ink px-3 py-1.5 text-sm font-medium text-paper"
+              className="mt-4 inline-flex items-center justify-center rounded-md bg-ink px-3.5 py-2 text-sm font-medium text-paper shadow-sm transition duration-150 hover:bg-ink/90 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink/30 focus-visible:ring-offset-2 focus-visible:ring-offset-amber-tint"
               onClick={() => void refresh()}
             >
               Retry

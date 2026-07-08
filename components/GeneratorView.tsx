@@ -341,7 +341,7 @@ export default function GeneratorView({
             Saved PDF locally, but Supabase sync failed: {saveError}
           </p>
         )}
-        <div className="rounded-lg border border-hairline bg-paper p-4">
+        <div className="rounded-lg border border-hairline bg-paper p-4 shadow-card">
           <h1 className="mb-3 text-sm font-semibold">Slip Generator</h1>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div className="sm:col-span-2">
@@ -393,7 +393,7 @@ export default function GeneratorView({
           </div>
         </div>
 
-        <div className="rounded-lg border border-hairline bg-paper p-4">
+        <div className="rounded-lg border border-hairline bg-paper p-4 shadow-card">
           <h2 className="mb-3 text-[12px] font-semibold uppercase tracking-wide text-muted">
             Variable component
           </h2>
@@ -444,7 +444,7 @@ export default function GeneratorView({
           )}
         </div>
 
-        <div className="rounded-lg border border-hairline bg-paper p-4">
+        <div className="rounded-lg border border-hairline bg-paper p-4 shadow-card">
           <Field label="Remarks / operations note">
             <textarea
               className={`${inputCls} resize-none`}
@@ -459,20 +459,20 @@ export default function GeneratorView({
 
       {/* ================= Right panel — live preview ================= */}
       <div className="no-print space-y-3">
-        <div className="flex flex-wrap items-center gap-3 rounded-lg border border-hairline bg-paper px-4 py-2.5">
+        <div className="flex flex-wrap items-center gap-3 rounded-lg border border-hairline bg-paper px-4 py-2.5 shadow-card">
           <div className="flex overflow-hidden rounded-md border border-hairline">
             <button
               onClick={() => setStatus('draft')}
-              className={`px-3 py-1.5 text-sm font-medium ${
-                status === 'draft' ? 'bg-amber-tint text-amber-brand' : 'bg-paper text-muted hover:text-ink'
+              className={`px-3 py-2 text-sm font-medium transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ink/20 ${
+                status === 'draft' ? 'bg-amber-tint text-amber-brand' : 'bg-paper text-muted hover:bg-surface hover:text-ink'
               }`}
             >
               Draft
             </button>
             <button
               onClick={() => setStatus('final')}
-              className={`border-l border-hairline px-3 py-1.5 text-sm font-medium ${
-                status === 'final' ? 'bg-emerald-tint text-emerald-deep' : 'bg-paper text-muted hover:text-ink'
+              className={`border-l border-hairline px-3 py-2 text-sm font-medium transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ink/20 ${
+                status === 'final' ? 'bg-emerald-tint text-emerald-deep' : 'bg-paper text-muted hover:bg-surface hover:text-ink'
               }`}
             >
               ✓ Final

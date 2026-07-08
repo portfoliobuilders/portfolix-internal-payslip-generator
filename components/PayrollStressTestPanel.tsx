@@ -31,7 +31,7 @@ export default function PayrollStressTestPanel() {
           setOpen((v) => !v);
           if (!open) logStressTestsToConsole();
         }}
-        className="flex w-full items-center gap-2 px-4 py-3 text-left text-sm font-medium text-muted hover:text-ink"
+        className="flex w-full items-center gap-2 rounded-lg px-4 py-3 text-left text-sm font-medium text-muted transition-colors duration-150 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ink/20"
       >
         <FlaskConical size={16} />
         Payroll stress test (auditor)
@@ -57,7 +57,7 @@ export default function PayrollStressTestPanel() {
           <button
             type="button"
             onClick={() => logStressTestsToConsole()}
-            className="rounded-md border border-hairline bg-paper px-3 py-1.5 text-xs font-medium text-ink hover:bg-surface"
+            className="rounded-md border border-hairline bg-paper px-3 py-1.5 text-xs font-medium text-ink transition-colors duration-150 hover:border-muted/30 hover:bg-surface focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink/20"
           >
             Re-run &amp; log to console
           </button>
@@ -69,7 +69,7 @@ export default function PayrollStressTestPanel() {
                 <button
                   type="button"
                   onClick={() => setExpandedId(expanded ? null : scenario.id)}
-                  className="flex w-full items-start gap-2 px-3 py-2.5 text-left"
+                  className="flex w-full items-start gap-2 rounded-md px-3 py-2.5 text-left transition-colors duration-150 hover:bg-surface/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ink/20"
                 >
                   <span
                     className={`mt-0.5 shrink-0 text-xs font-bold ${allPass ? 'text-emerald-600' : 'text-amber-600'}`}
