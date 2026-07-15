@@ -57,6 +57,8 @@ type Draft = {
   bankLast4: string;
   panMasked: string;
   flexBankBalance: string;
+  tdsMonthly: string;
+  ptHalfYearly: string;
 };
 
 function toDraft(e: Employee | null): Draft {
@@ -91,6 +93,8 @@ function toDraft(e: Employee | null): Draft {
     bankLast4: e?.bankLast4 ?? '',
     panMasked: e?.panMasked ?? '',
     flexBankBalance: e ? String(e.flexBankBalance) : '0',
+    tdsMonthly: e ? String(e.tdsMonthly) : '0',
+    ptHalfYearly: e ? String(e.ptHalfYearly) : '0',
   };
 }
 
@@ -118,6 +122,10 @@ function validate(d: Draft): Partial<Record<keyof Draft, string>> {
     errors.panMasked = 'This looks like a FULL PAN. Store a masked form only, e.g. ABXXXXXX1F.';
   const flex = Number(d.flexBankBalance);
   if (!Number.isFinite(flex) || flex < 0) errors.flexBankBalance = 'Minutes must be 0 or more.';
+  const tds = Number(d.tdsMonthly);
+  if (!Number.isFinite(tds) || tds < 0) errors.tdsMonthly = 'TDS must be 0 or more.';
+  const pt = Number(d.ptHalfYearly);
+  if (!Number.isFinite(pt) || pt < 0) errors.ptHalfYearly = 'PT must be 0 or more.';
   return errors;
 }
 
@@ -156,7 +164,7 @@ export default function EmployeeFormModal({
     const payload = {
       ...(employee ? { id: employee.id, flexLog: employee.flexLog } : { flexLog: [] as Employee['flexLog'] }),
       fullName: draft.fullName.trim(),
-      empId: draft.empId.trim().toUpperCase(),
+      empId: draft.empId.trim().replace(/\s+/g, '').toUpperCase(),
       entityCode: draft.entityCode,
       department: draft.department.trim(),
       designation: draft.designation.trim(),
@@ -185,6 +193,8 @@ export default function EmployeeFormModal({
       bankLast4: draft.bankLast4.trim(),
       panMasked: draft.panMasked.trim().toUpperCase(),
       flexBankBalance: Number(draft.flexBankBalance),
+      tdsMonthly: Number(draft.tdsMonthly) || 0,
+      ptHalfYearly: Number(draft.ptHalfYearly) || 0,
     };
 
     const result = await upsertEmployee(payload);
@@ -209,7 +219,7 @@ export default function EmployeeFormModal({
           {saveError}
         </p>
       )}
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <Field label="Full name" error={err('fullName')}>
           <input className={inputCls} value={draft.fullName} onChange={(e) => set('fullName', e.target.value)} placeholder="Asha Verma" />
         </Field>
@@ -238,7 +248,7 @@ export default function EmployeeFormModal({
         <Field label="Designation">
           <input className={inputCls} value={draft.designation} onChange={(e) => set('designation', e.target.value)} placeholder="Frontend Developer" />
         </Field>
-        <div className="col-span-2">
+        <div className="sm:col-span-2">
           <Field label="Employee address">
             <textarea
               className={`${inputCls} resize-none`}

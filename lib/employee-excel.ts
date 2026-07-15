@@ -26,6 +26,8 @@ export const EMPLOYEE_TEMPLATE_HEADERS = [
   'PAN Masked',
   'Opening Flex-Bank Balance',
   'Notes',
+  'TDS Monthly',
+  'PT Half-Yearly',
 ] as const;
 
 export type EmployeeTemplateHeader = (typeof EMPLOYEE_TEMPLATE_HEADERS)[number];
@@ -134,6 +136,12 @@ function validateRow(
   if (!Number.isFinite(employee.flexBankBalance) || employee.flexBankBalance < 0) {
     return `Row ${rowNumber}: Opening Flex-Bank Balance must be 0 or more.`;
   }
+  if (!Number.isFinite(employee.tdsMonthly) || employee.tdsMonthly < 0) {
+    return `Row ${rowNumber}: TDS Monthly must be 0 or more.`;
+  }
+  if (!Number.isFinite(employee.ptHalfYearly) || employee.ptHalfYearly < 0) {
+    return `Row ${rowNumber}: PT Half-Yearly must be 0 or more.`;
+  }
   return null;
 }
 
@@ -151,7 +159,7 @@ function mapRow(row: Record<string, unknown>, rowNumber: number): BulkEmployeeIn
   const employee: BulkEmployeeInput = {
     fullName: cellString(row['Full Name']),
     entityCode,
-    empId: cellString(row['Employee ID']).toUpperCase(),
+    empId: cellString(row['Employee ID']).toUpperCase().replace(/\s+/g, ''),
     joiningDate: normalizeJoiningDate(row['Joining Date']),
     department: cellString(row['Department']),
     designation: cellString(row['Designation']),
@@ -179,6 +187,8 @@ function mapRow(row: Record<string, unknown>, rowNumber: number): BulkEmployeeIn
     agreementType: 'offer_letter',
     documentsStatus: 'pending',
     notes: cellString(row['Notes']),
+    tdsMonthly: cellNumber(row['TDS Monthly']) || 0,
+    ptHalfYearly: cellNumber(row['PT Half-Yearly']) || 0,
   };
 
   const error = validateRow(employee, rowNumber);

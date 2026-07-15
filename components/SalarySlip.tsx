@@ -10,7 +10,7 @@
  */
 
 import { CheckCircle2 } from 'lucide-react';
-import { FIXED_DIVISOR } from '@/lib/payroll-calc';
+import { FIXED_DIVISOR, slipStatutoryDeductions } from '@/lib/payroll-calc';
 import { formatDate, formatINR, formatMinutes, formatMonthYear, payrollCycleDates } from '@/lib/format';
 import type { EntityInfo, SlipSnapshot } from '@/lib/types';
 import EntityLogo from '@/components/EntityLogo';
@@ -21,6 +21,8 @@ interface SalarySlipProps {
   entity: EntityInfo;
   payrollContact: string;
   paydayDayOfMonth: number;
+  /** e.g. "6:00 PM" from settings.reviewDeadlineTime */
+  reviewDeadlineTime?: string;
   /** Rule 7 — manual deferred-opening override broke the FINAL chain. */
   ledgerMismatch?: boolean;
 }
@@ -30,14 +32,16 @@ function Row({
   value,
   bold = false,
   sub,
+  rowClassName = 'slip-amount-row',
 }: {
   label: React.ReactNode;
   value: string;
   bold?: boolean;
   sub?: React.ReactNode;
+  rowClassName?: string;
 }) {
   return (
-    <div className={`slip-amount-row ${bold ? 'font-semibold' : ''}`}>
+    <div className={`${rowClassName} ${bold ? 'font-semibold' : ''}`}>
       <div className="min-w-0">
         <span className="text-[11px] leading-snug">{label}</span>
         {sub && <div className="text-[9.5px] leading-snug text-muted">{sub}</div>}
@@ -61,9 +65,11 @@ export default function SalarySlip({
   entity,
   payrollContact,
   paydayDayOfMonth,
+  reviewDeadlineTime = '6:00 PM',
   ledgerMismatch = false,
 }: SalarySlipProps) {
   const { inputs, computed, employee } = snapshot;
+  /** Review window and draft chrome key ONLY on the rendered variant. */
   const isDraft = snapshot.status === 'draft';
   const { creditDate, reviewDeadline } = payrollCycleDates(snapshot.monthYear, paydayDayOfMonth);
   const variableLabel = inputs.variableLabel.trim() || 'Variable / Incentive';
@@ -73,6 +79,9 @@ export default function SalarySlip({
     employee.engagementType,
     employee.employmentStatus,
   );
+  const { tds, pt } = slipStatutoryDeductions(computed, inputs);
+  /** Prefer entity payroll email; fall back to the global contact setting. */
+  const contactLine = entity.payrollEmail?.trim() || payrollContact;
 
   return (
     <div
@@ -80,7 +89,7 @@ export default function SalarySlip({
       style={{ width: '210mm', minHeight: '297mm', padding: '14mm 16mm' }}
     >
       {/* ---------- Entity header ---------- */}
-      <header className="flex items-start justify-between border-b-2 border-ink pb-4">
+      <header className="flex items-start justify-between gap-6 border-b-2 border-ink pb-4">
         <div className="flex min-w-0 flex-1 items-start gap-4">
           <div className="flex h-14 w-28 shrink-0 items-center justify-center overflow-hidden rounded bg-ink p-1.5">
             <EntityLogo
@@ -106,6 +115,8 @@ export default function SalarySlip({
         </div>
         <div className="text-right">
           <p className="text-[15px] font-bold uppercase tracking-[0.12em]">{statementMeta.statementTitle}</p>
+        <div className="shrink-0 text-right">
+          <p className="text-[15px] font-bold uppercase tracking-[0.12em]">Salary Slip</p>
           <p className="text-[11px] font-medium text-muted">{formatMonthYear(snapshot.monthYear)}</p>
           {statementMeta.statusBadge && (
             <p className="mt-1 text-[10px] font-semibold text-amber-brand">{statementMeta.statusBadge}</p>
@@ -137,19 +148,25 @@ export default function SalarySlip({
       )}
 
       {/* ---------- Period strip ---------- */}
-      <div className="mt-3 grid grid-cols-3 divide-x divide-hairline rounded border border-hairline bg-surface text-[10px]">
+      <div
+        className={`mt-3 grid divide-x divide-hairline rounded border border-hairline bg-surface text-[10px] ${
+          isDraft ? 'grid-cols-3' : 'grid-cols-2'
+        }`}
+      >
         <div className="px-3 py-2">
           <p className="text-[8.5px] font-semibold uppercase tracking-wider text-muted">Issue date</p>
           <p className="font-semibold">{formatDate(snapshot.generatedAt)}</p>
         </div>
-        <div className="px-3 py-2">
-          <p className="text-[8.5px] font-semibold uppercase tracking-wider text-muted">
-            Review window
-          </p>
-          <p className="font-semibold">
-            Review queries by {formatDate(reviewDeadline)} · 6:00 PM
-          </p>
-        </div>
+        {isDraft && (
+          <div className="px-3 py-2">
+            <p className="text-[8.5px] font-semibold uppercase tracking-wider text-muted">
+              Review window
+            </p>
+            <p className="font-semibold">
+              Review queries by {formatDate(reviewDeadline)} · {reviewDeadlineTime}
+            </p>
+          </div>
+        )}
         <div className="px-3 py-2">
           <p className="text-[8.5px] font-semibold uppercase tracking-wider text-muted">
             Payment credit
@@ -214,10 +231,22 @@ export default function SalarySlip({
           </p>
         </div>
         <div className="mt-1.5 grid grid-cols-2 gap-x-6">
-          <Row label="Absent days" value={String(inputs.absentDays)} />
-          <Row label="Half days" value={String(inputs.halfDays)} />
-          <Row label="Late minutes" value={formatMinutes(inputs.lateMinutes)} />
-          <Row label="LOP days (total)" value={computed.lopDays.toFixed(1)} />
+          <Row
+            rowClassName="slip-stat-row"
+            label="Absent days"
+            value={String(inputs.absentDays)}
+          />
+          <Row rowClassName="slip-stat-row" label="Half days" value={String(inputs.halfDays)} />
+          <Row
+            rowClassName="slip-stat-row"
+            label="Late minutes"
+            value={formatMinutes(inputs.lateMinutes)}
+          />
+          <Row
+            rowClassName="slip-stat-row"
+            label="LOP days (total)"
+            value={computed.lopDays.toFixed(1)}
+          />
         </div>
         {isDraft && hasLateness && (
           <div className="mt-1 rounded border border-hairline px-3 py-1.5 text-[9.5px] text-muted">
@@ -233,34 +262,48 @@ export default function SalarySlip({
 
       {/* ---------- Earnings & deductions ---------- */}
       <section className="mt-4 grid grid-cols-2 gap-5">
-        <div>
+        <div className="flex h-full flex-col">
           <SectionTitle tag="A">Fixed Earnings</SectionTitle>
           <Row label={statementMeta.mainEarningLabel} value={formatINR(inputs.compensationAmount)} />
           <Row label="Fixed allowance" value={formatINR(inputs.fixedAllowance)} />
           <div className="border-t border-ink/60">
+          <div className="flex-1">
+            <Row label="Basic salary" value={formatINR(inputs.baseSalary)} />
+            <Row label="Fixed allowance" value={formatINR(inputs.fixedAllowance)} />
+          </div>
+          <div className="mt-auto border-t border-ink/60">
             <Row label="Gross fixed (A)" value={formatINR(computed.grossFixed)} bold />
           </div>
         </div>
-        <div>
+        <div className="flex h-full flex-col">
           <SectionTitle tag="B">Deductions</SectionTitle>
-          <Row
-            label={
-              <>
-                Loss of pay —{' '}
-                <span className="amount">
-                  {computed.lopDays.toFixed(1)} day(s) × {formatINR(computed.perDayRate)}/day
+          <div className="flex-1">
+            <Row
+              label={
+                <span className="whitespace-nowrap">
+                  Loss of pay — {computed.lopDays.toFixed(1)} day(s)
                 </span>
-              </>
-            }
-            sub={
-              isDraft
-                ? `${inputs.absentDays} absent + ${inputs.halfDays} × 0.5 half-day + ${computed.lopFromLateness.toFixed(1)} from lateness`
-                : undefined
-            }
-            value={formatINR(computed.lopDeduction)}
-          />
-          <Row label="Other deductions" value={formatINR(computed.otherDeductions)} />
-          <div className="border-t border-ink/60">
+              }
+              sub={
+                <>
+                  <span className="amount block whitespace-nowrap">
+                    × {formatINR(computed.perDayRate)}/day
+                  </span>
+                  {isDraft && (
+                    <span className="mt-0.5 block">
+                      {inputs.absentDays} absent + {inputs.halfDays} × 0.5 half-day +{' '}
+                      {computed.lopFromLateness.toFixed(1)} from lateness
+                    </span>
+                  )}
+                </>
+              }
+              value={formatINR(computed.lopDeduction)}
+            />
+            <Row label="Professional Tax (Kerala)" value={formatINR(pt)} />
+            <Row label="TDS (Income Tax)" value={formatINR(tds)} />
+            <Row label="Other deductions" value={formatINR(computed.otherDeductions)} />
+          </div>
+          <div className="mt-auto border-t border-ink/60">
             <Row label="Total deductions (B)" value={formatINR(computed.totalDeductions)} bold />
           </div>
         </div>
@@ -348,11 +391,23 @@ export default function SalarySlip({
         </section>
       )}
 
-      {/* ---------- Footer ---------- */}
-      <footer className="mt-auto border-t border-hairline pt-3 text-[8.5px] leading-relaxed text-muted">
+      {/* ---------- Footer — fixed margin (no flex-push dead gap) ---------- */}
+      <footer className="mt-6 border-t border-hairline pt-3 text-[8.5px] leading-relaxed text-muted">
         <p>
           <span className="font-semibold text-ink">Queries:</span> {payrollContact} — reply before{' '}
           {formatDate(reviewDeadline)}, 6:00 PM. Payment credits on {formatDate(creditDate)}.
+          {isDraft ? (
+            <>
+              <span className="font-semibold text-ink">Queries:</span> {contactLine} — reply before{' '}
+              {formatDate(reviewDeadline)}, {reviewDeadlineTime}. Salary credits on{' '}
+              {formatDate(creditDate)}.
+            </>
+          ) : (
+            <>
+              <span className="font-semibold text-ink">Payroll contact:</span> {contactLine}. Salary
+              credits on {formatDate(creditDate)}.
+            </>
+          )}
         </p>
         {statementMeta.disclaimer && <p>{statementMeta.disclaimer}</p>}
         <p>

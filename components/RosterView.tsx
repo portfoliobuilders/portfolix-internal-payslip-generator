@@ -131,7 +131,7 @@ export default function RosterView({
 
   return (
     <div className="space-y-4">
-      <div className="rounded-lg border border-hairline bg-paper">
+      <div className="overflow-hidden rounded-lg border border-hairline bg-paper shadow-card">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-hairline px-4 py-3">
           <div>
             <h1 className="text-sm font-semibold">Workforce Roster</h1>
@@ -144,16 +144,16 @@ export default function RosterView({
               {saveStatus === 'failed' && ' · Save failed'}
             </p>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:flex-wrap sm:items-center">
             <button
-              className={btnPrimary}
+              className={`${btnPrimary} w-full sm:w-auto`}
               onClick={() => downloadEmployeeTemplate()}
               disabled={loading || uploading}
             >
               <Download size={14} /> Download Excel Template
             </button>
             <button
-              className={btnSecondary}
+              className={`${btnSecondary} w-full sm:w-auto`}
               onClick={() => fileInputRef.current?.click()}
               disabled={loading || uploading}
             >
@@ -178,7 +178,11 @@ export default function RosterView({
                 e.target.value = '';
               }}
             />
-            <button className={btnPrimary} onClick={() => setFormTarget('new')} disabled={loading || uploading}>
+            <button
+              className={`${btnPrimary} w-full sm:w-auto`}
+              onClick={() => setFormTarget('new')}
+              disabled={loading || uploading}
+            >
               <UserPlus size={14} /> Add employee
             </button>
           </div>
@@ -270,11 +274,63 @@ export default function RosterView({
                         <Trash2 size={15} />
                       </button>
                     </div>
-                  </td>
-                </tr>
+                    <div>
+                      <dt className={dtCls}>Base salary</dt>
+                      <dd className="amount font-medium">{formatINR(e.baseSalary)}</dd>
+                    </div>
+                    <div>
+                      <dt className={dtCls}>Flex bank</dt>
+                      <dd className="amount">{formatMinutes(e.flexBankBalance)}</dd>
+                    </div>
+                  </dl>
+                  {renderActions(e)}
+                </div>
               ))}
-            </tbody>
-          </table>
+            </div>
+
+            {/* md+ : full table. Scrolls horizontally if it ever exceeds the card. */}
+            <div className="hidden overflow-x-auto md:block">
+              <table className="w-full min-w-[860px] text-sm">
+                <thead>
+                  <tr className="border-b border-hairline text-left text-[11px] uppercase tracking-wide text-muted">
+                    <th className="px-4 py-2.5 font-semibold">Employee</th>
+                    <th className="px-4 py-2.5 font-semibold">Entity</th>
+                    <th className="px-4 py-2.5 font-semibold">Role</th>
+                    <th className="px-4 py-2.5 text-right font-semibold">Base salary</th>
+                    <th className="px-4 py-2.5 text-right font-semibold">Flex bank</th>
+                    <th className="px-4 py-2.5 text-right font-semibold">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-hairline">
+                  {employees.map((e) => (
+                    <tr key={e.id} className="transition-colors duration-150 hover:bg-surface/60">
+                      <td className="px-4 py-2.5">
+                        <p className="font-medium">{e.fullName}</p>
+                        <p className="text-[12px] text-muted">{e.empId}</p>
+                      </td>
+                      <td className="px-4 py-2.5">
+                        <span className="rounded bg-surface px-1.5 py-0.5 text-[11px] font-semibold">
+                          {e.entityCode}
+                        </span>{' '}
+                        <span className="text-[12px] text-muted">{entities[e.entityCode].name}</span>
+                      </td>
+                      <td className="px-4 py-2.5">
+                        <p>{e.designation || '—'}</p>
+                        <p className="text-[12px] text-muted">{e.department}</p>
+                      </td>
+                      <td className="amount px-4 py-2.5 text-right font-medium">
+                        {formatINR(e.baseSalary)}
+                      </td>
+                      <td className="amount px-4 py-2.5 text-right">
+                        {formatMinutes(e.flexBankBalance)}
+                      </td>
+                      <td className="px-4 py-2.5">{renderActions(e)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
         )}
       </div>
 

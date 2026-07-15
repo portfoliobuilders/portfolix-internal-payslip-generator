@@ -5,7 +5,7 @@ import type { EntityCode } from '@/lib/types';
 import { useHRStore } from '@/store/useHRStore';
 import { Field } from '@/components/ui';
 import EntityLogo from '@/components/EntityLogo';
-import { readImageFileAsDataUrl } from '@/lib/logos';
+import { uploadEntityLogo } from '@/lib/logos';
 
 interface EntityLogoUploadProps {
   code: EntityCode;
@@ -23,8 +23,8 @@ export default function EntityLogoUpload({ code }: EntityLogoUploadProps) {
     setBusy(true);
     setError(null);
     try {
-      const dataUrl = await readImageFileAsDataUrl(file);
-      updateEntity(code, { logoDataUrl: dataUrl });
+      const logoUrl = await uploadEntityLogo(file, code);
+      updateEntity(code, { logoDataUrl: logoUrl });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Upload failed.');
     } finally {
@@ -55,7 +55,7 @@ export default function EntityLogoUpload({ code }: EntityLogoUploadProps) {
             type="button"
             disabled={busy}
             onClick={() => inputRef.current?.click()}
-            className="inline-flex items-center rounded-md border border-hairline bg-paper px-3 py-1.5 text-sm font-medium text-ink hover:bg-surface disabled:opacity-50"
+            className="inline-flex min-h-[44px] items-center justify-center rounded-md border border-hairline bg-paper px-3.5 py-2 text-sm font-medium text-ink transition duration-150 hover:border-muted/30 hover:bg-surface active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink/20 focus-visible:ring-offset-2 focus-visible:ring-offset-paper disabled:opacity-50 disabled:active:scale-100 sm:min-h-0"
           >
             {busy ? 'Uploading…' : entity.logoDataUrl ? 'Replace logo' : 'Upload logo'}
           </button>
@@ -66,7 +66,7 @@ export default function EntityLogoUpload({ code }: EntityLogoUploadProps) {
                 updateEntity(code, { logoDataUrl: null });
                 setError(null);
               }}
-              className="text-left text-[11px] font-medium text-muted hover:text-ink"
+              className="rounded text-left text-[11px] font-medium text-muted transition-colors duration-150 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink/20"
             >
               Remove custom logo (use default)
             </button>

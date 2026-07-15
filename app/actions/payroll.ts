@@ -1,5 +1,13 @@
 'use server';
 
+/**
+ * Payroll server actions.
+ *
+ * TODO(auth session): wrap every mutating export with requirePayrollAdmin() —
+ * also add app/actions/settings.ts and lib/logos.ts to that same guard list
+ * (settings/logo writes without auth let anyone replace branding and signatory identity).
+ */
+
 import { revalidatePath } from 'next/cache';
 import type { Employee, Settings, SlipSnapshot } from '@/lib/types';
 import {
@@ -7,6 +15,7 @@ import {
   defaultSettingsRow,
   employeeToRow,
   generateId,
+  normalizeEmployeeId,
   rowToEmployee,
   rowToSettings,
   rowToSlip,
@@ -66,8 +75,11 @@ export async function upsertEmployee(
     const id = employeeData.id || generateId();
     const row = employeeToRow({
       ...employeeData,
+      empId: normalizeEmployeeId(employeeData.empId),
       id,
       flexLog: employeeData.flexLog ?? [],
+      tdsMonthly: employeeData.tdsMonthly ?? 0,
+      ptHalfYearly: employeeData.ptHalfYearly ?? 0,
     });
 
     const { data, error } = await supabase
@@ -100,16 +112,24 @@ export async function bulkUpsertEmployees(
     if (existingResult.error) return { ok: false, error: existingResult.error.message };
 
     const existingByEmpId = new Map(
-      (existingResult.data as EmployeeRow[]).map((row) => [row.employee_id, row]),
+      (existingResult.data as EmployeeRow[]).map((row) => [
+        normalizeEmployeeId(row.employee_id),
+        row,
+      ]),
     );
 
     const rows = employees.map((employee) => {
-      const existing = existingByEmpId.get(employee.empId);
-      const flexLog = existing ? rowToEmployee(existing).flexLog : [];
+      const empId = normalizeEmployeeId(employee.empId);
+      const existing = existingByEmpId.get(empId);
+      const existingEmployee = existing ? rowToEmployee(existing) : null;
+      const flexLog = existingEmployee?.flexLog ?? [];
       return employeeToRow({
         ...employee,
+        empId,
         id: existing?.id ?? generateId(),
         flexLog,
+        tdsMonthly: employee.tdsMonthly ?? existingEmployee?.tdsMonthly ?? 0,
+        ptHalfYearly: employee.ptHalfYearly ?? existingEmployee?.ptHalfYearly ?? 0,
       });
     });
 
