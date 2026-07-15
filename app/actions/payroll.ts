@@ -157,6 +157,24 @@ export async function deleteEmployee(id: string): Promise<ActionResult<{ id: str
   }
 }
 
+/** Permanently removes one payroll slip snapshot from history. */
+export async function deletePayrollSlip(id: string): Promise<ActionResult<{ id: string }>> {
+  try {
+    const supabase = await getSupabase();
+    const { error } = await supabase.from('payroll_slips').delete().eq('id', id);
+
+    if (error) return { ok: false, error: error.message };
+
+    revalidatePayrollViews();
+    return { ok: true, data: { id } };
+  } catch (err) {
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : 'Failed to delete payroll slip.',
+    };
+  }
+}
+
 /** Inserts a new payroll slip snapshot into payroll_slips. */
 export async function savePayrollSlip(slipData: SlipSnapshot): Promise<ActionResult<SlipSnapshot>> {
   try {
