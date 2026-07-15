@@ -32,6 +32,11 @@ the cloud.
 All math lives in dependency-free pure modules (`lib/payroll-calc.ts`, `lib/amount-in-words.ts`)
 covered by unit tests, ready to be lifted into the Portfolix EMS unchanged.
 
+## Setup
+
+1. Copy `.env.local.example` to `.env.local` and fill in your Supabase project URL and anon key.
+2. Run `npm install`, then start the dev server (see **Development** below).
+
 ## Development
 
 ```bash
@@ -40,6 +45,43 @@ npm run dev        # local dev server
 npm run typecheck  # TypeScript strict check
 npm test           # payroll engine unit tests (vitest)
 npm run build      # production build
+```
+
+## Cursor AI (Supabase MCP)
+
+This repo includes a Cursor MCP config so AI assistants can query and manage the linked Supabase
+project directly (inspect tables, run SQL, check logs, apply migrations, and more).
+
+The config lives at `.cursor/mcp.json` and points at project `portfolixslipgen`
+(`kbiewyddztpsrcxjczlc`):
+
+```json
+{
+  "mcpServers": {
+    "supabase": {
+      "url": "https://mcp.supabase.com/mcp?project_ref=kbiewyddztpsrcxjczlc"
+    }
+  }
+}
+```
+
+After cloning, reload Cursor (or restart) so it picks up the config. On first use you may be
+prompted to authenticate Supabase in **Settings → MCP**.
+
+To point at a different Supabase project, change the `project_ref` query parameter in the URL.
+
+## Agent skills (optional)
+
+Official Supabase agent skills are installed under `.agents/skills/` to help Cursor work more
+accurately with Supabase and Postgres:
+
+- `supabase` — general Supabase development guidance
+- `supabase-postgres-best-practices` — Postgres performance and security patterns
+
+To refresh or install on a new machine:
+
+```bash
+npx skills add supabase/agent-skills
 ```
 
 ## Deployment
