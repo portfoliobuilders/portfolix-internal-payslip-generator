@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
   calendarDaysInMonthYear,
+  lopCalculationBasisDisplayText,
+  lopCalculationBasisLabel,
   resolvePayrollDivisor,
 } from '../calculation-method';
 import { joiningDateDisplay, validateEmploymentDates } from '../employment-dates';
@@ -27,6 +29,18 @@ describe('calculation methods', () => {
     ).toBe(25);
   });
 
+  it('returns methodCode on resolved divisor', () => {
+    const resolved = resolvePayrollDivisor({
+      methodCode: 'FIXED_26_DAY_DIVISOR',
+      calendarDaysInMonth: 31,
+    });
+    expect(resolved).toEqual({
+      divisor: 26,
+      source: 'Fixed 26-day divisor',
+      methodCode: 'FIXED_26',
+    });
+  });
+
   it('uses calendar days when configured', () => {
     expect(
       resolvePayrollDivisor({
@@ -44,6 +58,33 @@ describe('calculation methods', () => {
         calendarDaysInMonth: 30,
       }),
     ).toThrow(/Working days/);
+  });
+
+  it('requires contractual divisor for employee contractual basis', () => {
+    expect(() =>
+      resolvePayrollDivisor({
+        methodCode: 'EMPLOYEE_CONTRACTUAL',
+        calendarDaysInMonth: 30,
+      }),
+    ).toThrow(/Contractual divisor/);
+    expect(
+      resolvePayrollDivisor({
+        methodCode: 'EMPLOYEE_CONTRACTUAL',
+        calendarDaysInMonth: 30,
+        contractualDivisor: 22,
+      }).divisor,
+    ).toBe(22);
+  });
+
+  it('exposes short LOP labels and full display sentences', () => {
+    expect(lopCalculationBasisLabel('FIXED_25')).toBe('Fixed 25-day divisor');
+    expect(lopCalculationBasisLabel('FIXED_30')).toBe('Fixed 30-day divisor');
+    expect(lopCalculationBasisDisplayText('FIXED_25')).toBe(
+      'LOP Calculation Basis: Fixed 25-day divisor',
+    );
+    expect(lopCalculationBasisDisplayText('CALENDAR_DAYS')).toBe(
+      'LOP Calculation Basis: Calendar-day divisor',
+    );
   });
 });
 
@@ -192,6 +233,23 @@ describe('finalization gates', () => {
   });
 });
 
+const employeeSnapshot: SlipSnapshot['employee'] = {
+  fullName: 'Test Employee',
+  empId: 'PX-TEST-001',
+  entityCode: 'PX',
+  department: 'Ops',
+  designation: 'Associate',
+  joiningDate: '2024-09-01',
+  employeeAddress: '',
+  paymentMode: 'Bank Transfer',
+  engagementType: 'regular_employee',
+  employmentStatus: 'active',
+  paymentType: 'salary',
+  compensationAmount: 50000,
+  bankLast4: '5931',
+  panMasked: 'RFXPXXXXX5H',
+};
+
 describe('server recompute integrity', () => {
   const trusted = {
     employeeId: 'emp-1',
@@ -256,22 +314,7 @@ describe('server recompute integrity', () => {
     const built = buildServerFinalSnapshot({
       trusted: { ...trusted, attendanceLocked: false },
       settings: SEED_SETTINGS,
-      employeeSnapshot: {
-        fullName: 'Test Employee',
-        empId: 'PX-TEST-001',
-        entityCode: 'PX',
-        department: 'Ops',
-        designation: 'Associate',
-        joiningDate: '2024-09-01',
-        employeeAddress: '',
-        paymentMode: 'Bank Transfer',
-        engagementType: 'regular_employee',
-        employmentStatus: 'active',
-        paymentType: 'salary',
-        compensationAmount: 50000,
-        bankLast4: '5931',
-        panMasked: 'RFXPXXXXX5H',
-      },
+      employeeSnapshot,
       slipId: 'slip-1',
       generatedAt: '2026-07-15T10:00:00.000Z',
       existingFinal: false,
@@ -283,28 +326,43 @@ describe('server recompute integrity', () => {
     expect(built.ok).toBe(true);
     expect(built.snapshot?.status).toBe('final');
     expect(built.snapshot?.computed.netPay).toBe(50000);
+    expect(built.attendancePeriod?.attendancePeriodStart).toBe('2026-05-25');
+    expect(built.attendancePeriod?.attendancePeriodEnd).toBe('2026-06-24');
+    expect(built.snapshot?.calculationMethodLabel).toBe(
+      'LOP Calculation Basis: Fixed 25-day divisor',
+    );
+  });
+
+  it('prefers trusted attendance dates over computed cycle', () => {
+    const built = buildServerFinalSnapshot({
+      trusted: {
+        ...trusted,
+        attendanceLocked: false,
+        attendancePeriodStart: '2026-05-20',
+        attendancePeriodEnd: '2026-06-19',
+      },
+      settings: SEED_SETTINGS,
+      employeeSnapshot,
+      slipId: 'slip-trusted-period',
+      generatedAt: '2026-07-15T10:00:00.000Z',
+      existingFinal: false,
+      history: [],
+      enforceStrictGates: false,
+      now: new Date('2026-07-15T12:00:00Z'),
+    });
+    expect(built.ok).toBe(true);
+    expect(built.attendancePeriod?.attendancePeriodStart).toBe('2026-05-20');
+    expect(built.attendancePeriod?.attendancePeriodEnd).toBe('2026-06-19');
+    expect(built.attendancePeriod?.attendanceDayCount).toBe(31);
+    expect(built.snapshot?.attendancePeriodStart).toBe('2026-05-20');
+    expect(built.snapshot?.attendancePeriodEnd).toBe('2026-06-19');
   });
 
   it('blocks duplicate final even when money reconciles', () => {
     const built = buildServerFinalSnapshot({
       trusted,
       settings: SEED_SETTINGS,
-      employeeSnapshot: {
-        fullName: 'Test Employee',
-        empId: 'PX-TEST-001',
-        entityCode: 'PX',
-        department: 'Ops',
-        designation: 'Associate',
-        joiningDate: '2024-09-01',
-        employeeAddress: '',
-        paymentMode: 'Bank Transfer',
-        engagementType: 'regular_employee',
-        employmentStatus: 'active',
-        paymentType: 'salary',
-        compensationAmount: 50000,
-        bankLast4: '5931',
-        panMasked: 'RFXPXXXXX5H',
-      },
+      employeeSnapshot,
       slipId: 'slip-2',
       generatedAt: '2026-07-15T10:00:00.000Z',
       existingFinal: true,

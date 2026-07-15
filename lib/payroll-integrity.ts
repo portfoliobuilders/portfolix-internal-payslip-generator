@@ -7,22 +7,19 @@ import { computeAuthorisedYtd } from './authorised-slip';
 import {
   calendarDaysInMonthYear,
   DEFAULT_CALCULATION_METHOD_CODE,
-  lopCalculationBasisLabel,
+  lopCalculationBasisDisplayText,
   resolvePayrollDivisor,
   type CalculationMethodCode,
 } from './calculation-method';
 import {
   computeAttendancePeriod,
   DEFAULT_PAYROLL_CYCLE_METHOD,
+  inclusiveAttendanceDayCount,
   validateAttendancePeriod,
+  type AttendancePeriod,
   type PayrollCycleMethod,
 } from './payroll-cycle';
 import { computePayroll, derivePtThisMonth, type PayrollInput, type PayrollResult } from './payroll-calc';
-import {
-  computeAttendancePeriod,
-  DEFAULT_PAYROLL_CYCLE_METHOD,
-  type PayrollCycleMethod,
-} from './payroll-cycle';
 import {
   buildAttendanceFromInputs,
   hasBlockingErrors,
@@ -209,7 +206,7 @@ export interface BuildFinalSnapshotResult {
   ytd: AuthorisedSlipYtd | null;
   payrollDivisor: number | null;
   calculationMethodCode: CalculationMethodCode | null;
-  attendancePeriod: ReturnType<typeof computeAttendancePeriod> | null;
+  attendancePeriod: AttendancePeriod | null;
 }
 
 /**
@@ -218,20 +215,31 @@ export interface BuildFinalSnapshotResult {
 export function buildServerFinalSnapshot(args: BuildFinalSnapshotArgs): BuildFinalSnapshotResult {
   const computation = recomputePayrollServerSide(args.trusted, args.settings, args.clientComputed);
   const calendarDays = calendarDaysInMonthYear(args.trusted.monthYear);
-  const cycleMethod = args.trusted.payrollCycleMethod ?? DEFAULT_PAYROLL_CYCLE_METHOD;
-  const attendancePeriod =
-    args.trusted.attendancePeriodStart && args.trusted.attendancePeriodEnd
+
+  const cycleMethod =
+    args.trusted.payrollCycleMethod ??
+    args.payrollCycleMethod ??
+    DEFAULT_PAYROLL_CYCLE_METHOD;
+
+  const trustedStart =
+    args.trusted.attendancePeriodStart ?? args.attendancePeriodOverrideStart ?? null;
+  const trustedEnd =
+    args.trusted.attendancePeriodEnd ?? args.attendancePeriodOverrideEnd ?? null;
+
+  const attendancePeriod: AttendancePeriod =
+    trustedStart && trustedEnd
       ? {
           salaryMonth: args.trusted.monthYear,
-          attendancePeriodStart: args.trusted.attendancePeriodStart,
-          attendancePeriodEnd: args.trusted.attendancePeriodEnd,
+          attendancePeriodStart: trustedStart,
+          attendancePeriodEnd: trustedEnd,
           payrollCycleMethod: cycleMethod,
-          payrollCyclePolicyId: null,
-          attendanceDayCount: 0,
+          payrollCyclePolicyId: args.payrollCyclePolicyId ?? null,
+          attendanceDayCount: inclusiveAttendanceDayCount(trustedStart, trustedEnd),
         }
       : computeAttendancePeriod({
           salaryMonth: args.trusted.monthYear,
           method: cycleMethod,
+          policyId: args.payrollCyclePolicyId,
         });
 
   const attendance = buildAttendanceFromInputs(
@@ -241,15 +249,6 @@ export function buildServerFinalSnapshot(args: BuildFinalSnapshotArgs): BuildFin
     args.trusted.attendanceLocked ?? false,
     attendancePeriod,
   );
-
-  const cycleMethod = args.payrollCycleMethod ?? DEFAULT_PAYROLL_CYCLE_METHOD;
-  const attendancePeriod = computeAttendancePeriod({
-    salaryMonth: args.trusted.monthYear,
-    method: cycleMethod,
-    policyId: args.payrollCyclePolicyId,
-    overrideStart: args.attendancePeriodOverrideStart,
-    overrideEnd: args.attendancePeriodOverrideEnd,
-  });
 
   const ctx: FinalizationContext = {
     monthYear: args.trusted.monthYear,
@@ -273,10 +272,17 @@ export function buildServerFinalSnapshot(args: BuildFinalSnapshotArgs): BuildFin
     ...validateFinalization(ctx),
     ...validateAttendancePeriod({
       period: attendancePeriod,
-      previousPeriodEnd: args.previousAttendancePeriodEnd,
+      previousPeriod: args.previousAttendancePeriodEnd
+        ? {
+            salaryMonth: args.trusted.monthYear,
+            attendancePeriodStart: args.previousAttendancePeriodEnd,
+            attendancePeriodEnd: args.previousAttendancePeriodEnd,
+          }
+        : null,
       now: args.now,
-      finalising: true,
-      overrideReason: args.attendanceCycleOverrideReason,
+      isManualOverride: Boolean(args.trusted.isManualCycleOverride),
+      overrideReason:
+        args.attendanceCycleOverrideReason ?? args.trusted.cycleOverrideReason ?? null,
     }),
   ];
 
@@ -335,7 +341,7 @@ export function buildServerFinalSnapshot(args: BuildFinalSnapshotArgs): BuildFin
     payrollCycleMethod: attendancePeriod.payrollCycleMethod,
     payrollDivisor: computation.payrollDivisor,
     calculationMethodCode: computation.calculationMethodCode,
-    calculationMethodLabel: lopCalculationBasisLabel(computation.calculationMethodCode),
+    calculationMethodLabel: lopCalculationBasisDisplayText(computation.calculationMethodCode),
     paymentStatus: args.paymentStatus ?? 'NOT_SCHEDULED',
     expectedPaymentDate: args.expectedPaymentDate ?? null,
     actualCreditDate: args.salaryCreditDate ?? null,

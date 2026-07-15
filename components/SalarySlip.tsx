@@ -10,9 +10,11 @@
  */
 
 import { CheckCircle2 } from 'lucide-react';
-import { lopCalculationBasisLabel } from '@/lib/calculation-method';
+import {
+  lopCalculationBasisDisplayText,
+  lopCalculationBasisLabel,
+} from '@/lib/calculation-method';
 import { FIXED_DIVISOR, slipStatutoryDeductions } from '@/lib/payroll-calc';
-import { lopCalculationBasisLabel } from '@/lib/calculation-method';
 import {
   formatDate,
   formatINR,
@@ -104,6 +106,11 @@ export default function SalarySlip({
     start: attendancePeriodStart,
     end: attendancePeriodEnd,
   });
+  const lopBasisLabel =
+    snapshot.calculationMethodLabel?.trim() ||
+    (snapshot.calculationMethodCode
+      ? lopCalculationBasisDisplayText(snapshot.calculationMethodCode)
+      : `LOP Calculation Basis: Fixed ${FIXED_DIVISOR}-day divisor`);
   const variableLabel = inputs.variableLabel.trim() || 'Variable / Incentive';
   const hasLateness = inputs.lateMinutes > 0 || inputs.flexMinutesEarned > 0;
   const { tds, pt } = slipStatutoryDeductions(computed, inputs);

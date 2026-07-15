@@ -135,25 +135,23 @@ export const CALCULATION_METHODS: Record<CalculationMethodCode, CalculationMetho
   },
 };
 
-/** Display label for LOP calculation basis (never call this "pay period"). */
-export function lopCalculationBasisLabel(code: CalculationMethodCode | string): string {
-  const normalised = normalizeCalculationMethodCode(code);
-  switch (normalised) {
-    case 'FIXED_25':
-      return 'LOP Calculation Basis: Fixed 25-day divisor';
-    case 'FIXED_26':
-      return 'LOP Calculation Basis: Fixed 26-day divisor';
-    case 'FIXED_30':
-      return 'LOP Calculation Basis: Fixed 30-day divisor';
-    case 'CALENDAR_DAYS':
-      return 'LOP Calculation Basis: Calendar-day divisor';
-    case 'ACTUAL_WORKING_DAYS':
-      return 'LOP Calculation Basis: Actual working days';
-    case 'EMPLOYEE_CONTRACTUAL':
-      return 'LOP Calculation Basis: Employee contractual divisor';
-    default:
-      return 'LOP Calculation Basis';
-  }
+/** Short UI label — never call this the “pay period”. */
+export function lopCalculationBasisLabel(methodCode: CalculationMethodCode | string): string {
+  const code = normalizeCalculationMethodCode(methodCode);
+  return CALCULATION_METHODS[code].label;
+}
+
+/** Full display sentence including the “LOP Calculation Basis:” prefix. */
+export function lopCalculationBasisDisplayText(
+  methodCode: CalculationMethodCode | string,
+): string {
+  return `LOP Calculation Basis: ${lopCalculationBasisLabel(methodCode)}`;
+}
+
+export interface ResolvedPayrollDivisor {
+  divisor: number;
+  source: string;
+  methodCode: CalculationMethodCode;
 }
 
 export function resolvePayrollDivisor(input: {
@@ -164,12 +162,12 @@ export function resolvePayrollDivisor(input: {
   workingDays?: number | null;
   /** Contractual divisor override when method is employee contractual. */
   contractualDivisor?: number | null;
-}): { divisor: number; source: string } {
+}): ResolvedPayrollDivisor {
   const methodCode = normalizeCalculationMethodCode(input.methodCode);
   const method = CALCULATION_METHODS[methodCode];
 
-  if (meta.fixedDivisor != null) {
-    return { divisor: meta.fixedDivisor, source: meta.label, methodCode };
+  if (method.fixedDivisor != null) {
+    return { divisor: method.fixedDivisor, source: method.label, methodCode };
   }
 
   if (methodCode === 'CALENDAR_DAYS') {
@@ -178,7 +176,7 @@ export function resolvePayrollDivisor(input: {
     }
     return {
       divisor: input.calendarDaysInMonth,
-      source: meta.label,
+      source: method.label,
       methodCode,
     };
   }
@@ -188,7 +186,7 @@ export function resolvePayrollDivisor(input: {
     if (days == null || !(days > 0)) {
       throw new Error('Working days are required for actual working-day basis.');
     }
-    return { divisor: days, source: meta.label, methodCode };
+    return { divisor: days, source: method.label, methodCode };
   }
 
   if (methodCode === 'EMPLOYEE_CONTRACTUAL') {
@@ -196,7 +194,7 @@ export function resolvePayrollDivisor(input: {
     if (days == null || !(days > 0)) {
       throw new Error('Contractual divisor is required for employee-specific basis.');
     }
-    return { divisor: days, source: meta.label, methodCode };
+    return { divisor: days, source: method.label, methodCode };
   }
 
   throw new Error(`Unhandled calculation method: ${methodCode}`);
@@ -207,10 +205,4 @@ export function calendarDaysInMonthYear(monthYear: string): number {
   const [y, m] = monthYear.split('-').map(Number);
   if (!y || !m || m < 1 || m > 12) throw new Error(`Invalid monthYear: ${monthYear}`);
   return new Date(y, m, 0).getDate();
-}
-
-/** Short UI label — never call this the “pay period”. */
-export function lopCalculationBasisLabel(methodCode: CalculationMethodCode | string): string {
-  const code = normalizeCalculationMethodCode(methodCode);
-  return CALCULATION_METHODS[code].label;
 }

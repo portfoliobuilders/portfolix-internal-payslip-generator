@@ -121,6 +121,19 @@ export function computeAttendancePeriod(input: {
   };
 }
 
+/** Inclusive calendar-day count between YYYY-MM-DD dates. */
+export function inclusiveAttendanceDayCount(startYmd: string, endYmd: string): number {
+  const start = startOfDay(parse(startYmd, 'yyyy-MM-dd', new Date()));
+  const end = startOfDay(parse(endYmd, 'yyyy-MM-dd', new Date()));
+  if (!isValid(start) || !isValid(end)) {
+    throw new Error(`Invalid attendance dates: ${startYmd} → ${endYmd}`);
+  }
+  if (isAfter(start, end)) {
+    throw new Error('Attendance period start cannot be after end.');
+  }
+  return differenceInCalendarDays(end, start) + 1;
+}
+
 /** Human-readable range, e.g. "25 Jun 2026 – 24 Jul 2026". */
 export function formatAttendanceCycle(period: Pick<
   AttendancePeriod,

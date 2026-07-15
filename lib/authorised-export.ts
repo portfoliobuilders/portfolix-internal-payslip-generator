@@ -11,7 +11,7 @@ import {
   computeAttendancePeriod,
   DEFAULT_PAYROLL_CYCLE_METHOD,
 } from '@/lib/payroll-cycle';
-import { lopCalculationBasisLabel } from '@/lib/calculation-method';
+import { lopCalculationBasisDisplayText } from '@/lib/calculation-method';
 import { buildVectorPayslipPdf } from '@/lib/pdf-vector';
 import type { EntityInfo, SlipSnapshot } from '@/lib/types';
 
@@ -103,7 +103,7 @@ export async function exportAuthorisedSalarySlipPdf(input: {
     issueDate: new Date().toISOString().slice(0, 10),
     lopDivisorLabel:
       input.snapshot.calculationMethodLabel ??
-      lopCalculationBasisLabel(
+      lopCalculationBasisDisplayText(
         input.snapshot.calculationMethodCode ?? 'FIXED_25_DAY_DIVISOR',
       ),
   });
