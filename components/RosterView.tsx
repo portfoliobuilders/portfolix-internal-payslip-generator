@@ -139,9 +139,6 @@ export default function RosterView({
               {loading
                 ? 'Loading employees…'
                 : `${filteredEmployees.length} of ${employees.length} people across Portfolix entities`}
-              {saveStatus === 'saving' && ' · Saving…'}
-              {saveStatus === 'saved' && ' · Saved'}
-              {saveStatus === 'failed' && ' · Save failed'}
             </p>
           </div>
           <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:flex-wrap sm:items-center">

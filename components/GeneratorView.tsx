@@ -29,8 +29,6 @@ import Toast from './Toast';
 import { Field, Modal, btnPrimary, btnSecondary, inputAmountCls, inputCls } from './ui';
 import { statementMetaFor } from '@/lib/workforce';
 
-type PreviewMode = 'draft' | 'final' | 'authorised';
-
 interface FormState {
   monthYear: string;
   absentDays: string;
@@ -175,7 +173,7 @@ export default function GeneratorView({
   useEffect(() => {
     if (!employee) return;
     const defaultEntityIdByCode: Record<string, string> = {
-      PX: 'portfolix-enterprise',
+      PX: 'portfolix-entreprise',
       PT: 'portfolix-tech',
       PB: 'portfolio-builders',
       PH: 'portfolix-hub',
@@ -619,21 +617,13 @@ export default function GeneratorView({
                 </select>
               </Field>
             </div>
-            <div className="col-span-2">
-              <Field label="Company entity shown on slip">
-                <select
-                  className={inputCls}
-                  value={selectedEntityId}
-                  onChange={(e) => setSelectedEntityId(e.target.value)}
-                >
-                  {COMPANY_ENTITIES.map((companyEntity) => (
-                    <option key={companyEntity.id} value={companyEntity.id}>
-                      {companyEntity.displayName}
-                    </option>
-                  ))}
-                </select>
-              </Field>
-            </div>
+            {employee && (
+              <div className="col-span-2 rounded border border-hairline bg-surface px-3 py-2 text-xs">
+                <p><strong>Engagement:</strong> {employee.engagementType}</p>
+                <p><strong>Status:</strong> {employee.employmentStatus}</p>
+                <p><strong>Payment Type:</strong> {employee.paymentType}</p>
+              </div>
+            )}
             <Field label="Pay month" error={errors.monthYear ?? null}>
               <input
                 type="month"

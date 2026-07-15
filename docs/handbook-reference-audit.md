@@ -6,7 +6,7 @@
 
 ## Purpose
 
-This document captures potentially useful policy areas from the old "Portfolix Enterprise Employee Handbook v2.0" strictly as implementation backlog input. It is **not** an approval to enforce these clauses in-product.
+This document captures potentially useful policy areas from the old "Portfolix Entreprise Employee Handbook v2.0" strictly as implementation backlog input. It is **not** an approval to enforce these clauses in-product.
 
 ---
 

@@ -8,12 +8,11 @@ alwaysApply: false
 
 ## Architecture
 - This is a Next.js App Router + Supabase application. Server actions live in `app/actions/`, Supabase helpers in `utils/supabase/`.
-- The client is UNTRUSTED. All payroll computation, validation, and persistence happen server-side or through the store's single computation path. Never trust computed figures (netPay, deductions, snapshots) supplied by the browser.
-- `lib/payroll-calc.ts` and `lib/amount-in-words.ts` remain dependency-free pure modules and are the ONLY place payroll math exists. UI renders engine output and never re-derives a number. Slip snapshots are immutable; re-downloads render stored snapshots, never recompute.
-- Fail closed: missing env, failed guard, or missing SUPABASE_SECRET_KEY throws or disables the dependent feature with a clear message. No mock Supabase clients outside tests. SUPABASE_SECRET_KEY is server-only and used exclusively via `utils/supabase/service-role.ts`.
-- Only masked PAN and last-4 bank digits are ever stored or accepted.
-- Signatory signature/seal assets live in the PRIVATE `signatory-assets` bucket, uploaded and read only through server actions with short-lived signed URLs. Never public URLs, never base64 data URLs in settings.
-- Allowed dependencies include @supabase/ssr, @supabase/supabase-js, zustand, zod, html2canvas, jspdf, date-fns, lucide-react, tailwindcss. Do not add any other package without asking.
+- The client is UNTRUSTED. All payroll computation, validation, and persistence happen server-side. Never accept computed figures (netPay, lopDeduction, deferredClosing, snapshots) from the browser — accept raw inputs only and recompute on the server.
+- `lib/payroll-calc.ts` and `lib/amount-in-words.ts` remain dependency-free pure modules and are the ONLY place payroll math exists. Server actions call them; UI renders stored results.
+- Fail closed: missing env, failed auth, or a failed guard throws immediately. No mock Supabase clients outside tests.
+- Only masked PAN and last-4 bank digits are ever stored or accepted. Reject full identity/account numbers at validation.
+- Allowed dependencies now include: @supabase/ssr, @supabase/supabase-js, zod. Do not add other packages without asking.
 
 ## Payroll math
 - `perDayRate = baseSalary ÷ 25` — the 25-day constant is hardcoded and not editable in the UI.

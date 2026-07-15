@@ -79,9 +79,6 @@ export default function SalarySlip({
     employee.engagementType,
     employee.employmentStatus,
   );
-  const { tds, pt } = slipStatutoryDeductions(computed, inputs);
-  /** Prefer entity payroll email; fall back to the global contact setting. */
-  const contactLine = entity.payrollEmail?.trim() || payrollContact;
 
   return (
     <div
@@ -165,6 +162,14 @@ export default function SalarySlip({
             </p>
           </div>
         )}
+        <div className="px-3 py-2">
+          <p className="text-[8.5px] font-semibold uppercase tracking-wider text-muted">
+            Review window
+          </p>
+          <p className="font-semibold">
+            Review queries by {formatDate(reviewDeadline)} · 6:00 PM
+          </p>
+        </div>
         <div className="px-3 py-2">
           <p className="text-[8.5px] font-semibold uppercase tracking-wider text-muted">
             Payment credit
@@ -391,18 +396,6 @@ export default function SalarySlip({
         <p>
           <span className="font-semibold text-ink">Queries:</span> {payrollContact} — reply before{' '}
           {formatDate(reviewDeadline)}, 6:00 PM. Payment credits on {formatDate(creditDate)}.
-          {isDraft ? (
-            <>
-              <span className="font-semibold text-ink">Queries:</span> {contactLine} — reply before{' '}
-              {formatDate(reviewDeadline)}, {reviewDeadlineTime}. Salary credits on{' '}
-              {formatDate(creditDate)}.
-            </>
-          ) : (
-            <>
-              <span className="font-semibold text-ink">Payroll contact:</span> {contactLine}. Salary
-              credits on {formatDate(creditDate)}.
-            </>
-          )}
         </p>
         {statementMeta.disclaimer && <p>{statementMeta.disclaimer}</p>}
         <p>
