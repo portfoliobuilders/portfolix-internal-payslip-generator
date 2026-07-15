@@ -13,15 +13,10 @@ import type {
   FlexLogEntry,
   PaymentMode,
   PaymentType,
-  Settings,
-  EntityInfo,
   SlipSnapshot,
   WorkMode,
 } from '@/lib/types';
-import { SEED_SETTINGS } from '@/lib/seed-settings';
 import { defaultPaymentTypeForEngagement } from './workforce';
-import type { Employee, EntityCode, FlexLogEntry, PaymentMode, SlipSnapshot } from './types';
-import { slipStatutoryDeductions } from './payroll-calc';
 
 export interface EmployeeDetailsJson {
   department: string;
@@ -35,10 +30,6 @@ export interface EmployeeDetailsJson {
   agreementType?: AgreementType;
   documentsStatus?: DocumentsStatus;
   notes?: string;
-  /** Monthly TDS (₹). Default 0 when absent (legacy rows). */
-  tdsMonthly?: number;
-  /** Kerala PT half-yearly (₹). Default 0 when absent (legacy rows). */
-  ptHalfYearly?: number;
 }
 
 export interface EmployeeRow {
@@ -94,8 +85,6 @@ function emptyDetails(): EmployeeDetailsJson {
     agreementType: 'offer_letter',
     documentsStatus: 'pending',
     notes: '',
-    tdsMonthly: 0,
-    ptHalfYearly: 0,
   };
 }
 
@@ -181,8 +170,6 @@ export function employeeToRow(
       agreementType: employee.agreementType,
       documentsStatus: employee.documentsStatus,
       notes: employee.notes,
-      tdsMonthly: employee.tdsMonthly ?? 0,
-      ptHalfYearly: employee.ptHalfYearly ?? 0,
     },
   };
 }

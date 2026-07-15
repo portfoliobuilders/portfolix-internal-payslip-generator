@@ -1,6 +1,6 @@
-# Portfolix SlipGen — Internal Payslip Generator
+# Portfolix Internal Workforce Payment Statement Generator
 
-A workforce payment statement generator for Portfolix Entreprise Pvt Ltd and its brands (Portfolio Builders,
+A workforce payment statement generator for Portfolix Enterprise Pvt Ltd and its brands (Portfolio Builders,
 Portfolix.tech, Portfolix Hub). A stopgap for the HR team until the official Portfolix EMS ships.
 
 **Live app:** [portfolix-internal-payslip-generato.vercel.app](https://portfolix-internal-payslip-generato.vercel.app)

@@ -26,8 +26,6 @@ export const EMPLOYEE_TEMPLATE_HEADERS = [
   'PAN Masked',
   'Opening Flex-Bank Balance',
   'Notes',
-  'TDS Monthly',
-  'PT Half-Yearly',
 ] as const;
 
 export type EmployeeTemplateHeader = (typeof EMPLOYEE_TEMPLATE_HEADERS)[number];
@@ -187,8 +185,6 @@ function mapRow(row: Record<string, unknown>, rowNumber: number): BulkEmployeeIn
     agreementType: 'offer_letter',
     documentsStatus: 'pending',
     notes: cellString(row['Notes']),
-    tdsMonthly: cellNumber(row['TDS Monthly']) || 0,
-    ptHalfYearly: cellNumber(row['PT Half-Yearly']) || 0,
   };
 
   const error = validateRow(employee, rowNumber);
