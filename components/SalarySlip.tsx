@@ -14,6 +14,7 @@ import { FIXED_DIVISOR, slipStatutoryDeductions } from '@/lib/payroll-calc';
 import { formatDate, formatINR, formatMinutes, formatMonthYear, payrollCycleDates } from '@/lib/format';
 import type { EntityInfo, SlipSnapshot } from '@/lib/types';
 import EntityLogo from '@/components/EntityLogo';
+import { statementMetaFor } from '@/lib/workforce';
 
 interface SalarySlipProps {
   snapshot: SlipSnapshot;
@@ -73,6 +74,11 @@ export default function SalarySlip({
   const { creditDate, reviewDeadline } = payrollCycleDates(snapshot.monthYear, paydayDayOfMonth);
   const variableLabel = inputs.variableLabel.trim() || 'Variable / Incentive';
   const hasLateness = inputs.lateMinutes > 0 || inputs.flexMinutesEarned > 0;
+  const statementMeta = statementMetaFor(
+    employee.paymentType,
+    employee.engagementType,
+    employee.employmentStatus,
+  );
   const { tds, pt } = slipStatutoryDeductions(computed, inputs);
   /** Prefer entity payroll email; fall back to the global contact setting. */
   const contactLine = entity.payrollEmail?.trim() || payrollContact;
@@ -107,9 +113,14 @@ export default function SalarySlip({
             </p>
           </div>
         </div>
+        <div className="text-right">
+          <p className="text-[15px] font-bold uppercase tracking-[0.12em]">{statementMeta.statementTitle}</p>
         <div className="shrink-0 text-right">
           <p className="text-[15px] font-bold uppercase tracking-[0.12em]">Salary Slip</p>
           <p className="text-[11px] font-medium text-muted">{formatMonthYear(snapshot.monthYear)}</p>
+          {statementMeta.statusBadge && (
+            <p className="mt-1 text-[10px] font-semibold text-amber-brand">{statementMeta.statusBadge}</p>
+          )}
           {isDraft ? (
             <span className="slip-badge-draft mt-1.5 inline-block rounded border px-2 py-0.5 text-[10px] font-bold uppercase tracking-widest">
               Draft
@@ -158,7 +169,7 @@ export default function SalarySlip({
         )}
         <div className="px-3 py-2">
           <p className="text-[8.5px] font-semibold uppercase tracking-wider text-muted">
-            Salary credit
+            Payment credit
           </p>
           <p className="font-semibold">{formatDate(creditDate)}</p>
         </div>
@@ -213,7 +224,7 @@ export default function SalarySlip({
         <SectionTitle tag="02">Attendance &amp; Rate Basis</SectionTitle>
         <div className="rounded border border-hairline bg-surface px-3 py-2">
           <p className="amount text-[11px] font-semibold">
-            {formatINR(inputs.baseSalary)} ÷ {FIXED_DIVISOR} = {formatINR(computed.perDayRate)}/day
+              {formatINR(inputs.compensationAmount)} ÷ {FIXED_DIVISOR} = {formatINR(computed.perDayRate)}/day
           </p>
           <p className="mt-0.5 text-[9px] text-muted">
             Company-standard {FIXED_DIVISOR}-day rate basis · applied to all loss-of-pay calculations
@@ -253,6 +264,9 @@ export default function SalarySlip({
       <section className="mt-4 grid grid-cols-2 gap-5">
         <div className="flex h-full flex-col">
           <SectionTitle tag="A">Fixed Earnings</SectionTitle>
+          <Row label={statementMeta.mainEarningLabel} value={formatINR(inputs.compensationAmount)} />
+          <Row label="Fixed allowance" value={formatINR(inputs.fixedAllowance)} />
+          <div className="border-t border-ink/60">
           <div className="flex-1">
             <Row label="Basic salary" value={formatINR(inputs.baseSalary)} />
             <Row label="Fixed allowance" value={formatINR(inputs.fixedAllowance)} />
@@ -380,6 +394,8 @@ export default function SalarySlip({
       {/* ---------- Footer — fixed margin (no flex-push dead gap) ---------- */}
       <footer className="mt-6 border-t border-hairline pt-3 text-[8.5px] leading-relaxed text-muted">
         <p>
+          <span className="font-semibold text-ink">Queries:</span> {payrollContact} — reply before{' '}
+          {formatDate(reviewDeadline)}, 6:00 PM. Payment credits on {formatDate(creditDate)}.
           {isDraft ? (
             <>
               <span className="font-semibold text-ink">Queries:</span> {contactLine} — reply before{' '}
@@ -393,6 +409,7 @@ export default function SalarySlip({
             </>
           )}
         </p>
+        {statementMeta.disclaimer && <p>{statementMeta.disclaimer}</p>}
         <p>
           Draft slips are superseded by the final slip issued on payday; only the slip marked FINAL
           is valid for records.

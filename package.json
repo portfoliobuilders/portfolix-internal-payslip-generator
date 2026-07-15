@@ -9,7 +9,8 @@
     "start": "next start",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "setup:agent": "npm ci --cache ~/.npm --prefer-offline && npm run typecheck && npm run build"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.0",

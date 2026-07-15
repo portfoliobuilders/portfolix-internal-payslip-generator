@@ -1,61 +1,29 @@
 'use client';
 
-/**
- * Persistent app shell shared by every route.
- *
- * Holds the header (logo + nav) and the single PayrollDataProvider so data is
- * fetched once and kept across navigation. Nav items are real <Link>s, so the
- * URL changes per section (/, /generator, /history, /settings), back/forward
- * work, and a refresh keeps you on the current page. Active state is derived
- * from the current pathname.
- */
-
-import { useEffect, useState, type ReactNode } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { useEffect, useState } from 'react';
 import { Cloud, FileClock, FilePlus2, Settings, Users } from 'lucide-react';
-import { fetchSettings } from '@/app/actions/settings';
 import EntityLogo from '@/components/EntityLogo';
-import { PayrollDataProvider, usePayrollContext } from '@/components/PayrollDataProvider';
 import { useHRStore } from '@/store/useHRStore';
 
-const NAV: { href: string; label: string; icon: typeof Users }[] = [
-  { href: '/', label: 'Employee Roster', icon: Users },
+const NAV_ITEMS = [
+  { href: '/employee-roster', label: 'Employee Roster', icon: Users },
   { href: '/generator', label: 'Generator', icon: FilePlus2 },
   { href: '/history', label: 'History', icon: FileClock },
   { href: '/settings', label: 'Settings', icon: Settings },
-];
+] as const;
 
-function isActive(pathname: string, href: string): boolean {
-  return href === '/' ? pathname === '/' : pathname.startsWith(href);
+interface AppShellProps {
+  children: React.ReactNode;
 }
 
-export default function AppShell({ children }: { children: ReactNode }) {
-  return (
-    <PayrollDataProvider>
-      <ShellInner>{children}</ShellInner>
-    </PayrollDataProvider>
-  );
-}
-
-function ShellInner({ children }: { children: ReactNode }) {
+export default function AppShell({ children }: AppShellProps) {
   const pathname = usePathname();
   const pxEntity = useHRStore((s) => s.settings.entities.PX);
-  const setSettings = useHRStore((s) => s.setSettings);
-  const { error, refresh } = usePayrollContext();
   const [mounted, setMounted] = useState(false);
-  useEffect(() => setMounted(true), []);
 
-  // Load persisted settings (payroll calendar + entity branding + logos) once.
-  useEffect(() => {
-    void fetchSettings().then((result) => {
-      if (result.ok) {
-        setSettings(result.data);
-      } else {
-        console.error('[settings] fetch failed:', result.error);
-      }
-    });
-  }, [setSettings]);
+  useEffect(() => setMounted(true), []);
 
   return (
     <div className="min-h-screen">
@@ -81,14 +49,16 @@ function ShellInner({ children }: { children: ReactNode }) {
           </div>
 
           <nav className="flex items-center gap-1">
-            {NAV.map(({ href, label, icon: Icon }) => {
-              const active = isActive(pathname, href);
+            {NAV_ITEMS.map(({ href, label, icon: Icon }) => {
+              const active = pathname === href;
               return (
                 <Link
                   key={href}
                   href={href}
                   className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
-                    active ? 'bg-ink text-paper' : 'text-muted hover:bg-surface hover:text-ink'
+                    active
+                      ? 'bg-ink text-paper'
+                      : 'text-muted hover:bg-surface hover:text-ink'
                   }`}
                 >
                   <Icon size={15} strokeWidth={2} />
@@ -105,24 +75,7 @@ function ShellInner({ children }: { children: ReactNode }) {
         </div>
       </header>
 
-      <main className="no-print mx-auto max-w-[1400px] px-6 py-6">
-        {!mounted ? (
-          <p className="py-20 text-center text-sm text-muted">Loading…</p>
-        ) : error ? (
-          <div className="rounded-lg border border-amber-edge bg-amber-tint px-4 py-6 text-center">
-            <p className="text-sm font-medium text-amber-brand">Could not load payroll data</p>
-            <p className="mt-1 text-[12px] text-muted">{error}</p>
-            <button
-              className="mt-4 rounded-md bg-ink px-3 py-1.5 text-sm font-medium text-paper"
-              onClick={() => void refresh()}
-            >
-              Retry
-            </button>
-          </div>
-        ) : (
-          children
-        )}
-      </main>
+      <main className="no-print mx-auto max-w-[1400px] px-6 py-6">{children}</main>
     </div>
   );
 }

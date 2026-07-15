@@ -1,10 +1,12 @@
 'use client';
 
-import GeneratorView from '@/components/GeneratorView';
+import { useRouter } from 'next/navigation';
+import RosterView from '@/components/RosterView';
 import { usePayrollData } from '@/hooks/usePayrollData';
 
-export default function GeneratorPage() {
-  const { employees, slipHistory, loading, error, refresh } = usePayrollData();
+export default function EmployeeRosterPage() {
+  const router = useRouter();
+  const { employees, loading, error, refresh } = usePayrollData();
 
   if (error) {
     return (
@@ -22,11 +24,11 @@ export default function GeneratorPage() {
   }
 
   return (
-    <GeneratorView
+    <RosterView
       employees={employees}
-      slipHistory={slipHistory}
       loading={loading}
       onRefresh={refresh}
+      onGenerateFor={() => router.push('/generator')}
     />
   );
 }

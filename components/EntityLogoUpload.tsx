@@ -36,7 +36,7 @@ export default function EntityLogoUpload({ code }: EntityLogoUploadProps) {
   return (
     <Field
       label="Logo"
-      hint="Shown on salary slips and in the app header (PX). Uploaded to Supabase Storage and saved with your settings."
+      hint="Shown on salary slips and in the app header (PX). Saved to Supabase when you click Save Settings."
       error={error}
     >
       <div className="flex flex-wrap items-center gap-4">

@@ -2,10 +2,11 @@
 
 import { useRef, useState } from 'react';
 import { Download, FilePlus2, Loader2, Pencil, Timer, Trash2, Upload, UserPlus } from 'lucide-react';
-import { bulkUpsertEmployees, deleteEmployee } from '@/app/actions/payroll';
+import { archiveEmployee, bulkUpsertEmployees, deleteEmployee } from '@/app/actions/payroll';
 import type { Employee } from '@/lib/types';
 import { downloadEmployeeTemplate, parseEmployeeSpreadsheet } from '@/lib/employee-excel';
 import { formatINR, formatMinutes } from '@/lib/format';
+import { compensationLabelForPaymentType } from '@/lib/workforce';
 import { useHRStore } from '@/store/useHRStore';
 import { useUIStore } from '@/store/useUIStore';
 import EmployeeFormModal from './EmployeeFormModal';
@@ -20,6 +21,16 @@ interface RosterViewProps {
   onGenerateFor: () => void;
 }
 
+const FILTER_OPTIONS = [
+  ['all', 'All'],
+  ['regular', 'Regular Employees'],
+  ['interns', 'Interns'],
+  ['probation', 'Probation'],
+  ['notice', 'Notice Period'],
+  ['freelance', 'Freelancers/Consultants'],
+  ['offboarded', 'Offboarded/Completed'],
+] as const;
+
 export default function RosterView({
   employees,
   loading,
@@ -33,104 +44,104 @@ export default function RosterView({
   const [formTarget, setFormTarget] = useState<Employee | null | 'new'>(null);
   const [flexTarget, setFlexTarget] = useState<Employee | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Employee | null>(null);
+  const [archiveTarget, setArchiveTarget] = useState<Employee | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [archiving, setArchiving] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'failed'>('idle');
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [filter, setFilter] = useState('all');
+
+  const filteredEmployees = employees.filter((entry) => {
+    if (filter === 'regular') return entry.engagementType === 'regular_employee';
+    if (filter === 'interns') return ['intern', 'trainee', 'apprentice'].includes(entry.engagementType);
+    if (filter === 'probation') return entry.engagementType === 'probation_employee' || entry.employmentStatus === 'probation';
+    if (filter === 'notice') return entry.engagementType === 'notice_period_employee' || entry.employmentStatus === 'notice_period';
+    if (filter === 'freelance') return entry.engagementType === 'freelancer' || entry.engagementType === 'consultant';
+    if (filter === 'offboarded') return ['offboarded', 'completed'].includes(entry.employmentStatus);
+    return true;
+  });
 
   async function handleDelete() {
     if (!deleteTarget) return;
     setDeleting(true);
     setActionError(null);
+    setSaveStatus('saving');
     const result = await deleteEmployee(deleteTarget.id);
     setDeleting(false);
     if (!result.ok) {
       setActionError(result.error);
+      setSaveStatus('failed');
       return;
     }
     setDeleteTarget(null);
-    setToastMessage('Employee deleted.');
+    setSaveStatus('saved');
+    setToastMessage('Employee deleted from Supabase.');
     await onRefresh();
   }
 
   async function handleBulkUpload(file: File) {
     setUploading(true);
     setActionError(null);
+    setSaveStatus('saving');
 
     try {
       const { employees: parsedEmployees, errors } = await parseEmployeeSpreadsheet(file);
       if (errors.length > 0) {
         setActionError(errors.slice(0, 5).join(' ') + (errors.length > 5 ? ` (+${errors.length - 5} more)` : ''));
+        setSaveStatus('failed');
         return;
       }
 
       const result = await bulkUpsertEmployees(parsedEmployees);
       if (!result.ok) {
         setActionError(result.error);
+        setSaveStatus('failed');
         return;
       }
 
+      setSaveStatus('saved');
       setToastMessage(
-        `Successfully uploaded ${result.data.count} employee${result.data.count === 1 ? '' : 's'}.`,
+        `Successfully uploaded ${result.data.count} employee${result.data.count === 1 ? '' : 's'} to Supabase.`,
       );
       await onRefresh();
     } catch (err) {
       setActionError(err instanceof Error ? err.message : 'Failed to upload employees.');
+      setSaveStatus('failed');
     } finally {
       setUploading(false);
     }
   }
 
-  const iconAction =
-    'flex h-11 w-11 items-center justify-center rounded-md text-muted transition-colors duration-150 hover:bg-surface hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink/20 lg:h-9 lg:w-9';
-
-  const renderActions = (e: Employee) => (
-    <div className="flex justify-end gap-1">
-      <button
-        title="Generate slip"
-        aria-label="Generate slip"
-        className={iconAction}
-        onClick={() => {
-          setGeneratorEmployeeId(e.id);
-          onGenerateFor();
-        }}
-      >
-        <FilePlus2 size={16} />
-      </button>
-      <button
-        title="Adjust flex bank"
-        aria-label="Adjust flex bank"
-        className={iconAction}
-        onClick={() => setFlexTarget(e)}
-      >
-        <Timer size={16} />
-      </button>
-      <button title="Edit" aria-label="Edit employee" className={iconAction} onClick={() => setFormTarget(e)}>
-        <Pencil size={16} />
-      </button>
-      <button
-        title="Delete"
-        aria-label="Delete employee"
-        className={`${iconAction} hover:text-amber-brand`}
-        onClick={() => setDeleteTarget(e)}
-      >
-        <Trash2 size={16} />
-      </button>
-    </div>
-  );
-
-  const dtCls = 'text-[10px] font-semibold uppercase tracking-wide text-muted';
+  async function handleArchive() {
+    if (!archiveTarget) return;
+    setArchiving(true);
+    setActionError(null);
+    const result = await archiveEmployee(archiveTarget.id, new Date().toISOString().slice(0, 10));
+    setArchiving(false);
+    if (!result.ok) {
+      setActionError(result.error);
+      return;
+    }
+    setArchiveTarget(null);
+    setToastMessage('Person archived/offboarded.');
+    await onRefresh();
+  }
 
   return (
     <div className="space-y-4">
       <div className="overflow-hidden rounded-lg border border-hairline bg-paper shadow-card">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-hairline px-4 py-3">
           <div>
-            <h1 className="text-sm font-semibold">Employee Roster</h1>
+            <h1 className="text-sm font-semibold">Workforce Roster</h1>
             <p className="text-[12px] text-muted">
               {loading
                 ? 'Loading employees…'
-                : `${employees.length} employee${employees.length === 1 ? '' : 's'} across Portfolix entities`}
+                : `${filteredEmployees.length} of ${employees.length} people across Portfolix entities`}
+              {saveStatus === 'saving' && ' · Saving…'}
+              {saveStatus === 'saved' && ' · Saved'}
+              {saveStatus === 'failed' && ' · Save failed'}
             </p>
           </div>
           <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:flex-wrap sm:items-center">
@@ -177,6 +188,11 @@ export default function RosterView({
           </div>
         </div>
 
+        <div className="flex flex-wrap gap-2 border-b border-hairline px-4 py-2">
+          {FILTER_OPTIONS.map(([id, label]) => (
+            <button key={id} onClick={() => setFilter(id)} className={`rounded px-2 py-1 text-xs ${filter === id ? 'bg-ink text-paper' : 'bg-surface text-muted'}`}>{label}</button>
+          ))}
+        </div>
         {actionError && (
           <p className="border-b border-hairline px-4 py-2 text-[12px] font-medium text-amber-brand">
             {actionError}
@@ -184,36 +200,79 @@ export default function RosterView({
         )}
         {loading ? (
           <p className="px-4 py-14 text-center text-sm text-muted">Loading roster from Supabase…</p>
-        ) : employees.length === 0 ? (
+        ) : filteredEmployees.length === 0 ? (
           <p className="px-4 py-14 text-center text-sm text-muted">
             No employees yet. Download the Excel template or add your first employee manually.
           </p>
         ) : (
-          <>
-            {/* Mobile (< md): stacked cards so the table never overflows. */}
-            <div className="divide-y divide-hairline md:hidden">
-              {employees.map((e) => (
-                <div key={e.id} className="space-y-3 px-4 py-4">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <p className="truncate font-medium">{e.fullName}</p>
-                      <p className="text-[12px] text-muted">{e.empId}</p>
-                    </div>
-                    <span className="shrink-0 rounded bg-surface px-1.5 py-0.5 text-[11px] font-semibold">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-hairline text-left text-[11px] uppercase tracking-wide text-muted">
+                <th className="px-4 py-2 font-semibold">Employee</th>
+                <th className="px-4 py-2 font-semibold">Entity</th>
+                <th className="px-4 py-2 font-semibold">Role</th>
+                <th className="px-4 py-2 text-right font-semibold">Compensation</th>
+                <th className="px-4 py-2 text-right font-semibold">Flex bank</th>
+                <th className="px-4 py-2 text-right font-semibold">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-hairline">
+              {filteredEmployees.map((e) => (
+                <tr key={e.id} className="hover:bg-surface/60">
+                  <td className="px-4 py-2.5">
+                    <p className="font-medium">{e.fullName}</p>
+                    <p className="text-[12px] text-muted">{e.empId}</p>
+                  </td>
+                  <td className="px-4 py-2.5">
+                    <span className="rounded bg-surface px-1.5 py-0.5 text-[11px] font-semibold">
                       {e.entityCode}
-                    </span>
-                  </div>
-                  <dl className="grid grid-cols-2 gap-x-4 gap-y-3 text-[12px]">
-                    <div className="min-w-0">
-                      <dt className={dtCls}>Entity</dt>
-                      <dd className="truncate text-muted">{entities[e.entityCode].name}</dd>
-                    </div>
-                    <div className="min-w-0">
-                      <dt className={dtCls}>Role</dt>
-                      <dd className="truncate">
-                        {e.designation || '—'}
-                        {e.department ? ` · ${e.department}` : ''}
-                      </dd>
+                    </span>{' '}
+                    <span className="text-[12px] text-muted">{entities[e.entityCode].name}</span>
+                  </td>
+                  <td className="px-4 py-2.5">
+                    <p>{e.designation || '—'}</p>
+                    <p className="text-[12px] text-muted">{e.department}</p>
+                  </td>
+                  <td className="amount px-4 py-2.5 text-right font-medium">
+                    {formatINR(e.compensationAmount)}
+                    <p className="text-[11px] text-muted">{compensationLabelForPaymentType(e.paymentType)}</p>
+                  </td>
+                  <td className="amount px-4 py-2.5 text-right">
+                    {formatMinutes(e.flexBankBalance)}
+                  </td>
+                  <td className="px-4 py-2.5">
+                    <div className="flex justify-end gap-1">
+                      <button
+                        title="Generate slip"
+                        className="rounded p-1.5 text-muted hover:bg-surface hover:text-ink"
+                        onClick={() => {
+                          setGeneratorEmployeeId(e.id);
+                          onGenerateFor();
+                        }}
+                      >
+                        <FilePlus2 size={15} />
+                      </button>
+                      <button
+                        title="Adjust flex bank"
+                        className="rounded p-1.5 text-muted hover:bg-surface hover:text-ink"
+                        onClick={() => setFlexTarget(e)}
+                      >
+                        <Timer size={15} />
+                      </button>
+                      <button
+                        title="Edit"
+                        className="rounded p-1.5 text-muted hover:bg-surface hover:text-ink"
+                        onClick={() => setFormTarget(e)}
+                      >
+                        <Pencil size={15} />
+                      </button>
+                      <button
+                        title="Archive / Offboard"
+                        className="rounded p-1.5 text-muted hover:bg-surface hover:text-amber-brand"
+                        onClick={() => setArchiveTarget(e)}
+                      >
+                        <Trash2 size={15} />
+                      </button>
                     </div>
                     <div>
                       <dt className={dtCls}>Base salary</dt>
@@ -279,11 +338,30 @@ export default function RosterView({
         <EmployeeFormModal
           employee={formTarget === 'new' ? null : formTarget}
           onClose={() => setFormTarget(null)}
-          onSaved={onRefresh}
+          onSaved={async () => {
+            setSaveStatus('saved');
+            setToastMessage(
+              formTarget === 'new' ? 'Employee added to Supabase.' : 'Employee updated in Supabase.',
+            );
+            await onRefresh();
+          }}
+          onSaveStart={() => setSaveStatus('saving')}
+          onSaveFailed={(message) => {
+            setSaveStatus('failed');
+            setActionError(message);
+          }}
         />
       )}
       {flexTarget && (
-        <FlexAdjustModal employee={flexTarget} onClose={() => setFlexTarget(null)} onSaved={onRefresh} />
+        <FlexAdjustModal
+          employee={flexTarget}
+          onClose={() => setFlexTarget(null)}
+          onSaved={async () => {
+            setSaveStatus('saved');
+            setToastMessage('Flex bank updated in Supabase.');
+            await onRefresh();
+          }}
+        />
       )}
       {deleteTarget && (
         <Modal title="Delete employee?" onClose={() => setDeleteTarget(null)}>
@@ -298,6 +376,24 @@ export default function RosterView({
             </button>
             <button className={btnPrimary} onClick={() => void handleDelete()} disabled={deleting}>
               {deleting ? 'Deleting…' : 'Delete'}
+            </button>
+          </div>
+        </Modal>
+      )}
+      {archiveTarget && (
+        <Modal title="Archive / offboard person?" onClose={() => setArchiveTarget(null)}>
+          <p className="text-sm">
+            Archive <strong>{archiveTarget.fullName}</strong> from active roster? Historical statements stay available and this person can still be viewed in history.
+          </p>
+          <div className="mt-3 rounded border border-amber-edge bg-amber-tint p-2 text-xs text-amber-brand">
+            Hard delete is still available as an admin danger action.
+          </div>
+          <div className="mt-5 flex justify-end gap-2">
+            <button className={btnSecondary} onClick={() => setArchiveTarget(null)} disabled={archiving}>
+              Cancel
+            </button>
+            <button className={btnPrimary} onClick={() => void handleArchive()} disabled={archiving}>
+              {archiving ? 'Archiving…' : 'Archive / Offboard'}
             </button>
           </div>
         </Modal>

@@ -1,6 +1,6 @@
 import type { Metadata, Viewport } from 'next';
 import './globals.css';
-import AppShell from '@/components/AppShell';
+import AppHeader from '@/components/AppHeader';
 
 export const dynamic = 'force-dynamic';
 
@@ -20,8 +20,9 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
-      <body>
-        <AppShell>{children}</AppShell>
+      <body className="min-h-screen">
+        <AppHeader />
+        <main className="no-print mx-auto max-w-[1400px] px-6 py-6">{children}</main>
       </body>
     </html>
   );

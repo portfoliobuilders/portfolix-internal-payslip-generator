@@ -15,28 +15,22 @@ import type { AuthorisedSlipYtd, SlipSnapshot } from '@/lib/types';
 import { useHRStore } from '@/store/useHRStore';
 import AuthorisedSlip from './AuthorisedSlip';
 import SalarySlip from './SalarySlip';
-import Toast from './Toast';
-import { Modal, btnPrimary, btnSecondary, inputCls } from './ui';
-import { useEffect, useMemo, useState } from 'react';
-import { createPortal } from 'react-dom';
-import { Download, Eye, FileBadge2, Printer, Trash2, X } from 'lucide-react';
-import {
-  deletePayrollSlip,
-  fetchAuthorisedSlipYtd,
-  logAuthorisedSlipGeneration,
-} from '@/app/actions/payroll';
+import { btnSecondary, inputCls } from './ui';
+import { statementMetaFor } from '@/lib/workforce';
 
 interface HistoryViewProps {
   slipHistory: SlipSnapshot[];
   loading: boolean;
-  onRefresh: () => Promise<void>;
+  error?: string | null;
+  onRefresh?: () => Promise<void>;
 }
 
-export default function HistoryView({ slipHistory, loading, onRefresh }: HistoryViewProps) {
+export default function HistoryView({ slipHistory, loading, error, onRefresh }: HistoryViewProps) {
   const settings = useHRStore((s) => s.settings);
 
   const [employeeFilter, setEmployeeFilter] = useState('');
   const [monthFilter, setMonthFilter] = useState('');
+  const [statementFilter, setStatementFilter] = useState('');
   const [viewing, setViewing] = useState<SlipSnapshot | null>(null);
   const [exportTarget, setExportTarget] = useState<SlipSnapshot | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<SlipSnapshot | null>(null);
@@ -80,8 +74,13 @@ export default function HistoryView({ slipHistory, loading, onRefresh }: History
       [...slipHistory]
         .filter((s) => (employeeFilter ? s.employeeId === employeeFilter : true))
         .filter((s) => (monthFilter ? s.monthYear === monthFilter : true))
+        .filter((s) => {
+          if (!statementFilter) return true;
+          const title = statementMetaFor(s.employee.paymentType, s.employee.engagementType, s.employee.employmentStatus).statementTitle;
+          return title === statementFilter;
+        })
         .sort((a, b) => b.generatedAt.localeCompare(a.generatedAt)),
-    [slipHistory, employeeFilter, monthFilter],
+    [slipHistory, employeeFilter, monthFilter, statementFilter],
   );
 
   /**
@@ -95,7 +94,16 @@ export default function HistoryView({ slipHistory, loading, onRefresh }: History
     if (el) {
       await exportElementToPdf(
         el,
-        slipFilename(snapshot.monthYear, snapshot.employee.empId, snapshot.status === 'draft'),
+        slipFilename(
+          snapshot.monthYear,
+          snapshot.employee.empId,
+          snapshot.status === 'draft',
+          statementMetaFor(
+            snapshot.employee.paymentType,
+            snapshot.employee.engagementType,
+            snapshot.employee.employmentStatus,
+          ).statementTitle.replace(/\s+/g, ''),
+        ),
       );
     }
     setExportTarget(null);
@@ -252,45 +260,28 @@ export default function HistoryView({ slipHistory, loading, onRefresh }: History
     return <p className="py-20 text-center text-sm text-muted">Loading slip history from Supabase…</p>;
   }
 
-  const iconAction =
-    'flex h-11 w-11 items-center justify-center rounded-md text-muted transition-colors duration-150 hover:bg-surface hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink/20 disabled:cursor-not-allowed disabled:opacity-40 lg:h-9 lg:w-9';
-  const dtCls = 'text-[10px] font-semibold uppercase tracking-wide text-muted';
-
-  const renderActions = (s: SlipSnapshot) => (
-    <div className="flex justify-end gap-1">
-      <button title="View slip" aria-label="View slip" className={iconAction} onClick={() => setViewing(s)}>
-        <Eye size={16} />
-      </button>
-      <button
-        title="Re-download PDF (from stored snapshot)"
-        aria-label="Re-download PDF"
-        className={iconAction}
-        disabled={exportTarget !== null || bankCopyBusy}
-        onClick={() => void redownload(s)}
-      >
-        <Download size={16} />
-      </button>
-      <BankCopyButton snapshot={s} compact />
-      <button
-        title="Delete from history"
-        aria-label="Delete from history"
-        className={`${iconAction} hover:text-amber-brand`}
-        disabled={deleting}
-        onClick={() => {
-          setDeleteError(null);
-          setDeleteTarget(s);
-        }}
-      >
-        <Trash2 size={16} />
-      </button>
-    </div>
-  );
+  if (error) {
+    return (
+      <div className="rounded-lg border border-amber-edge bg-amber-tint px-4 py-6 text-center">
+        <p className="text-sm font-medium text-amber-brand">Could not load slip history</p>
+        <p className="mt-1 text-[12px] text-muted">{error}</p>
+        {onRefresh && (
+          <button
+            className="mt-4 rounded-md bg-ink px-3 py-1.5 text-sm font-medium text-paper"
+            onClick={() => void onRefresh()}
+          >
+            Retry
+          </button>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-4">
       <div className="flex flex-col gap-3 rounded-lg border border-hairline bg-paper px-4 py-3 shadow-card sm:flex-row sm:flex-wrap sm:items-end">
         <div>
-          <h1 className="text-sm font-semibold">Slip History</h1>
+            <h1 className="text-sm font-semibold">Payment History</h1>
           <p className="text-[12px] text-muted">
             {filtered.length} of {slipHistory.length} snapshot{slipHistory.length === 1 ? '' : 's'} ·
             re-downloads always use the stored snapshot, never recomputed
@@ -307,8 +298,18 @@ export default function HistoryView({ slipHistory, loading, onRefresh }: History
             </select>
           </label>
           <label className="block">
-            <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-[0.08em] text-muted">Month</span>
-            <input type="month" className={`${inputCls} w-full sm:w-40`} value={monthFilter} onChange={(e) => setMonthFilter(e.target.value)} />
+            <span className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-muted">Type</span>
+            <select className={`${inputCls} w-56`} value={statementFilter} onChange={(e) => setStatementFilter(e.target.value)}>
+              <option value="">All statements</option>
+              <option value="Salary Slip">Salary Slips</option>
+              <option value="Stipend Statement">Stipend Statements</option>
+              <option value="Professional Fee Statement">Professional Fee Statements</option>
+              <option value="Consultancy Fee Statement">Consultancy Fee Statements</option>
+            </select>
+          </label>
+          <label className="block">
+            <span className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-muted">Month</span>
+            <input type="month" className={`${inputCls} w-40`} value={monthFilter} onChange={(e) => setMonthFilter(e.target.value)} />
           </label>
         </div>
       </div>
@@ -316,24 +317,52 @@ export default function HistoryView({ slipHistory, loading, onRefresh }: History
       <div className="overflow-hidden rounded-lg border border-hairline bg-paper shadow-card">
         {filtered.length === 0 ? (
           <p className="px-4 py-14 text-center text-sm text-muted">
-            No slips match. Generate a slip from the Generator tab — every export lands here.
+            {slipHistory.length === 0
+              ? 'No slips yet. Generate a slip from the Generator page — every export is saved to Supabase.'
+              : 'No slips match the current filters.'}
           </p>
         ) : (
-          <>
-            <div className="divide-y divide-hairline md:hidden">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-hairline text-left text-[11px] uppercase tracking-wide text-muted">
+                <th className="px-4 py-2 font-semibold">Employee</th>
+                <th className="px-4 py-2 font-semibold">Pay month</th>
+                <th className="px-4 py-2 font-semibold">Status</th>
+                <th className="px-4 py-2 font-semibold">Engagement / Payment</th>
+                <th className="px-4 py-2 text-right font-semibold">Net pay</th>
+                <th className="px-4 py-2 font-semibold">Generated</th>
+                <th className="px-4 py-2 text-right font-semibold">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-hairline">
               {filtered.map((s) => (
-                <div key={s.id} className="space-y-3 px-4 py-4">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <p className="truncate font-medium">{s.employee.fullName}</p>
-                      <p className="text-[12px] text-muted">{s.employee.empId}</p>
-                    </div>
-                    <StatusBadge status={s.status} />
-                  </div>
-                  <dl className="grid grid-cols-2 gap-x-4 gap-y-3 text-[12px]">
-                    <div>
-                      <dt className={dtCls}>Pay month</dt>
-                      <dd>{formatMonthYear(s.monthYear)}</dd>
+                <tr key={s.id} className="hover:bg-surface/60">
+                  <td className="px-4 py-2.5">
+                    <p className="font-medium">{s.employee.fullName}</p>
+                    <p className="text-[12px] text-muted">{s.employee.empId}</p>
+                  </td>
+                  <td className="px-4 py-2.5">{formatMonthYear(s.monthYear)}</td>
+                  <td className="px-4 py-2.5"><StatusBadge status={s.status} /></td>
+                  <td className="px-4 py-2.5 text-[12px] text-muted">{s.employee.engagementType} / {s.employee.paymentType}</td>
+                  <td className="amount px-4 py-2.5 text-right font-medium">{formatINR(s.computed.netPay)}</td>
+                  <td className="px-4 py-2.5 text-[12px] text-muted">{formatDate(s.generatedAt)}</td>
+                  <td className="px-4 py-2.5">
+                    <div className="flex justify-end gap-1">
+                      <button
+                        title="View slip"
+                        className="rounded p-1.5 text-muted hover:bg-surface hover:text-ink"
+                        onClick={() => setViewing(s)}
+                      >
+                        <Eye size={15} />
+                      </button>
+                      <button
+                        title="Re-download PDF (from stored snapshot)"
+                        className="rounded p-1.5 text-muted hover:bg-surface hover:text-ink"
+                        disabled={exportTarget !== null}
+                        onClick={() => void redownload(s)}
+                      >
+                        <Download size={15} />
+                      </button>
                     </div>
                     <div>
                       <dt className={dtCls}>Net pay</dt>

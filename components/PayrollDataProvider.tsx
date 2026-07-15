@@ -1,30 +1,36 @@
 'use client';
 
-/**
- * Shares a single payroll-data fetch across all route pages.
- *
- * usePayrollData() runs its Supabase fetch once here, in the provider that
- * lives in the persistent app shell. Because the shell layout does NOT remount
- * when navigating between /, /generator, /history and /settings, the data is
- * fetched once and reused — switching tabs stays instant, no re-fetch.
- */
-
-import { createContext, useContext, type ReactNode } from 'react';
+import AppShell from '@/components/AppShell';
+import { useAppSettings } from '@/hooks/useAppSettings';
 import { usePayrollData } from '@/hooks/usePayrollData';
+import { createContext, useContext } from 'react';
+import type { Employee, SlipSnapshot } from '@/lib/types';
 
-type PayrollData = ReturnType<typeof usePayrollData>;
-
-const PayrollDataContext = createContext<PayrollData | null>(null);
-
-export function PayrollDataProvider({ children }: { children: ReactNode }) {
-  const value = usePayrollData();
-  return <PayrollDataContext.Provider value={value}>{children}</PayrollDataContext.Provider>;
+interface PayrollDataContextValue {
+  employees: Employee[];
+  slipHistory: SlipSnapshot[];
+  loading: boolean;
+  error: string | null;
+  refresh: () => Promise<void>;
+  setEmployees: React.Dispatch<React.SetStateAction<Employee[]>>;
+  setSlipHistory: React.Dispatch<React.SetStateAction<SlipSnapshot[]>>;
 }
 
-export function usePayrollContext(): PayrollData {
+const PayrollDataContext = createContext<PayrollDataContextValue | null>(null);
+
+export function usePayrollDataContext(): PayrollDataContextValue {
   const ctx = useContext(PayrollDataContext);
-  if (!ctx) {
-    throw new Error('usePayrollContext must be used within <PayrollDataProvider>.');
-  }
+  if (!ctx) throw new Error('usePayrollDataContext must be used within PayrollDataProvider');
   return ctx;
+}
+
+export default function PayrollDataProvider({ children }: { children: React.ReactNode }) {
+  const payrollData = usePayrollData();
+  useAppSettings();
+
+  return (
+    <PayrollDataContext.Provider value={payrollData}>
+      <AppShell>{children}</AppShell>
+    </PayrollDataContext.Provider>
+  );
 }
