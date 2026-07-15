@@ -52,14 +52,6 @@ export function createMockSupabaseClient(): SupabaseClient {
           data: null,
           error: missingCredentialsError,
         }),
-        remove: async () => ({
-          data: null,
-          error: missingCredentialsError,
-        }),
-        createSignedUrl: async () => ({
-          data: null,
-          error: missingCredentialsError,
-        }),
         getPublicUrl: () => ({
           data: { publicUrl: '' },
         }),

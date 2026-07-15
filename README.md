@@ -3,33 +3,8 @@
 A workforce payment statement generator for Portfolix Enterprise Pvt Ltd and its brands (Portfolio Builders,
 Portfolix.tech, Portfolix Hub). A stopgap for the HR team until the official Portfolix EMS ships.
 
-**Supabase-backed.** Employees, slip history, payroll settings, and entity branding (including
-custom logos) are stored in the cloud and survive browser reloads.
-
-## Routes
-
-| URL | Page |
-|-----|------|
-| `/employee-roster` | Employee Roster |
-| `/generator` | Slip Generator |
-| `/history` | Slip History |
-| `/settings` | Payroll & Entity Settings |
-| `/` | Redirects to `/employee-roster` |
-
-Friendly aliases (e.g. `/roster`, `/EmployeeRoster`, `/Settings`) redirect to the canonical routes.
-
-## Data stored in Supabase
-
-| Data | Table | When saved |
-|------|-------|------------|
-| Employees | `employees` | Immediately on add, edit, delete, or bulk upload |
-| Slip history | `payroll_slips` | When a draft or final slip is generated/exported |
-| App settings | `app_settings` | When you click **Save Settings** on the Settings page |
-| Entity branding & logos | `app_settings.entity_branding` (JSONB) | With **Save Settings** |
-
-Temporary UI state (active modal, filter text, generator form drafts) stays in the browser only.
-
-> The old handbook has been added as a reference source only. It is not automatically enforced by the app. Any policy implementation requires founder approval.
+**Supabase-backed.** Employees, slip history, payroll settings, and entity branding are stored in
+the cloud.
 
 ## Features
 

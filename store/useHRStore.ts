@@ -56,26 +56,6 @@ export const SEED_SETTINGS: Settings = {
 
 interface HRState {
   settings: Settings;
-  savedSettings: Settings;
-  settingsLoading: boolean;
-  settingsError: string | null;
-  settingsSaving: boolean;
-  settingsSaveError: string | null;
-  settingsSavedAt: string | null;
-  hydrateSettings: (settings: Settings) => void;
-  setSettingsLoading: (loading: boolean) => void;
-  setSettingsError: (error: string | null) => void;
-export type SettingsSaveState = 'idle' | 'saving' | 'saved' | 'error';
-
-const AUTOSAVE_MS = 700;
-
-let autosaveTimer: ReturnType<typeof setTimeout> | null = null;
-let suppressAutosave = false;
-
-interface HRState {
-  settings: Settings;
-  saveState: SettingsSaveState;
-  saveError: string | null;
   setSettings: (settings: Settings) => void;
   updateSettings: (patch: Partial<Settings>) => void;
   updateEntity: (code: EntityCode, patch: Partial<EntityInfo>) => void;
@@ -110,25 +90,7 @@ function scheduleAutosave(get: () => HRState, set: (partial: Partial<HRState>) =
 
 export const useHRStore = create<HRState>((set, get) => ({
   settings: SEED_SETTINGS,
-  savedSettings: SEED_SETTINGS,
-  settingsLoading: true,
-  settingsError: null,
-  settingsSaving: false,
-  settingsSaveError: null,
-  settingsSavedAt: null,
-
-  hydrateSettings: (settings) =>
-    set({
-      settings,
-      savedSettings: settings,
-      settingsLoading: false,
-      settingsError: null,
-      settingsSaveError: null,
-    }),
-
-  setSettingsLoading: (loading) => set({ settingsLoading: loading }),
-
-  setSettingsError: (error) => set({ settingsError: error, settingsLoading: false }),
+  setSettings: (settings) => set({ settings }),
 
   updateSettings: (patch) =>
     set((state) => ({
