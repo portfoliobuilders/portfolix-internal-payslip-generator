@@ -5,13 +5,7 @@ import { createPortal } from 'react-dom';
 import { format } from 'date-fns';
 import { AlertTriangle, Download, Printer } from 'lucide-react';
 import { computePayroll, derivePtThisMonth, validateVariablePaid } from '@/lib/payroll-calc';
-import {
-  authorisedSlipFilename,
-  formatINR,
-  formatMinutes,
-  formatMonthYear,
-  slipFilename,
-} from '@/lib/format';
+import { formatINR, slipFilename } from '@/lib/format';
 import { exportElementToPdf } from '@/lib/pdf-export';
 import {
   fetchAuthorisedSlipYtd,

@@ -11,14 +11,7 @@
 
 import { CheckCircle2 } from 'lucide-react';
 import { FIXED_DIVISOR, slipStatutoryDeductions } from '@/lib/payroll-calc';
-import {
-  formatDate,
-  formatINR,
-  formatMinutes,
-  formatMonthYear,
-  formatPayPeriodCompact,
-  payrollCycleDates,
-} from '@/lib/format';
+import { formatDate, formatINR, formatMinutes, formatMonthYear, payrollCycleDates } from '@/lib/format';
 import type { EntityInfo, SlipSnapshot } from '@/lib/types';
 import EntityLogo from '@/components/EntityLogo';
 
@@ -144,12 +137,16 @@ export default function SalarySlip({
       )}
 
       {/* ---------- Period strip ---------- */}
-      <div className="mt-3 grid grid-cols-3 divide-x divide-hairline rounded border border-hairline bg-surface text-[10px]">
+      <div
+        className={`mt-3 grid divide-x divide-hairline rounded border border-hairline bg-surface text-[10px] ${
+          isDraft ? 'grid-cols-3' : 'grid-cols-2'
+        }`}
+      >
         <div className="px-3 py-2">
           <p className="text-[8.5px] font-semibold uppercase tracking-wider text-muted">Issue date</p>
           <p className="font-semibold">{formatDate(snapshot.generatedAt)}</p>
         </div>
-        {isDraft ? (
+        {isDraft && (
           <div className="px-3 py-2">
             <p className="text-[8.5px] font-semibold uppercase tracking-wider text-muted">
               Review window
@@ -157,13 +154,6 @@ export default function SalarySlip({
             <p className="font-semibold">
               Review queries by {formatDate(reviewDeadline)} · {reviewDeadlineTime}
             </p>
-          </div>
-        ) : (
-          <div className="px-3 py-2">
-            <p className="text-[8.5px] font-semibold uppercase tracking-wider text-muted">
-              Pay period
-            </p>
-            <p className="font-semibold">{formatPayPeriodCompact(snapshot.monthYear)}</p>
           </div>
         )}
         <div className="px-3 py-2">
