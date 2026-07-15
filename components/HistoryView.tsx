@@ -4,7 +4,7 @@ import { createSignatorySignedUrls, getSignatoryStorageStatus } from '@/app/acti
 import { computeAuthorisedYtd } from '@/lib/authorised-slip';
 import {
   authorisedSlipFilename,
-  formatDate,
+  formatDateTime,
   formatINR,
   formatMonthYear,
   slipFilename,
@@ -33,6 +33,10 @@ export default function HistoryView({ slipHistory, loading, error, onRefresh }: 
   const [statementFilter, setStatementFilter] = useState('');
   const [viewing, setViewing] = useState<SlipSnapshot | null>(null);
   const [exportTarget, setExportTarget] = useState<SlipSnapshot | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<SlipSnapshot | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   const [bankCopyPending, setBankCopyPending] = useState<SlipSnapshot | null>(null);
   const [bankCopyExport, setBankCopyExport] = useState<{
@@ -103,6 +107,22 @@ export default function HistoryView({ slipHistory, loading, error, onRefresh }: 
       );
     }
     setExportTarget(null);
+  }
+
+  async function handleDelete() {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    setDeleteError(null);
+    const result = await deletePayrollSlip(deleteTarget.id);
+    setDeleting(false);
+    if (!result.ok) {
+      setDeleteError(result.error);
+      return;
+    }
+    if (viewing?.id === deleteTarget.id) setViewing(null);
+    setDeleteTarget(null);
+    setToastMessage('Slip removed from history.');
+    await onRefresh();
   }
 
   async function generateBankCopy(snapshot: SlipSnapshot) {
@@ -350,7 +370,7 @@ export default function HistoryView({ slipHistory, loading, error, onRefresh }: 
                     </div>
                     <div>
                       <dt className={dtCls}>Generated</dt>
-                      <dd className="text-muted">{formatDate(s.generatedAt)}</dd>
+                      <dd className="text-muted">{formatDateTime(s.generatedAt)}</dd>
                     </div>
                   </dl>
                   {renderActions(s)}
@@ -380,7 +400,9 @@ export default function HistoryView({ slipHistory, loading, error, onRefresh }: 
                       <td className="px-4 py-2.5">{formatMonthYear(s.monthYear)}</td>
                       <td className="px-4 py-2.5"><StatusBadge status={s.status} /></td>
                       <td className="amount px-4 py-2.5 text-right font-medium">{formatINR(s.computed.netPay)}</td>
-                      <td className="px-4 py-2.5 text-[12px] text-muted">{formatDate(s.generatedAt)}</td>
+                      <td className="px-4 py-2.5 text-[12px] text-muted whitespace-nowrap">
+                        {formatDateTime(s.generatedAt)}
+                      </td>
                       <td className="px-4 py-2.5">{renderActions(s)}</td>
                     </tr>
                   ))}
@@ -510,6 +532,45 @@ export default function HistoryView({ slipHistory, loading, error, onRefresh }: 
           </div>
         </Modal>
       )}
+
+      {deleteTarget && (
+        <Modal
+          title="Delete slip from history?"
+          onClose={() => {
+            if (!deleting) setDeleteTarget(null);
+          }}
+        >
+          <p className="text-sm text-ink">
+            Permanently remove the stored snapshot for{' '}
+            <strong>{deleteTarget.employee.fullName}</strong> ({deleteTarget.employee.empId}) ·{' '}
+            {formatMonthYear(deleteTarget.monthYear)}
+            {deleteTarget.status === 'final' ? ' (Final)' : ' (Draft)'}?
+          </p>
+          <p className="mt-2 text-[12px] text-muted">
+            Re-download and bank copy will no longer be available for this entry. Employee flex-bank
+            balance is not changed.
+          </p>
+          {deleteError && (
+            <p className="mt-3 rounded-md border border-amber-edge bg-amber-tint px-3 py-2 text-[12px] text-amber-brand">
+              {deleteError}
+            </p>
+          )}
+          <div className="mt-5 flex justify-end gap-2">
+            <button
+              className={btnSecondary}
+              disabled={deleting}
+              onClick={() => setDeleteTarget(null)}
+            >
+              Cancel
+            </button>
+            <button className={btnPrimary} disabled={deleting} onClick={() => void handleDelete()}>
+              {deleting ? 'Deleting…' : 'Delete'}
+            </button>
+          </div>
+        </Modal>
+      )}
+
+      {toastMessage && <Toast message={toastMessage} onClose={() => setToastMessage(null)} />}
     </div>
   );
 }
