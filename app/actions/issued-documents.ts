@@ -12,9 +12,19 @@ export type ActionResult<T> =
   | { ok: true; data: T }
   | { ok: false; error: string };
 
+export interface IssuedAuthorisedDocument {
+  documentNumber: string;
+  publicVerificationId: string;
+  verificationUrl: string;
+  verificationFingerprint: string;
+  revisionNumber: number;
+  reused: boolean;
+}
+
 /**
  * Register an issued AUTHORISED salary slip with a secure verification ID.
  * Does not fabricate payment state — caller must pass PAID gate first.
+ * Reprints reuse the existing ISSUED document (never invent a second active authorised slip).
  */
 export async function issueAuthorisedSalarySlipDocument(input: {
   snapshot: SlipSnapshot;
@@ -27,20 +37,44 @@ export async function issueAuthorisedSalarySlipDocument(input: {
   signatoryDesignation?: string | null;
   verificationBaseUrl: string;
   issuedBy?: string;
-}): Promise<
-  ActionResult<{
-    documentNumber: string;
-    publicVerificationId: string;
-    verificationUrl: string;
-    verificationFingerprint: string;
-    revisionNumber: number;
-  }>
-> {
+}): Promise<ActionResult<IssuedAuthorisedDocument>> {
   try {
     if (!input.actualCreditDate) {
-      return { ok: false, error: 'Actual salary-credit date is required for authorised slip issuance.' };
+      return {
+        ok: false,
+        error: 'Actual salary-credit date is required for authorised slip issuance.',
+      };
     }
     const supabase = await createClient();
+
+    const { data: existing } = await supabase
+      .from('payroll_issued_documents')
+      .select('*')
+      .eq('payroll_record_id', input.snapshot.id)
+      .eq('document_type', 'AUTHORISED_SALARY_SLIP')
+      .eq('document_status', 'ISSUED')
+      .maybeSingle();
+
+    if (existing) {
+      const publicVerificationId = String(existing.public_verification_id);
+      return {
+        ok: true,
+        data: {
+          documentNumber: String(existing.document_number),
+          publicVerificationId,
+          verificationUrl: buildVerificationUrl(
+            input.verificationBaseUrl,
+            publicVerificationId,
+          ),
+          verificationFingerprint: existing.verification_fingerprint
+            ? String(existing.verification_fingerprint)
+            : '',
+          revisionNumber: Number(existing.revision_number ?? 1),
+          reused: true,
+        },
+      };
+    }
+
     const publicVerificationId = generatePublicVerificationId();
     const revisionNumber = input.snapshot.revisionNumber ?? 1;
     const documentNumber = `PX-AUTH-${input.snapshot.monthYear}-${input.snapshot.employee.empId}-R${revisionNumber}`;
@@ -98,6 +132,7 @@ export async function issueAuthorisedSalarySlipDocument(input: {
         ),
         verificationFingerprint: fingerprint,
         revisionNumber,
+        reused: false,
       },
     };
   } catch (err) {
