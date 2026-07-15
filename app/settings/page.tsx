@@ -1,64 +1,50 @@
-'use client';
-
-import { useEffect, useState } from 'react';
-import SettingsView from '@/components/SettingsView';
-import { upsertAppSettings } from '@/app/actions/payroll';
-import { useHRStore } from '@/store/useHRStore';
+import { COMPANY_ENTITIES, PAYROLL_CONTACT } from '@/lib/constants/company';
 
 export default function SettingsPage() {
-  const settings = useHRStore((s) => s.settings);
-  const settingsLoading = useHRStore((s) => s.settingsLoading);
-  const settingsError = useHRStore((s) => s.settingsError);
-  const settingsSaving = useHRStore((s) => s.settingsSaving);
-  const settingsSaveError = useHRStore((s) => s.settingsSaveError);
-  const settingsSavedAt = useHRStore((s) => s.settingsSavedAt);
-  const hasUnsavedSettings = useHRStore((s) => s.hasUnsavedSettings);
-  const markSettingsSaved = useHRStore((s) => s.markSettingsSaved);
-  const setSettingsSaving = useHRStore((s) => s.setSettingsSaving);
-  const setSettingsSaveError = useHRStore((s) => s.setSettingsSaveError);
-  const setSettingsError = useHRStore((s) => s.setSettingsError);
-  const setSettingsLoading = useHRStore((s) => s.setSettingsLoading);
-  const hydrateSettings = useHRStore((s) => s.hydrateSettings);
-  const [mounted, setMounted] = useState(false);
-
-  useEffect(() => setMounted(true), []);
-
-  async function reload() {
-    setSettingsLoading(true);
-    setSettingsError(null);
-    const { getAppSettings } = await import('@/app/actions/payroll');
-    const result = await getAppSettings();
-    if (!result.ok) {
-      setSettingsError(result.error);
-      return;
-    }
-    hydrateSettings(result.data);
-  }
-
-  async function save() {
-    setSettingsSaving(true);
-    const result = await upsertAppSettings(settings);
-    if (!result.ok) {
-      setSettingsSaveError(result.error);
-      return;
-    }
-    markSettingsSaved(result.data);
-  }
-
-  if (!mounted) {
-    return <p className="py-20 text-center text-sm text-muted">Loading…</p>;
-  }
-
   return (
-    <SettingsView
-      loading={settingsLoading}
-      error={settingsError}
-      saving={settingsSaving}
-      saveError={settingsSaveError}
-      savedAt={settingsSavedAt}
-      hasUnsavedChanges={hasUnsavedSettings()}
-      onRetry={() => void reload()}
-      onSave={() => void save()}
-    />
+    <main className="mx-auto max-w-4xl space-y-6 px-6 py-8">
+      <div>
+        <h1 className="text-xl font-semibold text-ink">Settings</h1>
+        <p className="mt-1 text-sm text-muted">
+          Company details are configured statically in the codebase.
+        </p>
+      </div>
+
+      <section className="rounded-lg border border-hairline bg-paper p-5">
+        <h2 className="text-sm font-semibold text-ink">Payroll contact</h2>
+        <p className="mt-2 text-sm text-muted">{PAYROLL_CONTACT}</p>
+      </section>
+
+      <section className="space-y-4">
+        {COMPANY_ENTITIES.map((entity) => (
+          <article key={entity.id} className="rounded-lg border border-hairline bg-paper p-5">
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-muted">
+                  Display name
+                </p>
+                <p className="text-sm text-ink">{entity.displayName}</p>
+              </div>
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-muted">
+                  Legal line
+                </p>
+                <p className="text-sm text-ink">{entity.legalLine}</p>
+              </div>
+              <div className="sm:col-span-2">
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-muted">Address</p>
+                <p className="whitespace-pre-line text-sm text-ink">{entity.address}</p>
+              </div>
+              <div className="sm:col-span-2">
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-muted">
+                  Logo path
+                </p>
+                <p className="text-sm text-ink">{entity.logoPath}</p>
+              </div>
+            </div>
+          </article>
+        ))}
+      </section>
+    </main>
   );
 }

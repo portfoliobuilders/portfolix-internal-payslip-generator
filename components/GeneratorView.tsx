@@ -13,21 +13,13 @@ import {
   slipFilename,
 } from '@/lib/format';
 import { exportElementToPdf } from '@/lib/pdf-export';
-import {
-  fetchAuthorisedSlipYtd,
-  finalizePayrollSlip,
-  logAuthorisedSlipGeneration,
-  savePayrollSlip,
-} from '@/app/actions/payroll';
-import { createSignatorySignedUrls, getSignatoryStorageStatus } from '@/app/actions/signatory-assets';
-import { computeAuthorisedYtd } from '@/lib/authorised-slip';
-import { signatoryIncompleteReason } from '@/lib/settings-defaults';
-import type { AuthorisedSlipYtd, Employee, SlipSnapshot, SlipStatus } from '@/lib/types';
+import { finalizePayrollSlip, savePayrollSlip } from '@/app/actions/payroll';
+import type { Employee, EntityInfo, SlipSnapshot, SlipStatus } from '@/lib/types';
 import { generateId } from '@/lib/payroll-db';
 import { findFinalSlipForMonth, findPreviousFinalSlip } from '@/lib/payroll-helpers';
 import { useHRStore } from '@/store/useHRStore';
 import { useUIStore } from '@/store/useUIStore';
-import AuthorisedSlip from './AuthorisedSlip';
+import { COMPANY_ENTITIES, PAYROLL_CONTACT } from '@/lib/constants/company';
 import SalarySlip from './SalarySlip';
 import Toast from './Toast';
 import { Field, Modal, btnPrimary, btnSecondary, inputAmountCls, inputCls } from './ui';
@@ -135,6 +127,7 @@ export default function GeneratorView({
 
   const currentMonth = format(new Date(), 'yyyy-MM');
   const [employeeId, setEmployeeId] = useState<string>(preselectedId ?? '');
+  const [selectedEntityId, setSelectedEntityId] = useState<string>(COMPANY_ENTITIES[0].id);
   const [form, setForm] = useState<FormState>(() => emptyForm(currentMonth));
   const [mode, setMode] = useState<PreviewMode>('draft');
   const status: SlipStatus = mode === 'final' ? 'final' : 'draft';
@@ -174,7 +167,36 @@ export default function GeneratorView({
   }, [preselectedId, setGeneratorEmployeeId]);
 
   const employee = employees.find((e) => e.id === employeeId) ?? null;
-  const entity = employee ? settings.entities[employee.entityCode] : null;
+
+  useEffect(() => {
+    if (!employee) return;
+    const defaultEntityIdByCode: Record<string, string> = {
+      PX: 'portfolix-enterprise',
+      PT: 'portfolix-tech',
+      PB: 'portfolio-builders',
+      PH: 'portfolix-hub',
+    };
+    const suggestedEntityId = defaultEntityIdByCode[employee.entityCode];
+    if (suggestedEntityId) setSelectedEntityId(suggestedEntityId);
+  }, [employee]);
+
+  const selectedCompanyEntity = useMemo(
+    () => COMPANY_ENTITIES.find((entity) => entity.id === selectedEntityId) ?? COMPANY_ENTITIES[0],
+    [selectedEntityId],
+  );
+  const entity: EntityInfo | null = useMemo(
+    () =>
+      employee
+        ? {
+            name: selectedCompanyEntity.displayName,
+            legalLine: selectedCompanyEntity.legalLine,
+            addressLines: selectedCompanyEntity.address.split('\n'),
+            contact: PAYROLL_CONTACT,
+            logoDataUrl: selectedCompanyEntity.logoPath,
+          }
+        : null,
+    [employee, selectedCompanyEntity],
+  );
 
   // Rule 7: deferred opening auto-fills from the most recent FINAL slip.
   const previousFinal = useMemo(
@@ -581,13 +603,21 @@ export default function GeneratorView({
                 </select>
               </Field>
             </div>
-            {employee && (
-              <div className="col-span-2 rounded border border-hairline bg-surface px-3 py-2 text-xs">
-                <p><strong>Engagement:</strong> {employee.engagementType}</p>
-                <p><strong>Status:</strong> {employee.employmentStatus}</p>
-                <p><strong>Payment Type:</strong> {employee.paymentType}</p>
-              </div>
-            )}
+            <div className="col-span-2">
+              <Field label="Company entity shown on slip">
+                <select
+                  className={inputCls}
+                  value={selectedEntityId}
+                  onChange={(e) => setSelectedEntityId(e.target.value)}
+                >
+                  {COMPANY_ENTITIES.map((companyEntity) => (
+                    <option key={companyEntity.id} value={companyEntity.id}>
+                      {companyEntity.displayName}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+            </div>
             <Field label="Pay month" error={errors.monthYear ?? null}>
               <input
                 type="month"
@@ -937,7 +967,7 @@ export default function GeneratorView({
             <SalarySlip
               snapshot={snapshot}
               entity={entity}
-              payrollContact={settings.payrollContact}
+              payrollContact={PAYROLL_CONTACT}
               paydayDayOfMonth={settings.paydayDayOfMonth}
               reviewDeadlineTime={settings.reviewDeadlineTime}
               ledgerMismatch={ledgerMismatch}
@@ -960,7 +990,7 @@ export default function GeneratorView({
             <SalarySlip
               snapshot={snapshot}
               entity={entity}
-              payrollContact={settings.payrollContact}
+              payrollContact={PAYROLL_CONTACT}
               paydayDayOfMonth={settings.paydayDayOfMonth}
               reviewDeadlineTime={settings.reviewDeadlineTime}
               ledgerMismatch={ledgerMismatch}

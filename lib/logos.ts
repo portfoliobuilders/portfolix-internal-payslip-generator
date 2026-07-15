@@ -12,10 +12,10 @@ import { createClient } from '@/utils/supabase/client';
 
 /** Bundled fallback logos when no custom upload is saved in settings. */
 export const DEFAULT_ENTITY_LOGOS: Record<EntityCode, string> = {
-  PX: '/logos/portfolix-enterprise.svg',
-  PB: '/logos/portfolio-builders.svg',
-  PT: '/logos/portfolix-tech.svg',
-  PH: '/logos/portfolix-hub.svg',
+  PX: '/logos/portfolix-enterprise.png',
+  PB: '/logos/portfolio-builders.png',
+  PT: '/logos/portfolix-tech.png',
+  PH: '/logos/portfolix-hub.png',
 };
 
 /** Max upload size — keeps localStorage backups reasonable. */
