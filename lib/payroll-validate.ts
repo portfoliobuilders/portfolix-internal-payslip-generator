@@ -15,6 +15,7 @@ export type PayrollWorkflowStatus =
   | 'PAYMENT_PENDING'
   | 'PAID'
   | 'FINAL'
+  | 'FINALISED'
   | 'CANCELLED'
   | 'SUPERSEDED';
 
@@ -46,6 +47,12 @@ export interface AttendanceTotals {
 
 export interface FinalizationContext {
   monthYear: string;
+  /**
+   * Server-computed attendance period end (yyyy-MM-dd).
+   * Preferred over calendar-month inference.
+   */
+  attendancePeriodEnd?: string | null;
+  attendancePeriodStart?: string | null;
   /** Wall-clock "now" (injectable for tests). */
   now?: Date;
   workflowStatus: PayrollWorkflowStatus;
@@ -65,6 +72,8 @@ export interface FinalizationContext {
     | 'REVERSED'
     | 'CANCELLED'
     | 'UNDER_RECONCILIATION'
+    | 'NO_SALARY_DUE'
+    | 'SALARY_WAIVED'
     /** @deprecated Phase 2 legacy alias — treat as NOT_SCHEDULED */
     | 'UNPAID';
   salaryCreditDate: string | null;
@@ -76,13 +85,28 @@ export interface FinalizationContext {
   enforceStrictGates: boolean;
 }
 
+/**
+ * @deprecated Calendar-month end — only for CALENDAR_MONTH cycle or legacy rows
+ * lacking attendance_period_end. Prefer attendancePeriodEnd.
+ */
 export function payPeriodEnd(monthYear: string): Date {
   const start = parse(monthYear, 'yyyy-MM', new Date());
   if (!isValid(start)) throw new Error(`Invalid monthYear: ${monthYear}`);
   return endOfMonth(start);
 }
 
-export function isPayPeriodEnded(monthYear: string, now = new Date()): boolean {
+/** True when attendance cycle (or calendar fallback) has ended. */
+export function isPayPeriodEnded(
+  monthYear: string,
+  now = new Date(),
+  attendancePeriodEnd?: string | null,
+): boolean {
+  if (attendancePeriodEnd) {
+    const end = parse(attendancePeriodEnd, 'yyyy-MM-dd', new Date());
+    if (isValid(end)) {
+      return !isBefore(startOfDay(now), startOfDay(end));
+    }
+  }
   return !isBefore(startOfDay(now), startOfDay(payPeriodEnd(monthYear)));
 }
 
@@ -217,13 +241,19 @@ export function validateClientComputedMatch(
 export function validateFinalization(ctx: FinalizationContext): ValidationIssue[] {
   const issues: ValidationIssue[] = [];
   const now = ctx.now ?? new Date();
-  const periodEnded = isPayPeriodEnded(ctx.monthYear, now);
+  const periodEnded = isPayPeriodEnded(
+    ctx.monthYear,
+    now,
+    ctx.attendancePeriodEnd,
+  );
 
   if (!periodEnded) {
     issues.push({
       severity: ctx.enforceStrictGates ? 'error' : 'warning',
       code: 'PERIOD_NOT_ENDED',
-      message: `Pay period ${ctx.monthYear} has not ended. Final payroll cannot be issued yet.`,
+      message: ctx.attendancePeriodEnd
+        ? `Attendance cycle ending ${ctx.attendancePeriodEnd} has not ended. Final payroll cannot be issued yet.`
+        : `Pay period ${ctx.monthYear} has not ended. Final payroll cannot be issued yet.`,
     });
   }
 
@@ -262,19 +292,29 @@ export function validateFinalization(ctx: FinalizationContext): ValidationIssue[
 
   if (ctx.salaryCreditDate) {
     const credit = parse(ctx.salaryCreditDate, 'yyyy-MM-dd', new Date());
-    const periodEnd = payPeriodEnd(ctx.monthYear);
-    if (isValid(credit) && isBefore(credit, startOfDay(periodEnd))) {
+    const periodEnd = ctx.attendancePeriodEnd
+      ? parse(ctx.attendancePeriodEnd, 'yyyy-MM-dd', new Date())
+      : payPeriodEnd(ctx.monthYear);
+    if (isValid(credit) && isValid(periodEnd) && isBefore(credit, startOfDay(periodEnd))) {
       issues.push({
         severity: 'error',
         code: 'CREDIT_BEFORE_PERIOD_END',
-        message: 'Salary credit date cannot be before the payroll period ends.',
+        message: 'Actual salary credit date cannot be before the attendance period ends.',
+      });
+    }
+    if (isValid(credit) && isAfter(startOfDay(credit), startOfDay(now))) {
+      issues.push({
+        severity: 'error',
+        code: 'FUTURE_CREDIT_DATE',
+        message: 'Actual credit date cannot be in the future.',
       });
     }
     if (ctx.paymentStatus !== 'PAID') {
       issues.push({
         severity: 'error',
         code: 'CREDIT_DATE_WITHOUT_PAID',
-        message: 'Salary credit date requires payment status PAID. Use expected payment date until then.',
+        message:
+          'Actual salary credit date requires payment status PAID. Use Expected Payment Date until then.',
       });
     }
   }

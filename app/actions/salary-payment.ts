@@ -44,14 +44,26 @@ interface ObligationRow {
   payment_status: SalaryPaymentObligation['paymentStatus'];
   document_status: SalaryPaymentObligation['documentStatus'];
   original_statutory_due_date: string;
+  original_due_date?: string | null;
   company_committed_date: string | null;
+  scheduled_payment_date?: string | null;
   revised_expected_date: string | null;
   actual_final_credit_date: string | null;
+  transfer_initiated_at?: string | null;
+  processed_at?: string | null;
+  final_settlement_date?: string | null;
   overdue_event_at: string | null;
   confirmed_paid_amount: number;
   outstanding_amount: number;
   last_payment_date: string | null;
   timeliness: SalaryPaymentObligation['timeliness'];
+  exception_kind?: SalaryPaymentObligation['exceptionKind'];
+  exception_reason?: string | null;
+  exception_approval_reference?: string | null;
+  exception_approved_by?: string | null;
+  exception_approved_at?: string | null;
+  exception_evidence_path?: string | null;
+  tax_accounting_review_status?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -122,14 +134,26 @@ function rowToObligation(row: ObligationRow): SalaryPaymentObligation {
     paymentStatus: row.payment_status,
     documentStatus: row.document_status,
     originalStatutoryDueDate: row.original_statutory_due_date,
+    originalDueDate: row.original_due_date ?? row.original_statutory_due_date,
     companyCommittedDate: row.company_committed_date,
+    scheduledPaymentDate: row.scheduled_payment_date ?? row.company_committed_date,
     revisedExpectedDate: row.revised_expected_date,
     actualFinalCreditDate: row.actual_final_credit_date,
+    transferInitiatedAt: row.transfer_initiated_at ?? null,
+    processedAt: row.processed_at ?? null,
+    finalSettlementDate: row.final_settlement_date ?? null,
     overdueEventAt: row.overdue_event_at,
     confirmedPaidAmount: Number(row.confirmed_paid_amount),
     outstandingAmount: Number(row.outstanding_amount),
     lastPaymentDate: row.last_payment_date,
     timeliness: row.timeliness,
+    exceptionKind: row.exception_kind ?? null,
+    exceptionReason: row.exception_reason ?? null,
+    exceptionApprovalReference: row.exception_approval_reference ?? null,
+    exceptionApprovedBy: row.exception_approved_by ?? null,
+    exceptionApprovedAt: row.exception_approved_at ?? null,
+    exceptionEvidencePath: row.exception_evidence_path ?? null,
+    taxAccountingReviewStatus: row.tax_accounting_review_status ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -145,14 +169,26 @@ function obligationToRow(o: SalaryPaymentObligation): ObligationRow {
     payment_status: o.paymentStatus,
     document_status: o.documentStatus,
     original_statutory_due_date: o.originalStatutoryDueDate,
+    original_due_date: o.originalDueDate ?? o.originalStatutoryDueDate,
     company_committed_date: o.companyCommittedDate,
+    scheduled_payment_date: o.scheduledPaymentDate ?? o.companyCommittedDate,
     revised_expected_date: o.revisedExpectedDate,
     actual_final_credit_date: o.actualFinalCreditDate,
+    transfer_initiated_at: o.transferInitiatedAt ?? null,
+    processed_at: o.processedAt ?? null,
+    final_settlement_date: o.finalSettlementDate ?? null,
     overdue_event_at: o.overdueEventAt,
     confirmed_paid_amount: o.confirmedPaidAmount,
     outstanding_amount: o.outstandingAmount,
     last_payment_date: o.lastPaymentDate,
     timeliness: o.timeliness,
+    exception_kind: o.exceptionKind ?? null,
+    exception_reason: o.exceptionReason ?? null,
+    exception_approval_reference: o.exceptionApprovalReference ?? null,
+    exception_approved_by: o.exceptionApprovedBy ?? null,
+    exception_approved_at: o.exceptionApprovedAt ?? null,
+    exception_evidence_path: o.exceptionEvidencePath ?? null,
+    tax_accounting_review_status: o.taxAccountingReviewStatus ?? null,
     created_at: o.createdAt,
     updated_at: o.updatedAt,
   };
@@ -366,6 +402,8 @@ export async function ensureSalaryPaymentObligation(input: {
   monthYear: string;
   netSalaryPayable: number;
   paydayDayOfMonth: number;
+  originalDueDate?: string | null;
+  scheduledPaymentDate?: string | null;
   companyCommittedDate?: string | null;
   actorUserId?: string;
 }): Promise<ActionResult<SalaryPaymentObligation>> {
@@ -387,6 +425,9 @@ export async function ensureSalaryPaymentObligation(input: {
       monthYear: input.monthYear,
       netSalaryPayable: input.netSalaryPayable,
       paydayDayOfMonth: input.paydayDayOfMonth,
+      originalDueDate: input.originalDueDate,
+      scheduledPaymentDate:
+        input.scheduledPaymentDate ?? input.companyCommittedDate,
       companyCommittedDate: input.companyCommittedDate,
     });
 

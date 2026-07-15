@@ -13,16 +13,18 @@ export type SalaryPaymentStatus =
   | 'PROCESSING'
   | 'PARTIALLY_PAID'
   | 'PAID'
+  | 'PAYMENT_DEFERRED'
+  | 'ON_HOLD'
+  | 'OVERDUE'
   | 'FAILED'
   | 'REJECTED_BY_BANK'
-  | 'ON_HOLD'
-  | 'PAYMENT_DEFERRED'
-  | 'OVERDUE'
   | 'REVERSED'
   | 'CANCELLED'
-  | 'UNDER_RECONCILIATION';
+  | 'UNDER_RECONCILIATION'
+  | 'NO_SALARY_DUE'
+  | 'SALARY_WAIVED';
 
-/** Document lifecycle — independent of payroll FINAL and of payment PAID. */
+/** Document eligibility / lifecycle — independent of payroll FINAL and of payment PAID. */
 export type DocumentLifecycleStatus =
   | 'NOT_READY'
   | 'INTERNAL_AVAILABLE'
@@ -30,26 +32,48 @@ export type DocumentLifecycleStatus =
   | 'OUTSTANDING_STATEMENT_ALLOWED'
   | 'AUTHORISED_BLOCKED'
   | 'AUTHORISED_ELIGIBLE'
-  | 'AUTHORISED_ISSUED';
+  | 'AUTHORISED_ISSUED'
+  | 'DRAFT'
+  | 'ISSUED'
+  | 'SUPERSEDED'
+  | 'REVOKED'
+  | 'CANCELLED'
+  | 'LEGACY_UNVERIFIED';
 
 /** Child payment transaction lifecycle. */
 export type PaymentTransactionStatus =
+  | 'DRAFT'
   | 'INITIATED'
   | 'PROCESSING'
   | 'SETTLED'
   | 'CONFIRMED'
   | 'FAILED'
+  | 'REJECTED'
   | 'REJECTED_BY_BANK'
   | 'REVERSED'
-  | 'CANCELLED';
+  | 'CANCELLED'
+  | 'PENDING_CONFIRMATION';
 
 export type PaymentHoldReasonCategory =
   | 'BANK_ISSUE'
+  | 'BANK_DETAILS_PENDING'
+  | 'BANK_TRANSFER_FAILED'
   | 'COMPLIANCE_HOLD'
   | 'EMPLOYEE_REQUEST'
   | 'FUNDING_DELAY'
+  | 'INTERNAL_FINANCIAL_DELAY'
+  | 'PAYROLL_DISPUTE'
   | 'DISPUTE'
+  | 'EXIT_SETTLEMENT_REVIEW'
+  | 'STATUTORY_OR_COURT_DIRECTION'
   | 'OTHER';
+
+export type SalaryExceptionKind =
+  | 'NO_SALARY_DUE'
+  | 'SALARY_WAIVED'
+  | 'SALARY_DEFERRED'
+  | 'PAYMENT_ON_HOLD'
+  | 'PARTIALLY_PAID';
 
 export type TimelinessIndicator = 'NOT_YET_PAID' | 'PAID_ON_TIME' | 'PAID_LATE' | 'N/A';
 
@@ -57,7 +81,10 @@ export type DocumentKind =
   | 'INTERNAL_PAY_SLIP'
   | 'AUTHORISED_SALARY_SLIP'
   | 'SALARY_PAYMENT_ADVICE_PARTIALLY_PAID'
-  | 'OUTSTANDING_SALARY_STATEMENT';
+  | 'OUTSTANDING_SALARY_STATEMENT'
+  | 'DEFERRED_SALARY_STATEMENT'
+  | 'NO_SALARY_DRAWN_STATEMENT'
+  | 'SALARY_WAIVER_RECORD';
 
 export interface SalaryPaymentObligation {
   id: string;
@@ -70,18 +97,31 @@ export interface SalaryPaymentObligation {
   documentStatus: DocumentLifecycleStatus;
   /** Statutory payday / credit due date — never overwritten by reschedule. */
   originalStatutoryDueDate: string;
-  /** Company-committed credit date at finalisation. */
+  /** Alias preserved separately from statutory for schedule clarity. */
+  originalDueDate?: string;
+  /** Company-committed / scheduled credit date at finalisation. */
   companyCommittedDate: string | null;
+  scheduledPaymentDate?: string | null;
   /** Latest revised expected date (reschedule writes here only). */
   revisedExpectedDate: string | null;
   /** Actual final credit date once fully settled. */
   actualFinalCreditDate: string | null;
+  transferInitiatedAt?: string | null;
+  processedAt?: string | null;
+  finalSettlementDate?: string | null;
   /** Set when first overdue; never cleared by reschedule. */
   overdueEventAt: string | null;
   confirmedPaidAmount: number;
   outstandingAmount: number;
   lastPaymentDate: string | null;
   timeliness: TimelinessIndicator;
+  exceptionKind?: SalaryExceptionKind | null;
+  exceptionReason?: string | null;
+  exceptionApprovalReference?: string | null;
+  exceptionApprovedBy?: string | null;
+  exceptionApprovedAt?: string | null;
+  exceptionEvidencePath?: string | null;
+  taxAccountingReviewStatus?: string | null;
   createdAt: string;
   updatedAt: string;
 }

@@ -248,6 +248,8 @@ export interface SlipSnapshot {
   employeeId: string;
   /** '2026-07' style. */
   monthYear: string;
+  /** Prefer salaryMonth when present; coincides with monthYear for new rows. */
+  salaryMonth?: string;
   status: SlipStatus;
   inputs: SlipInputs;
   computed: SlipComputed;
@@ -257,6 +259,22 @@ export interface SlipSnapshot {
   generatedAt: string;
   /** Denormalised so history renders even if the employee is later deleted. */
   employee: SlipEmployeeInfo;
+  /** Server-computed attendance cycle (not inferred in the browser). */
+  attendancePeriodStart?: string | null;
+  attendancePeriodEnd?: string | null;
+  payrollCycleMethod?: string | null;
+  payrollDivisor?: number | null;
+  calculationMethodCode?: string | null;
+  calculationMethodLabel?: string | null;
+  paymentStatus?: string | null;
+  expectedPaymentDate?: string | null;
+  actualCreditDate?: string | null;
+  originalDueDate?: string | null;
+  confirmedPaidAmount?: number | null;
+  outstandingAmount?: number | null;
+  revisionNumber?: number | null;
+  internalDocumentNumber?: string | null;
+  payrollBatchId?: string | null;
 }
 
 /** Signatory fields frozen into authorised_slip_log at bank-copy generation. */

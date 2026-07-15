@@ -22,9 +22,10 @@ import {
   formatMonthYear,
   slipFilename,
 } from '@/lib/format';
+import { formatAttendanceCycleRange } from '@/lib/payroll-cycle';
 import { exportElementToPdf } from '@/lib/pdf-export';
 import { signatoryIncompleteReason } from '@/lib/settings-defaults';
-import type { SalaryPaymentObligation } from '@/lib/salary-payment-types';
+import type { SalaryPaymentObligation, DocumentLifecycleStatus } from '@/lib/salary-payment-types';
 import type { AuthorisedSlipYtd, SlipSnapshot } from '@/lib/types';
 import { useHRStore } from '@/store/useHRStore';
 import AuthorisedSlip from './AuthorisedSlip';
@@ -140,7 +141,7 @@ export default function HistoryView({ slipHistory, loading, error, onRefresh }: 
   }
 
   async function handleDelete() {
-    if (!deleteTarget) return;
+    if (!deleteTarget || deleteTarget.status === 'final') return;
     setDeleting(true);
     setDeleteError(null);
     const result = await deletePayrollSlip(deleteTarget.id);
@@ -233,6 +234,62 @@ export default function HistoryView({ slipHistory, loading, error, onRefresh }: 
       setBankCopyBusy(false);
       setBankCopyExport(null);
     }
+  }
+
+  function InternalDocBadge({ status }: { status?: DocumentLifecycleStatus }) {
+    if (!status) return <span className="text-[11px] text-muted">—</span>;
+    const internalStatuses: DocumentLifecycleStatus[] = [
+      'INTERNAL_AVAILABLE',
+      'PARTIAL_ADVICE_ALLOWED',
+      'OUTSTANDING_STATEMENT_ALLOWED',
+      'NOT_READY',
+      'DRAFT',
+    ];
+    if (!internalStatuses.includes(status)) {
+      return <span className="text-[11px] text-muted">—</span>;
+    }
+    const label =
+      status === 'INTERNAL_AVAILABLE'
+        ? 'Available'
+        : status === 'PARTIAL_ADVICE_ALLOWED'
+          ? 'Partial'
+          : status === 'OUTSTANDING_STATEMENT_ALLOWED'
+            ? 'Outstanding'
+            : status.replace(/_/g, ' ');
+    return (
+      <span className="rounded border border-hairline bg-surface px-1.5 py-0.5 text-[10px] font-medium">
+        {label}
+      </span>
+    );
+  }
+
+  function AuthorisedDocBadge({ status }: { status?: DocumentLifecycleStatus }) {
+    if (!status || !status.startsWith('AUTHORISED')) {
+      return <span className="text-[11px] text-muted">—</span>;
+    }
+    const label =
+      status === 'AUTHORISED_BLOCKED'
+        ? 'Blocked'
+        : status === 'AUTHORISED_ELIGIBLE'
+          ? 'Eligible'
+          : status === 'AUTHORISED_ISSUED'
+            ? 'Issued'
+            : status.replace(/_/g, ' ');
+    return (
+      <span className="rounded border border-hairline bg-surface px-1.5 py-0.5 text-[10px] font-medium">
+        {label}
+      </span>
+    );
+  }
+
+  function attendanceCycleLabel(snapshot: SlipSnapshot): string {
+    if (snapshot.attendancePeriodStart && snapshot.attendancePeriodEnd) {
+      return formatAttendanceCycleRange(
+        snapshot.attendancePeriodStart,
+        snapshot.attendancePeriodEnd,
+      );
+    }
+    return '—';
   }
 
   function StatusBadge({ status }: { status: SlipSnapshot['status'] }) {
@@ -389,12 +446,15 @@ export default function HistoryView({ slipHistory, loading, error, onRefresh }: 
               : 'No slips match the current filters.'}
           </p>
         ) : (
-          <table className="w-full min-w-[1100px] text-sm">
+          <table className="w-full min-w-[1280px] text-sm">
             <thead>
               <tr className="border-b border-hairline text-left text-[11px] uppercase tracking-wide text-muted">
                 <th className="px-3 py-2 font-semibold">Employee</th>
-                <th className="px-3 py-2 font-semibold">Pay month</th>
+                <th className="px-3 py-2 font-semibold">Salary month</th>
+                <th className="px-3 py-2 font-semibold">Attendance cycle</th>
                 <th className="px-3 py-2 font-semibold">Payroll</th>
+                <th className="px-3 py-2 font-semibold">Internal doc</th>
+                <th className="px-3 py-2 font-semibold">Authorised doc</th>
                 <th className="px-3 py-2 font-semibold">Payment</th>
                 <th className="px-3 py-2 text-right font-semibold">Net due</th>
                 <th className="px-3 py-2 text-right font-semibold">Confirmed</th>
@@ -416,7 +476,16 @@ export default function HistoryView({ slipHistory, loading, error, onRefresh }: 
                     <p className="text-[12px] text-muted">{s.employee.empId}</p>
                   </td>
                   <td className="px-3 py-2.5 whitespace-nowrap">{formatMonthYear(s.monthYear)}</td>
+                  <td className="px-3 py-2.5 text-[12px] text-muted whitespace-nowrap">
+                    {attendanceCycleLabel(s)}
+                  </td>
                   <td className="px-3 py-2.5"><StatusBadge status={s.status} /></td>
+                  <td className="px-3 py-2.5">
+                    <InternalDocBadge status={obl?.documentStatus} />
+                  </td>
+                  <td className="px-3 py-2.5">
+                    <AuthorisedDocBadge status={obl?.documentStatus} />
+                  </td>
                   <td className="px-3 py-2.5"><PaymentBadge obligation={obl} /></td>
                   <td className="amount px-3 py-2.5 text-right font-medium">
                     {formatINR(obl?.netSalaryPayable ?? s.computed.netPay)}
@@ -467,7 +536,16 @@ export default function HistoryView({ slipHistory, loading, error, onRefresh }: 
                       )}
                       <BankCopyButton snapshot={s} compact />
                       <button
-                        title="Delete slip"
+                        title={
+                          s.status === 'final'
+                            ? 'Final slips cannot be deleted — supersede or cancel/revoke instead'
+                            : 'Delete draft slip'
+                        }
+                        aria-label={
+                          s.status === 'final'
+                            ? 'Final slips cannot be deleted — supersede or cancel/revoke instead'
+                            : 'Delete draft slip'
+                        }
                         className="rounded p-1.5 text-muted hover:bg-surface hover:text-amber-brand"
                         onClick={() => {
                           setDeleteError(null);
@@ -614,7 +692,24 @@ export default function HistoryView({ slipHistory, loading, error, onRefresh }: 
         </Modal>
       )}
 
-      {deleteTarget && (
+      {deleteTarget && deleteTarget.status === 'final' && (
+        <Modal
+          title="Cannot delete final slip"
+          onClose={() => setDeleteTarget(null)}
+        >
+          <p className="text-sm text-ink">
+            Final payroll snapshots cannot be permanently deleted. To correct this record, supersede
+            it with a new final slip from the Generator, or cancel/revoke through payroll operations.
+          </p>
+          <div className="mt-5 flex justify-end">
+            <button className={btnPrimary} onClick={() => setDeleteTarget(null)}>
+              OK
+            </button>
+          </div>
+        </Modal>
+      )}
+
+      {deleteTarget && deleteTarget.status === 'draft' && (
         <Modal
           title="Delete slip from history?"
           onClose={() => {
@@ -624,8 +719,7 @@ export default function HistoryView({ slipHistory, loading, error, onRefresh }: 
           <p className="text-sm text-ink">
             Permanently remove the stored snapshot for{' '}
             <strong>{deleteTarget.employee.fullName}</strong> ({deleteTarget.employee.empId}) ·{' '}
-            {formatMonthYear(deleteTarget.monthYear)}
-            {deleteTarget.status === 'final' ? ' (Final)' : ' (Draft)'}?
+            {formatMonthYear(deleteTarget.monthYear)} (Draft)?
           </p>
           <p className="mt-2 text-[12px] text-muted">
             Re-download and bank copy will no longer be available for this entry. Employee flex-bank

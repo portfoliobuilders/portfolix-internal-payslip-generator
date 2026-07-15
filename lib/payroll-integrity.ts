@@ -7,9 +7,16 @@ import { computeAuthorisedYtd } from './authorised-slip';
 import {
   calendarDaysInMonthYear,
   DEFAULT_CALCULATION_METHOD_CODE,
+  lopCalculationBasisLabel,
   resolvePayrollDivisor,
   type CalculationMethodCode,
 } from './calculation-method';
+import {
+  computeAttendancePeriod,
+  DEFAULT_PAYROLL_CYCLE_METHOD,
+  validateAttendancePeriod,
+  type PayrollCycleMethod,
+} from './payroll-cycle';
 import { computePayroll, derivePtThisMonth, type PayrollInput, type PayrollResult } from './payroll-calc';
 import {
   buildAttendanceFromInputs,
@@ -176,6 +183,12 @@ export interface BuildFinalSnapshotArgs {
   enforceStrictGates?: boolean;
   clientComputed?: SlipSnapshot['computed'] | null;
   now?: Date;
+  payrollCycleMethod?: PayrollCycleMethod;
+  payrollCyclePolicyId?: string | null;
+  previousAttendancePeriodEnd?: string | null;
+  attendanceCycleOverrideReason?: string | null;
+  attendancePeriodOverrideStart?: string | null;
+  attendancePeriodOverrideEnd?: string | null;
 }
 
 export interface BuildFinalSnapshotResult {
@@ -201,8 +214,19 @@ export function buildServerFinalSnapshot(args: BuildFinalSnapshotArgs): BuildFin
     args.trusted.attendanceLocked ?? false,
   );
 
+  const cycleMethod = args.payrollCycleMethod ?? DEFAULT_PAYROLL_CYCLE_METHOD;
+  const attendancePeriod = computeAttendancePeriod({
+    salaryMonth: args.trusted.monthYear,
+    method: cycleMethod,
+    policyId: args.payrollCyclePolicyId,
+    overrideStart: args.attendancePeriodOverrideStart,
+    overrideEnd: args.attendancePeriodOverrideEnd,
+  });
+
   const ctx: FinalizationContext = {
     monthYear: args.trusted.monthYear,
+    attendancePeriodStart: attendancePeriod.attendancePeriodStart,
+    attendancePeriodEnd: attendancePeriod.attendancePeriodEnd,
     now: args.now,
     workflowStatus: args.workflowStatus ?? 'APPROVED',
     attendance,
@@ -214,7 +238,17 @@ export function buildServerFinalSnapshot(args: BuildFinalSnapshotArgs): BuildFin
     enforceStrictGates: args.enforceStrictGates ?? false,
   };
 
-  const issues = [...computation.issues, ...validateFinalization(ctx)];
+  const issues = [
+    ...computation.issues,
+    ...validateFinalization(ctx),
+    ...validateAttendancePeriod({
+      period: attendancePeriod,
+      previousPeriodEnd: args.previousAttendancePeriodEnd,
+      now: args.now,
+      finalising: true,
+      overrideReason: args.attendanceCycleOverrideReason,
+    }),
+  ];
 
   // YTD must be computable from history (may be zero for first FY month).
   let ytd: AuthorisedSlipYtd;
@@ -255,6 +289,7 @@ export function buildServerFinalSnapshot(args: BuildFinalSnapshotArgs): BuildFin
     id: args.slipId,
     employeeId: args.trusted.employeeId,
     monthYear: args.trusted.monthYear,
+    salaryMonth: args.trusted.monthYear,
     status: 'final',
     inputs: computation.inputs,
     computed: {
@@ -264,6 +299,16 @@ export function buildServerFinalSnapshot(args: BuildFinalSnapshotArgs): BuildFin
     flexBalanceAfter: computation.newFlexBalance,
     generatedAt: args.generatedAt,
     employee: args.employeeSnapshot,
+    attendancePeriodStart: attendancePeriod.attendancePeriodStart,
+    attendancePeriodEnd: attendancePeriod.attendancePeriodEnd,
+    payrollCycleMethod: attendancePeriod.payrollCycleMethod,
+    payrollDivisor: computation.payrollDivisor,
+    calculationMethodCode: computation.calculationMethodCode,
+    calculationMethodLabel: lopCalculationBasisLabel(computation.calculationMethodCode),
+    paymentStatus: args.paymentStatus ?? 'NOT_SCHEDULED',
+    expectedPaymentDate: args.expectedPaymentDate ?? null,
+    actualCreditDate: args.salaryCreditDate ?? null,
+    revisionNumber: 1,
   };
 
   return {

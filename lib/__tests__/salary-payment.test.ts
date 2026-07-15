@@ -39,6 +39,52 @@ const checker: { userId: string; emergencyOverridePermission: boolean } = {
 };
 
 describe('salary payment reconciliation', () => {
+  it('no salary due blocks authorised slip and is distinct from waiver', () => {
+    const ledger = freshLedger(50000);
+    const result = ledger.markNoSalaryDue({
+      reason: 'Executive elected not to draw salary this month',
+      approvalBasis: 'Board note 2026-07-01',
+      approvingAuthority: 'Board',
+      actorUserId: maker.userId,
+    });
+    expect(result.ok).toBe(true);
+    expect(ledger.obligation.paymentStatus).toBe('NO_SALARY_DUE');
+    expect(ledger.obligation.outstandingAmount).toBe(0);
+    expect(ledger.canIssueAuthorisedSlip().ok).toBe(false);
+    expect(
+      assertDocumentAllowed(
+        'NO_SALARY_DRAWN_STATEMENT',
+        ledger.obligation.documentStatus,
+        ledger.obligation.paymentStatus,
+        ledger.obligation.outstandingAmount,
+      ).ok,
+    ).toBe(true);
+  });
+
+  it('salary waived blocks authorised paid slip', () => {
+    const ledger = freshLedger(50000);
+    const result = ledger.markSalaryWaived({
+      reason: 'Written waiver for July 2026',
+      amountWaived: 50000,
+      approvingAuthority: 'Director',
+      dateApproved: '2026-07-28',
+      taxAccountingReviewStatus: 'PENDING_REVIEW',
+      actorUserId: maker.userId,
+      evidencePath: 'private/waivers/july.pdf',
+    });
+    expect(result.ok).toBe(true);
+    expect(ledger.obligation.paymentStatus).toBe('SALARY_WAIVED');
+    expect(ledger.canIssueAuthorisedSlip().ok).toBe(false);
+    expect(
+      assertDocumentAllowed(
+        'SALARY_WAIVER_RECORD',
+        ledger.obligation.documentStatus,
+        ledger.obligation.paymentStatus,
+        0,
+      ).ok,
+    ).toBe(true);
+  });
+
   it('full single payment → PAID, on-time', () => {
     const ledger = freshLedger(50000);
     const due = ledger.obligation.originalStatutoryDueDate;

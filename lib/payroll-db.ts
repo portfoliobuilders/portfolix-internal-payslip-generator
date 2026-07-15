@@ -10,9 +10,11 @@ import type {
   EmploymentStatus,
   EngagementType,
   EntityCode,
+  EntityInfo,
   FlexLogEntry,
   PaymentMode,
   PaymentType,
+  Settings,
   SlipSnapshot,
   WorkMode,
 } from '@/lib/types';
@@ -32,6 +34,8 @@ export interface EmployeeDetailsJson {
   agreementType?: AgreementType;
   documentsStatus?: DocumentsStatus;
   notes?: string;
+  tdsMonthly?: number;
+  ptHalfYearly?: number;
 }
 
 export interface EmployeeRow {

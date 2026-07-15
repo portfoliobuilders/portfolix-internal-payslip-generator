@@ -10,11 +10,13 @@ import {
   formatAmount,
   formatDate,
   formatINR,
-  formatPayPeriodRange,
+  formatMonthYear,
   payrollCycleDates,
 } from '@/lib/format';
+import { formatAttendanceCycleRange } from '@/lib/payroll-cycle';
 import { slipStatutoryDeductions } from '@/lib/payroll-calc';
 import type { AuthorisedSlipYtd, EntityInfo, SlipSnapshot } from '@/lib/types';
+import EntityLogo from './EntityLogo';
 
 interface AuthorisedSlipProps {
   snapshot: SlipSnapshot;
@@ -27,6 +29,8 @@ interface AuthorisedSlipProps {
   sealUrl: string | null;
   /** Issue date printed in the signatory block (defaults to now). */
   issueDate?: Date | string;
+  verificationId?: string | null;
+  verificationUrl?: string | null;
 }
 
 function MoneyCell({ amount }: { amount: number }) {
@@ -45,9 +49,15 @@ export default function AuthorisedSlip({
   signatureUrl,
   sealUrl,
   issueDate,
+  verificationId,
+  verificationUrl,
 }: AuthorisedSlipProps) {
   const { inputs, computed, employee } = snapshot;
   const { creditDate } = payrollCycleDates(snapshot.monthYear, paydayDayOfMonth);
+  const hasAttendanceCycle =
+    Boolean(snapshot.attendancePeriodStart) && Boolean(snapshot.attendancePeriodEnd);
+  const isPaid = snapshot.paymentStatus === 'PAID';
+  const expectedPaymentDate = snapshot.expectedPaymentDate ?? creditDate;
 
   const { tds, pt } = slipStatutoryDeductions(computed, inputs);
   const other = computed.otherDeductions;
@@ -64,29 +74,74 @@ export default function AuthorisedSlip({
       style={{ width: '210mm', minHeight: '297mm', padding: '14mm 16mm' }}
     >
       {/* ---------- Letterhead ---------- */}
-      <header className="border-b-2 border-ink pb-3">
-        <h1 className="text-[18px] font-bold leading-tight tracking-tight">{entity.name}</h1>
-        <p className="mt-1 text-[10px] text-muted">
-          CIN: <span className="amount text-ink">{entity.cin}</span>
-        </p>
-        <p className="mt-0.5 text-[10px] leading-snug text-muted">{entity.registeredAddress}</p>
-        <p className="mt-1 text-[10px] text-muted">
-          Tel: <span className="text-ink">{entity.phone}</span>
-          {' · '}
-          Payroll:{' '}
-          <span className="text-ink">{entity.payrollEmail}</span>
-        </p>
+      <header className="flex items-start gap-4 border-b-2 border-ink pb-3">
+        <div className="flex h-14 w-28 shrink-0 items-center justify-center overflow-hidden rounded bg-ink p-1.5">
+          <EntityLogo
+            entity={entity}
+            code={employee.entityCode}
+            className="max-h-full max-w-full"
+          />
+        </div>
+        <div className="min-w-0 flex-1">
+          <h1 className="text-[18px] font-bold leading-tight tracking-tight">{entity.name}</h1>
+          <p className="mt-1 text-[10px] text-muted">
+            CIN: <span className="amount text-ink">{entity.cin}</span>
+          </p>
+          <p className="mt-0.5 text-[10px] leading-snug text-muted">{entity.registeredAddress}</p>
+          <p className="mt-1 text-[10px] text-muted">
+            Tel: <span className="text-ink">{entity.phone}</span>
+            {' · '}
+            Payroll:{' '}
+            <span className="text-ink">{entity.payrollEmail}</span>
+          </p>
+        </div>
       </header>
 
       {/* ---------- Title + period ---------- */}
       <div className="mt-4 text-center">
-        <p className="text-[16px] font-bold uppercase tracking-[0.14em]">Salary Slip</p>
+        <p className="text-[16px] font-bold uppercase tracking-[0.14em]">AUTHORISED SALARY SLIP</p>
         <p className="mt-1 text-[11px] font-medium">
-          Pay period: {formatPayPeriodRange(snapshot.monthYear)}
+          Salary month: {formatMonthYear(snapshot.monthYear)}
         </p>
-        <p className="mt-0.5 text-[10px] text-muted">
-          Salary credit date: {formatDate(creditDate)}
-        </p>
+        {hasAttendanceCycle ? (
+          <p className="mt-0.5 text-[10px] text-muted">
+            Attendance cycle:{' '}
+            {formatAttendanceCycleRange(
+              snapshot.attendancePeriodStart!,
+              snapshot.attendancePeriodEnd!,
+            )}
+          </p>
+        ) : (
+          <p className="mt-0.5 text-[10px] font-medium text-amber-brand">
+            Attendance cycle unavailable
+          </p>
+        )}
+        <div className="mt-2 text-[10px] text-muted">
+          {isPaid && snapshot.actualCreditDate ? (
+            <>
+              <p className="font-medium text-ink">Payment status: Paid</p>
+              <p>
+                Actual salary-credit date:{' '}
+                <span className="font-medium text-ink">{formatDate(snapshot.actualCreditDate)}</span>
+              </p>
+            </>
+          ) : (
+            <>
+              {snapshot.paymentStatus && (
+                <p>
+                  Payment status:{' '}
+                  <span className="font-medium text-ink">
+                    {snapshot.paymentStatus.replace(/_/g, ' ')}
+                  </span>
+                </p>
+              )}
+              <p>
+                Expected Payment Date:{' '}
+                <span className="font-medium text-ink">{formatDate(expectedPaymentDate)}</span>
+              </p>
+            </>
+          )}
+        </div>
       </div>
 
       {/* ---------- Employee block ---------- */}
@@ -245,8 +300,8 @@ export default function AuthorisedSlip({
         </p>
       </section>
 
-      {/* ---------- Signatory ---------- */}
-      <section className="mt-8 grid grid-cols-[1fr_auto] items-end gap-6">
+      {/* ---------- Signatory + verification ---------- */}
+      <section className="mt-8 grid grid-cols-[1fr_auto_auto] items-end gap-6">
         <div>
           <p className="text-[10px]">For {entity.name}</p>
           <div className="mt-2 flex h-16 items-end">
@@ -275,13 +330,27 @@ export default function AuthorisedSlip({
             <img src={sealUrl} alt="Company seal" className="max-h-20 max-w-20 object-contain" />
           ) : null}
         </div>
+        <div className="flex flex-col items-center gap-1 text-center">
+          <div className="flex h-20 w-20 items-center justify-center rounded border border-hairline bg-surface text-[8px] text-muted">
+            {verificationUrl ? 'QR' : 'Verification QR'}
+          </div>
+          {verificationId && (
+            <p className="text-[8.5px] text-muted">
+              ID: <span className="amount text-ink">{verificationId}</span>
+            </p>
+          )}
+          {verificationUrl && (
+            <p className="max-w-[120px] break-all text-[7.5px] text-muted">{verificationUrl}</p>
+          )}
+        </div>
       </section>
 
       {/* ---------- Footer ---------- */}
       <footer className="mt-auto border-t border-hairline pt-3 text-[8.5px] leading-relaxed text-muted">
+        <p>Authorised and issued by the employer.</p>
         <p>
-          Digitally issued salary document. For verification contact {entity.payrollEmail} /{' '}
-          {entity.phone}.
+          This computer-generated authorised salary slip may be verified through the QR code and
+          verification ID.
         </p>
       </footer>
     </div>
