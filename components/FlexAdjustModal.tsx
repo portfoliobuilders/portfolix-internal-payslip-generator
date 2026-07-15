@@ -115,7 +115,7 @@ export default function FlexAdjustModal({
                   {entry.delta >= 0 ? '+' : ''}
                   {entry.delta}m
                 </span>
-                <span className="truncate text-muted">{entry.reason}</span>
+                <span className="min-w-0 flex-1 truncate text-muted">{entry.reason}</span>
               </li>
             ))}
           </ul>

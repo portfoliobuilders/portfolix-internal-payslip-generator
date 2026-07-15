@@ -1,0 +1,11 @@
+{
+  "node": "20",
+  "setup": "./scripts/setup-env.sh",
+  "cache": {
+    "paths": [
+      "~/.npm",
+      "node_modules",
+      ".next/cache"
+    ]
+  }
+}
