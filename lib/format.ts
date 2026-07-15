@@ -97,6 +97,14 @@ export function formatPayPeriodRange(monthYear: string): string {
   return `${format(start, 'dd MMM yyyy')} – ${format(end, 'dd MMM yyyy')}`;
 }
 
+/** Compact pay-period for Final slip strip: "01–31 Jul 2026". */
+export function formatPayPeriodCompact(monthYear: string): string {
+  const start = parse(monthYear, 'yyyy-MM', new Date());
+  if (!isValid(start)) return monthYear;
+  const end = new Date(start.getFullYear(), start.getMonth() + 1, 0);
+  return `${format(start, 'dd')}–${format(end, 'dd MMM yyyy')}`;
+}
+
 /**
  * Authorised (bank copy) PDF filename:
  * {ENTITY}_SalarySlip_{YYYY-MM}_{EMPID}.pdf
