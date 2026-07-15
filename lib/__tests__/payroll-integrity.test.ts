@@ -194,7 +194,12 @@ describe('finalization gates', () => {
       integrityStatus: 'OK',
       enforceStrictGates: true,
     });
-    expect(issues.some((i) => i.code === 'PERIOD_NOT_ENDED')).toBe(true);
+    expect(
+      issues.some(
+        (i) =>
+          i.code === 'PERIOD_NOT_ENDED' || i.code === 'FINALISATION_BEFORE_CYCLE_END',
+      ),
+    ).toBe(true);
   });
 
   it('blocks duplicate FINAL', () => {

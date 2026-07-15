@@ -145,6 +145,14 @@ export function formatAttendanceCycle(period: Pick<
   return `${format(s, 'dd MMM yyyy')} – ${format(e, 'dd MMM yyyy')}`;
 }
 
+/** Format "25 Jun 2026 – 24 Jul 2026" from explicit start/end ISO dates. */
+export function formatAttendanceCycleRange(startIso: string, endIso: string): string {
+  return formatAttendanceCycle({
+    attendancePeriodStart: startIso,
+    attendancePeriodEnd: endIso,
+  });
+}
+
 export function isAttendanceCycleEnded(
   attendancePeriodEnd: string,
   now = new Date(),

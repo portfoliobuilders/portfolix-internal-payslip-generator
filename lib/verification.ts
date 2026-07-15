@@ -47,6 +47,30 @@ export function computeVerificationFingerprint(parts: {
   return createHash('sha256').update(payload).digest('hex').slice(0, 32);
 }
 
+/**
+ * Fingerprint used when issuing authorised documents (document-number keyed).
+ * Retained alongside computeVerificationFingerprint for callers that already
+ * include the public verification id in the hash payload.
+ */
+export function buildVerificationFingerprint(input: {
+  documentNumber: string;
+  publicVerificationId: string;
+  salaryMonth: string;
+  netSalary: number;
+  actualCreditDate: string | null;
+  revisionNumber: number;
+}): string {
+  const payload = [
+    input.documentNumber,
+    input.publicVerificationId,
+    input.salaryMonth,
+    input.netSalary.toFixed(2),
+    input.actualCreditDate ?? '',
+    String(input.revisionNumber),
+  ].join('|');
+  return createHash('sha256').update(payload).digest('hex');
+}
+
 export function maskEmployeeId(empId: string): string {
   if (!empId || empId.length < 4) return '····';
   return `${empId.slice(0, 2)}····${empId.slice(-2)}`;

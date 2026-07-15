@@ -129,7 +129,7 @@ export default function HistoryView({ slipHistory, loading, error, onRefresh }: 
   }
 
   async function handleDelete() {
-    if (!deleteTarget || deleteTarget.status === 'final') return;
+    if (!deleteTarget) return;
     setDeleting(true);
     setDeleteError(null);
     const isFinal = deleteTarget.status === 'final';
@@ -605,35 +605,6 @@ export default function HistoryView({ slipHistory, loading, error, onRefresh }: 
               payrollContact={settings.payrollContact}
               paydayDayOfMonth={settings.paydayDayOfMonth}
               reviewDeadlineTime={settings.reviewDeadlineTime}
-            />
-          </div>,
-          document.body,
-        )}
-
-      {bankCopyExport &&
-        typeof document !== 'undefined' &&
-        createPortal(
-          <div id="authorised-export-root" style={{ position: 'absolute', top: 0, left: -10000 }}>
-            <AuthorisedSlip
-              snapshot={bankCopyExport.snapshot}
-              entity={settings.entities[bankCopyExport.snapshot.employee.entityCode]}
-              ytd={bankCopyExport.ytd}
-              paydayDayOfMonth={settings.paydayDayOfMonth}
-              signatureUrl={bankCopyExport.signatureUrl}
-              sealUrl={bankCopyExport.sealUrl}
-              actualCreditDate={
-                obligationsByPayrollId.get(bankCopyExport.snapshot.id)?.actualFinalCreditDate ??
-                obligationsByPayrollId.get(bankCopyExport.snapshot.id)?.lastPaymentDate ??
-                bankCopyExport.snapshot.generatedAt.slice(0, 10)
-              }
-              confirmedPaidAmount={
-                obligationsByPayrollId.get(bankCopyExport.snapshot.id)?.confirmedPaidAmount
-              }
-              outstandingBalance={
-                obligationsByPayrollId.get(bankCopyExport.snapshot.id)?.outstandingAmount ?? 0
-              }
-              documentNumber={`ASL-${bankCopyExport.snapshot.employee.empId}-${bankCopyExport.snapshot.monthYear}`}
-              verificationId={bankCopyExport.snapshot.id.replace(/-/g, '').slice(0, 24)}
             />
           </div>,
           document.body,
