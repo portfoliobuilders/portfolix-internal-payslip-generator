@@ -4,18 +4,13 @@ import { createPortal } from 'react-dom';
 import { useEffect, useMemo, useState } from 'react';
 import { Download, Eye, FileBadge2, Printer, Trash2, Wallet, X } from 'lucide-react';
 import {
-  fetchAuthorisedSlipYtd,
   logAuthorisedSlipGeneration,
   deletePayrollSlip,
 } from '@/app/actions/payroll';
+import { fetchPaymentObligationsForHistory } from '@/app/actions/salary-payment';
+import { getSignatoryStorageStatus } from '@/app/actions/signatory-assets';
+import { exportAuthorisedSalarySlipPdf } from '@/lib/authorised-export';
 import {
-  assertAuthorisedSlipPaymentGate,
-  fetchPaymentObligationsForHistory,
-} from '@/app/actions/salary-payment';
-import { createSignatorySignedUrls, getSignatoryStorageStatus } from '@/app/actions/signatory-assets';
-import { computeAuthorisedYtd } from '@/lib/authorised-slip';
-import {
-  authorisedSlipFilename,
   formatDate,
   formatDateTime,
   formatINR,
@@ -26,9 +21,8 @@ import { formatAttendanceCycleRange } from '@/lib/payroll-cycle';
 import { exportElementToPdf } from '@/lib/pdf-export';
 import { signatoryIncompleteReason } from '@/lib/settings-defaults';
 import type { SalaryPaymentObligation, DocumentLifecycleStatus } from '@/lib/salary-payment-types';
-import type { AuthorisedSlipYtd, SlipSnapshot } from '@/lib/types';
+import type { SlipSnapshot } from '@/lib/types';
 import { useHRStore } from '@/store/useHRStore';
-import AuthorisedSlip from './AuthorisedSlip';
 import PaymentLedgerDrawer from './PaymentLedgerDrawer';
 import SalarySlip from './SalarySlip';
 import Toast from './Toast';
@@ -56,12 +50,6 @@ export default function HistoryView({ slipHistory, loading, error, onRefresh }: 
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   const [bankCopyPending, setBankCopyPending] = useState<SlipSnapshot | null>(null);
-  const [bankCopyExport, setBankCopyExport] = useState<{
-    snapshot: SlipSnapshot;
-    ytd: AuthorisedSlipYtd;
-    signatureUrl: string | null;
-    sealUrl: string | null;
-  } | null>(null);
   const [bankCopyBusy, setBankCopyBusy] = useState(false);
   const [bankCopyError, setBankCopyError] = useState<string | null>(null);
   const [signatoryStorageConfigured, setSignatoryStorageConfigured] = useState(true);
@@ -167,54 +155,14 @@ export default function HistoryView({ slipHistory, loading, error, onRefresh }: 
     setBankCopyBusy(true);
     setBankCopyError(null);
     try {
-      const paymentGate = await assertAuthorisedSlipPaymentGate(snapshot.id);
-      if (!paymentGate.ok) {
-        setBankCopyError(paymentGate.error);
+      // Production bank PDF: text/vector + verification registry (not html2canvas).
+      const exported = await exportAuthorisedSalarySlipPdf({ snapshot, entity });
+      if (!exported.ok) {
+        setBankCopyError(exported.error);
         return;
       }
-
-      const [ytdResult, urlsResult] = await Promise.all([
-        fetchAuthorisedSlipYtd(snapshot.employeeId, snapshot.monthYear),
-        createSignatorySignedUrls({
-          signatureAssetPath: entity.signatureAssetPath,
-          sealAssetPath: entity.sealAssetPath,
-        }),
-      ]);
-
-      if (!ytdResult.ok) {
-        setBankCopyError(ytdResult.error);
-        return;
-      }
-      if (!urlsResult.ok) {
-        setBankCopyError(urlsResult.error);
-        return;
-      }
-
-      // Prefer server YTD; fall back to client-side from loaded history if needed.
-      const ytd =
-        ytdResult.data ??
-        computeAuthorisedYtd(slipHistory, snapshot.employeeId, snapshot.monthYear);
 
       setBankCopyPending(null);
-      setBankCopyExport({
-        snapshot,
-        ytd,
-        signatureUrl: urlsResult.data.signatureUrl,
-        sealUrl: urlsResult.data.sealUrl,
-      });
-
-      await new Promise((resolve) => setTimeout(resolve, 80));
-      const el = document.getElementById('authorised-export-root');
-      if (!el) throw new Error('Authorised slip element not ready.');
-
-      await exportElementToPdf(
-        el,
-        authorisedSlipFilename(
-          snapshot.employee.entityCode,
-          snapshot.monthYear,
-          snapshot.employee.empId,
-        ),
-      );
 
       // Reprints are logged, never blocked — log after successful PDF.
       await logAuthorisedSlipGeneration(snapshot.id, {
@@ -232,7 +180,6 @@ export default function HistoryView({ slipHistory, loading, error, onRefresh }: 
       setBankCopyError(err instanceof Error ? err.message : 'Failed to generate bank copy.');
     } finally {
       setBankCopyBusy(false);
-      setBankCopyExport(null);
     }
   }
 
@@ -633,22 +580,6 @@ export default function HistoryView({ slipHistory, loading, error, onRefresh }: 
               payrollContact={settings.payrollContact}
               paydayDayOfMonth={settings.paydayDayOfMonth}
               reviewDeadlineTime={settings.reviewDeadlineTime}
-            />
-          </div>,
-          document.body,
-        )}
-
-      {bankCopyExport &&
-        typeof document !== 'undefined' &&
-        createPortal(
-          <div id="authorised-export-root" style={{ position: 'absolute', top: 0, left: -10000 }}>
-            <AuthorisedSlip
-              snapshot={bankCopyExport.snapshot}
-              entity={settings.entities[bankCopyExport.snapshot.employee.entityCode]}
-              ytd={bankCopyExport.ytd}
-              paydayDayOfMonth={settings.paydayDayOfMonth}
-              signatureUrl={bankCopyExport.signatureUrl}
-              sealUrl={bankCopyExport.sealUrl}
             />
           </div>,
           document.body,

@@ -973,7 +973,17 @@ export async function rescheduleSalaryPayment(input: {
 /** Gate for AUTHORISED_SALARY_SLIP — blocked while outstanding exists. */
 export async function assertAuthorisedSlipPaymentGate(
   payrollRecordId: string,
-): Promise<ActionResult<{ allowed: true }>> {
+): Promise<
+  ActionResult<{
+    allowed: true;
+    obligationId: string;
+    actualCreditDate: string;
+    confirmedPaidAmount: number;
+    outstandingAmount: number;
+    netSalaryPayable: number;
+    paymentStatus: string;
+  }>
+> {
   const bundle = await loadLedgerBundle(payrollRecordId);
   if (!bundle.ok) {
     // Soft: if no obligation table/row yet, block authorised slip for finals without payment proof
@@ -986,14 +996,35 @@ export async function assertAuthorisedSlipPaymentGate(
     };
   }
 
+  const obl = bundle.data.obligation;
   const gate = assertDocumentAllowed(
     'AUTHORISED_SALARY_SLIP',
-    bundle.data.obligation.documentStatus,
-    bundle.data.obligation.paymentStatus,
-    bundle.data.obligation.outstandingAmount,
+    obl.documentStatus,
+    obl.paymentStatus,
+    obl.outstandingAmount,
   );
   if (!gate.ok) return { ok: false, error: gate.error };
-  return { ok: true, data: { allowed: true } };
+
+  if (!obl.actualFinalCreditDate) {
+    return {
+      ok: false,
+      error:
+        'Authorised salary slip requires a confirmed actual salary-credit date from settled payments.',
+    };
+  }
+
+  return {
+    ok: true,
+    data: {
+      allowed: true,
+      obligationId: obl.id,
+      actualCreditDate: obl.actualFinalCreditDate,
+      confirmedPaidAmount: obl.confirmedPaidAmount,
+      outstandingAmount: obl.outstandingAmount,
+      netSalaryPayable: obl.netSalaryPayable,
+      paymentStatus: obl.paymentStatus,
+    },
+  };
 }
 
 export async function checkDocumentAvailability(
