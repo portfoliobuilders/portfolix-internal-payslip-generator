@@ -22,7 +22,7 @@ import {
 import { createSignatorySignedUrls, getSignatoryStorageStatus } from '@/app/actions/signatory-assets';
 import { computeAuthorisedYtd } from '@/lib/authorised-slip';
 import { signatoryIncompleteReason } from '@/lib/settings-defaults';
-import type { AuthorisedSlipYtd, SlipSnapshot, SlipStatus } from '@/lib/types';
+import type { AuthorisedSlipYtd, Employee, SlipSnapshot, SlipStatus } from '@/lib/types';
 import { generateId } from '@/lib/payroll-db';
 import { findFinalSlipForMonth, findPreviousFinalSlip } from '@/lib/payroll-helpers';
 import { useHRStore } from '@/store/useHRStore';
