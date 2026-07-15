@@ -21,5 +21,5 @@ export default function HistoryPage() {
     );
   }
 
-  return <HistoryView slipHistory={slipHistory} loading={loading} onRefresh={refresh} />;
+  return <HistoryView slipHistory={slipHistory} loading={loading} />;
 }
