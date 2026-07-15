@@ -14,9 +14,12 @@ import {
 } from '@/lib/format';
 import { exportElementToPdf } from '@/lib/pdf-export';
 import { finalizePayrollSlip, savePayrollSlip, fetchAuthorisedSlipYtd, logAuthorisedSlipGeneration } from '@/app/actions/payroll';
+import { assertAuthorisedSlipPaymentGate } from '@/app/actions/salary-payment';
 import { createSignatorySignedUrls, getSignatoryStorageStatus } from '@/app/actions/signatory-assets';
 import { computeAuthorisedYtd } from '@/lib/authorised-slip';
 import type { AuthorisedSlipYtd, Employee, EntityInfo, SlipSnapshot, SlipStatus } from '@/lib/types';
+
+type PreviewMode = 'draft' | 'final' | 'authorised';
 import { generateId } from '@/lib/payroll-db';
 import { findFinalSlipForMonth, findPreviousFinalSlip } from '@/lib/payroll-helpers';
 import { useHRStore } from '@/store/useHRStore';
@@ -522,6 +525,12 @@ export default function GeneratorView({
     setExporting(true);
     setAuthorisedError(null);
     try {
+      const paymentGate = await assertAuthorisedSlipPaymentGate(existingFinal.id);
+      if (!paymentGate.ok) {
+        setAuthorisedError(paymentGate.error);
+        return;
+      }
+
       let bundle = authorisedBundle;
       if (!bundle || bundle.snapshot.id !== existingFinal.id) {
         const [ytdResult, urlsResult] = await Promise.all([

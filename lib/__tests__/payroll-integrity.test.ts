@@ -90,6 +90,7 @@ describe('finalization gates', () => {
   it('blocks when period has not ended under strict gates', () => {
     const issues = validateFinalization({
       monthYear: '2099-12',
+      attendancePeriodEnd: '2099-12-24',
       now: new Date('2026-07-15T12:00:00Z'),
       workflowStatus: 'APPROVED',
       attendance: {
@@ -115,6 +116,38 @@ describe('finalization gates', () => {
       enforceStrictGates: true,
     });
     expect(hasBlockingErrors(issues)).toBe(true);
+    expect(issues.some((i) => i.code === 'PERIOD_NOT_ENDED')).toBe(true);
+  });
+
+  it('July 2026 attendance cycle ends 24 Jul — blocks finalisation on 15 Jul', () => {
+    const issues = validateFinalization({
+      monthYear: '2026-07',
+      attendancePeriodStart: '2026-06-25',
+      attendancePeriodEnd: '2026-07-24',
+      now: new Date('2026-07-15T12:00:00Z'),
+      workflowStatus: 'APPROVED',
+      attendance: {
+        calendarDays: 31,
+        workingDays: null,
+        paidDays: null,
+        presentDays: null,
+        weeklyOffs: null,
+        paidLeaveDays: null,
+        unpaidLeaveDays: null,
+        lopDays: 0,
+        payableDays: null,
+        absentDays: 0,
+        halfDays: 0,
+        lateMinutes: 0,
+        attendanceLocked: true,
+      },
+      paymentStatus: 'NOT_SCHEDULED',
+      salaryCreditDate: null,
+      expectedPaymentDate: null,
+      existingFinalForPeriod: false,
+      integrityStatus: 'OK',
+      enforceStrictGates: true,
+    });
     expect(issues.some((i) => i.code === 'PERIOD_NOT_ENDED')).toBe(true);
   });
 

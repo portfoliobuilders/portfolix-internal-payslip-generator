@@ -139,8 +139,13 @@ export interface DerivePaymentStatusInput {
  * PAID only when outstanding is zero (settled txs reconcile with net payable).
  * Manual PAID without exact reconcile is rejected elsewhere.
  */
-export function derivePaymentStatus(input: DerivePaymentStatusInput): SalaryPaymentStatus {
+export function derivePaymentStatus(input: DerivePaymentStatusInput & {
+  exceptionKind?: 'NO_SALARY_DUE' | 'SALARY_WAIVED' | null;
+}): SalaryPaymentStatus {
   if (input.cancelled) return 'CANCELLED';
+
+  if (input.exceptionKind === 'NO_SALARY_DUE') return 'NO_SALARY_DUE';
+  if (input.exceptionKind === 'SALARY_WAIVED') return 'SALARY_WAIVED';
 
   if (input.activeHold?.active) {
     return input.activeHold.kind === 'PAYMENT_DEFERRED' ? 'PAYMENT_DEFERRED' : 'ON_HOLD';
@@ -231,10 +236,38 @@ export function deriveDocumentStatus(input: {
 }): DocumentLifecycleStatus {
   const payrollFinal =
     input.payrollWorkflowStatus === 'FINAL' ||
+    input.payrollWorkflowStatus === 'FINALISED' ||
     input.payrollWorkflowStatus === 'PAID' ||
     input.payrollWorkflowStatus === 'PAYMENT_PENDING';
 
   if (!payrollFinal) return 'NOT_READY';
+
+  const blockedPaymentStatuses: SalaryPaymentStatus[] = [
+    'NO_SALARY_DUE',
+    'SALARY_WAIVED',
+    'PAYMENT_DEFERRED',
+    'ON_HOLD',
+    'PARTIALLY_PAID',
+    'NOT_SCHEDULED',
+    'SCHEDULED',
+    'PROCESSING',
+    'OVERDUE',
+    'FAILED',
+    'REJECTED_BY_BANK',
+    'REVERSED',
+    'UNDER_RECONCILIATION',
+    'CANCELLED',
+  ];
+
+  if (blockedPaymentStatuses.includes(input.paymentStatus)) {
+    if (input.confirmedPaidAmount > 0 && input.outstandingAmount > 0) {
+      return 'PARTIAL_ADVICE_ALLOWED';
+    }
+    if (input.outstandingAmount > 0 && input.paymentStatus !== 'NO_SALARY_DUE' && input.paymentStatus !== 'SALARY_WAIVED') {
+      return 'OUTSTANDING_STATEMENT_ALLOWED';
+    }
+    return 'AUTHORISED_BLOCKED';
+  }
 
   if (input.authorisedIssued && input.paymentStatus === 'PAID' && input.outstandingAmount === 0) {
     return 'AUTHORISED_ISSUED';
@@ -255,6 +288,23 @@ export function deriveDocumentStatus(input: {
   return 'AUTHORISED_BLOCKED';
 }
 
+const AUTHORISED_BLOCKED_PAYMENT: ReadonlySet<SalaryPaymentStatus> = new Set([
+  'NOT_SCHEDULED',
+  'SCHEDULED',
+  'PROCESSING',
+  'PARTIALLY_PAID',
+  'ON_HOLD',
+  'PAYMENT_DEFERRED',
+  'OVERDUE',
+  'FAILED',
+  'REJECTED_BY_BANK',
+  'REVERSED',
+  'UNDER_RECONCILIATION',
+  'SALARY_WAIVED',
+  'NO_SALARY_DUE',
+  'CANCELLED',
+]);
+
 export function assertDocumentAllowed(
   kind: DocumentKind,
   documentStatus: DocumentLifecycleStatus,
@@ -273,12 +323,19 @@ export function assertDocumentAllowed(
       return { ok: true };
 
     case 'AUTHORISED_SALARY_SLIP':
-      if (paymentStatus !== 'PAID' || outstandingAmount > 0) {
+      if (AUTHORISED_BLOCKED_PAYMENT.has(paymentStatus) || outstandingAmount > 0) {
         return {
           ok: false,
           error:
-            'Authorised salary slip is blocked until payroll is PAID and fully reconciled (no outstanding balance).',
+            'Authorised salary slip is blocked until payroll is fully PAID, confirmed paid equals net salary, and outstanding is zero.',
           code: 'AUTHORISED_BLOCKED_OUTSTANDING',
+        };
+      }
+      if (paymentStatus !== 'PAID') {
+        return {
+          ok: false,
+          error: 'Authorised salary slip requires payment status PAID.',
+          code: 'AUTHORISED_BLOCKED_NOT_PAID',
         };
       }
       if (
@@ -313,17 +370,63 @@ export function assertDocumentAllowed(
       }
       return { ok: true };
 
+    case 'DEFERRED_SALARY_STATEMENT':
+      if (paymentStatus !== 'PAYMENT_DEFERRED' && paymentStatus !== 'ON_HOLD') {
+        return {
+          ok: false,
+          error: 'Deferred salary statement requires PAYMENT_DEFERRED or ON_HOLD status.',
+          code: 'DEFERRED_STATEMENT_NOT_APPLICABLE',
+        };
+      }
+      return { ok: true };
+
+    case 'NO_SALARY_DRAWN_STATEMENT':
+      if (paymentStatus !== 'NO_SALARY_DUE') {
+        return {
+          ok: false,
+          error: 'No-salary statement requires NO_SALARY_DUE status.',
+          code: 'NO_SALARY_STATEMENT_NOT_APPLICABLE',
+        };
+      }
+      return { ok: true };
+
+    case 'SALARY_WAIVER_RECORD':
+      if (paymentStatus !== 'SALARY_WAIVED') {
+        return {
+          ok: false,
+          error: 'Salary waiver record requires SALARY_WAIVED status.',
+          code: 'WAIVER_RECORD_NOT_APPLICABLE',
+        };
+      }
+      return { ok: true };
+
     default:
       return { ok: false, error: 'Unknown document kind.', code: 'UNKNOWN_DOCUMENT' };
   }
 }
 
 export function partialDocumentTitle(
-  kind: 'SALARY_PAYMENT_ADVICE_PARTIALLY_PAID' | 'OUTSTANDING_SALARY_STATEMENT',
+  kind:
+    | 'SALARY_PAYMENT_ADVICE_PARTIALLY_PAID'
+    | 'OUTSTANDING_SALARY_STATEMENT'
+    | 'DEFERRED_SALARY_STATEMENT'
+    | 'NO_SALARY_DRAWN_STATEMENT'
+    | 'SALARY_WAIVER_RECORD',
 ): string {
-  return kind === 'SALARY_PAYMENT_ADVICE_PARTIALLY_PAID'
-    ? 'SALARY PAYMENT ADVICE — PARTIALLY PAID'
-    : 'OUTSTANDING SALARY STATEMENT';
+  switch (kind) {
+    case 'SALARY_PAYMENT_ADVICE_PARTIALLY_PAID':
+      return 'SALARY PAYMENT ADVICE — PARTIALLY PAID';
+    case 'OUTSTANDING_SALARY_STATEMENT':
+      return 'OUTSTANDING SALARY STATEMENT';
+    case 'DEFERRED_SALARY_STATEMENT':
+      return 'DEFERRED SALARY STATEMENT';
+    case 'NO_SALARY_DRAWN_STATEMENT':
+      return 'NO SALARY DRAWN STATEMENT';
+    case 'SALARY_WAIVER_RECORD':
+      return 'SALARY WAIVER RECORD';
+    default:
+      return 'SALARY STATEMENT';
+  }
 }
 
 export function assertMakerChecker(
@@ -391,15 +494,32 @@ export function createObligationFromFinalPayroll(input: {
   monthYear: string;
   netSalaryPayable: number;
   paydayDayOfMonth: number;
+  /** Prefer server-resolved schedule; falls back to paydayDayOfMonth. */
+  originalDueDate?: string | null;
+  scheduledPaymentDate?: string | null;
   companyCommittedDate?: string | null;
+  exceptionKind?: 'NO_SALARY_DUE' | 'SALARY_WAIVED' | null;
+  exceptionReason?: string | null;
   now?: Date;
 }): SalaryPaymentObligation {
   const now = input.now ?? new Date();
   const { creditDate } = payrollCycleDates(input.monthYear, input.paydayDayOfMonth);
-  const statutory = formatISO(creditDate, { representation: 'date' });
-  const committed = input.companyCommittedDate ?? statutory;
+  const statutory =
+    input.originalDueDate ?? formatISO(creditDate, { representation: 'date' });
+  const committed =
+    input.scheduledPaymentDate ?? input.companyCommittedDate ?? statutory;
   const confirmedPaidAmount = 0;
-  const outstandingAmount = roundRupees(input.netSalaryPayable);
+  const outstandingAmount =
+    input.exceptionKind === 'NO_SALARY_DUE' || input.exceptionKind === 'SALARY_WAIVED'
+      ? 0
+      : roundRupees(input.netSalaryPayable);
+
+  const paymentStatus: SalaryPaymentStatus =
+    input.exceptionKind === 'NO_SALARY_DUE'
+      ? 'NO_SALARY_DUE'
+      : input.exceptionKind === 'SALARY_WAIVED'
+        ? 'SALARY_WAIVED'
+        : 'SCHEDULED';
 
   const base: SalaryPaymentObligation = {
     id: input.id ?? generatePaymentId('obl'),
@@ -407,17 +527,21 @@ export function createObligationFromFinalPayroll(input: {
     employeeId: input.employeeId,
     monthYear: input.monthYear,
     netSalaryPayable: roundRupees(input.netSalaryPayable),
-    paymentStatus: 'SCHEDULED',
+    paymentStatus,
     documentStatus: 'INTERNAL_AVAILABLE',
     originalStatutoryDueDate: statutory,
+    originalDueDate: statutory,
     companyCommittedDate: committed,
+    scheduledPaymentDate: committed,
     revisedExpectedDate: null,
     actualFinalCreditDate: null,
     overdueEventAt: null,
     confirmedPaidAmount,
     outstandingAmount,
     lastPaymentDate: null,
-    timeliness: 'NOT_YET_PAID',
+    timeliness: input.exceptionKind ? 'N/A' : 'NOT_YET_PAID',
+    exceptionKind: input.exceptionKind ?? null,
+    exceptionReason: input.exceptionReason ?? null,
     createdAt: now.toISOString(),
     updatedAt: now.toISOString(),
   };
@@ -464,11 +588,20 @@ export function refreshObligationTotals(
     applicableDueDate: due,
     underReconciliation: opts?.underReconciliation,
     cancelled: opts?.cancelled,
+    exceptionKind:
+      obligation.exceptionKind === 'NO_SALARY_DUE' ||
+      obligation.exceptionKind === 'SALARY_WAIVED'
+        ? obligation.exceptionKind
+        : null,
   });
 
   paymentStatus = refineScheduledStatus(
     paymentStatus,
-    Boolean(obligation.companyCommittedDate || obligation.revisedExpectedDate),
+    Boolean(
+      obligation.companyCommittedDate ||
+        obligation.scheduledPaymentDate ||
+        obligation.revisedExpectedDate,
+    ),
     transactions.some((t) => t.transactionStatus !== 'CANCELLED'),
   );
 
@@ -1068,6 +1201,133 @@ export class SalaryPaymentLedger {
     );
     this.refresh(now);
     return result;
+  }
+
+  /**
+   * No contractual salary due for the month — distinct from waiver / deferral / hold.
+   * Does not fabricate a paid transfer.
+   */
+  markNoSalaryDue(input: {
+    reason: string;
+    approvalBasis: string;
+    approvingAuthority: string;
+    actorUserId: string;
+    now?: Date;
+  }) {
+    if (!input.reason.trim() || !input.approvalBasis.trim() || !input.approvingAuthority.trim()) {
+      return {
+        ok: false as const,
+        error: 'NO_SALARY_DUE requires reason, approval basis, and approving authority.',
+        code: 'NO_SALARY_DUE_FIELDS_REQUIRED',
+      };
+    }
+    if (this.obligation.confirmedPaidAmount > 0) {
+      return {
+        ok: false as const,
+        error: 'Cannot mark NO_SALARY_DUE after confirmed payments exist.',
+        code: 'NO_SALARY_DUE_AFTER_PAYMENT',
+      };
+    }
+    const now = input.now ?? new Date();
+    this.obligation = {
+      ...this.obligation,
+      exceptionKind: 'NO_SALARY_DUE',
+      exceptionReason: input.reason.trim(),
+      exceptionApprovalReference: input.approvalBasis.trim(),
+      exceptionApprovedBy: input.approvingAuthority.trim(),
+      exceptionApprovedAt: now.toISOString(),
+      outstandingAmount: 0,
+      paymentStatus: 'NO_SALARY_DUE',
+      documentStatus: 'AUTHORISED_BLOCKED',
+      timeliness: 'N/A',
+      updatedAt: now.toISOString(),
+    };
+    this.audit.push(
+      buildAuditEvent({
+        obligationId: this.obligation.id,
+        action: 'NO_SALARY_DUE_RECORDED',
+        actorUserId: input.actorUserId,
+        reason: input.reason,
+        newValues: {
+          approvalBasis: input.approvalBasis,
+          approvingAuthority: input.approvingAuthority,
+        },
+        now,
+      }),
+    );
+    return { ok: true as const, obligation: this.obligation };
+  }
+
+  /**
+   * Salary was payable but formally waived. Never issues a paid authorised slip.
+   */
+  markSalaryWaived(input: {
+    reason: string;
+    amountWaived: number;
+    approvingAuthority: string;
+    dateApproved: string;
+    taxAccountingReviewStatus: string;
+    actorUserId: string;
+    evidencePath?: string | null;
+    now?: Date;
+  }) {
+    if (
+      !input.reason.trim() ||
+      !input.approvingAuthority.trim() ||
+      !input.taxAccountingReviewStatus.trim()
+    ) {
+      return {
+        ok: false as const,
+        error:
+          'SALARY_WAIVED requires written reason, approving authority, and tax/accounting review status.',
+        code: 'SALARY_WAIVED_FIELDS_REQUIRED',
+      };
+    }
+    if (!moneyEquals(input.amountWaived, this.obligation.netSalaryPayable)) {
+      return {
+        ok: false as const,
+        error: 'Amount waived must equal the immutable net salary payable.',
+        code: 'WAIVER_AMOUNT_MISMATCH',
+      };
+    }
+    if (this.obligation.confirmedPaidAmount > 0) {
+      return {
+        ok: false as const,
+        error: 'Cannot waive salary after confirmed payments exist — reverse first.',
+        code: 'WAIVER_AFTER_PAYMENT',
+      };
+    }
+    const now = input.now ?? new Date();
+    this.obligation = {
+      ...this.obligation,
+      exceptionKind: 'SALARY_WAIVED',
+      exceptionReason: input.reason.trim(),
+      exceptionApprovedBy: input.approvingAuthority.trim(),
+      exceptionApprovedAt: input.dateApproved,
+      exceptionEvidencePath: input.evidencePath ?? null,
+      taxAccountingReviewStatus: input.taxAccountingReviewStatus.trim(),
+      outstandingAmount: 0,
+      paymentStatus: 'SALARY_WAIVED',
+      documentStatus: 'AUTHORISED_BLOCKED',
+      timeliness: 'N/A',
+      updatedAt: now.toISOString(),
+    };
+    this.audit.push(
+      buildAuditEvent({
+        obligationId: this.obligation.id,
+        action: 'SALARY_WAIVED',
+        actorUserId: input.actorUserId,
+        reason: input.reason,
+        newValues: {
+          amountWaived: input.amountWaived,
+          approvingAuthority: input.approvingAuthority,
+          dateApproved: input.dateApproved,
+          taxAccountingReviewStatus: input.taxAccountingReviewStatus,
+        },
+        now,
+      }),
+    );
+    return { ok: true as const, obligation: this.obligation };
   }
 
   tryManualPaid(): { ok: true } | { ok: false; error: string; code: string } {

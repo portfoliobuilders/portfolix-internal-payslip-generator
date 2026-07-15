@@ -1,9 +1,11 @@
 'use client';
 
 /**
- * A4 PDF export via html2canvas + jsPDF. Libraries are imported lazily
- * so the main bundle stays lean and static export never touches them
- * at build time.
+ * Preview/legacy A4 export via html2canvas + jsPDF.
+ *
+ * Production AUTHORISED / INTERNAL final documents should use
+ * lib/pdf-vector.ts (text/vector). Do not treat a full-page screenshot
+ * as the bank-grade PDF of record.
  */
 
 const A4_WIDTH_MM = 210;
