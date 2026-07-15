@@ -9,7 +9,7 @@ const EMPTY_SIGNATORY: Pick<
   EntityInfo,
   | 'cin'
   | 'registeredAddress'
-  | 'contactPhone'
+  | 'phone'
   | 'payrollEmail'
   | 'signatoryName'
   | 'signatoryDesignation'
@@ -18,7 +18,7 @@ const EMPTY_SIGNATORY: Pick<
 > = {
   cin: SETTINGS_PLACEHOLDER,
   registeredAddress: SETTINGS_PLACEHOLDER,
-  contactPhone: SETTINGS_PLACEHOLDER,
+  phone: SETTINGS_PLACEHOLDER,
   payrollEmail: SETTINGS_PLACEHOLDER,
   signatoryName: SETTINGS_PLACEHOLDER,
   signatoryDesignation: SETTINGS_PLACEHOLDER,
@@ -30,6 +30,7 @@ const EMPTY_SIGNATORY: Pick<
 export const SEED_SETTINGS: Settings = {
   paydayDayOfMonth: 5,
   payrollContact: SETTINGS_PLACEHOLDER,
+  reviewDeadlineTime: '6:00 PM',
   ptDeductionMonths: [8, 2],
   entities: {
     PX: {
@@ -76,7 +77,7 @@ function normalizePtMonths(raw: unknown): number[] {
 }
 
 function mergeEntityBranding(
-  stored: Partial<Record<EntityCode, Partial<EntityInfo>>> | null | undefined,
+  stored: Partial<Record<EntityCode, Partial<EntityInfo> & { contactPhone?: string }>> | null | undefined,
   defaults: Record<EntityCode, EntityInfo>,
 ): Record<EntityCode, EntityInfo> {
   const merged = { ...defaults };
@@ -85,12 +86,13 @@ function mergeEntityBranding(
   for (const code of ENTITY_CODES) {
     const patch = stored[code];
     if (patch) {
+      const { contactPhone, ...rest } = patch;
       merged[code] = {
         ...merged[code],
-        ...patch,
+        ...rest,
         cin: patch.cin?.trim() || merged[code].cin,
         registeredAddress: patch.registeredAddress?.trim() || merged[code].registeredAddress,
-        contactPhone: patch.contactPhone?.trim() || merged[code].contactPhone,
+        phone: patch.phone?.trim() || contactPhone?.trim() || merged[code].phone,
         payrollEmail: patch.payrollEmail?.trim() || merged[code].payrollEmail,
         signatoryName: patch.signatoryName?.trim() || merged[code].signatoryName,
         signatoryDesignation:
@@ -114,6 +116,8 @@ export function mergeSettings(stored: Partial<Settings> | null | undefined): Set
   return {
     paydayDayOfMonth: stored.paydayDayOfMonth ?? SEED_SETTINGS.paydayDayOfMonth,
     payrollContact: stored.payrollContact?.trim() || SEED_SETTINGS.payrollContact,
+    reviewDeadlineTime:
+      stored.reviewDeadlineTime?.trim() || SEED_SETTINGS.reviewDeadlineTime,
     ptDeductionMonths: normalizePtMonths(stored.ptDeductionMonths),
     entities: mergeEntityBranding(stored.entities, structuredClone(SEED_SETTINGS.entities)),
   };
@@ -134,7 +138,7 @@ export function signatoryIncompleteReason(entity: EntityInfo): string | null {
   if (isSettingsPlaceholder(entity.name)) missing.push('legal name');
   if (isSettingsPlaceholder(entity.cin)) missing.push('CIN');
   if (isSettingsPlaceholder(entity.registeredAddress)) missing.push('registered address');
-  if (isSettingsPlaceholder(entity.contactPhone)) missing.push('contact phone');
+  if (isSettingsPlaceholder(entity.phone)) missing.push('phone');
   if (isSettingsPlaceholder(entity.payrollEmail)) missing.push('payroll email');
   if (isSettingsPlaceholder(entity.signatoryName)) missing.push('signatory name');
   if (isSettingsPlaceholder(entity.signatoryDesignation)) missing.push('signatory designation');

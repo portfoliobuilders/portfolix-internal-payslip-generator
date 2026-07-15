@@ -10,7 +10,7 @@
  */
 
 import { CheckCircle2 } from 'lucide-react';
-import { FIXED_DIVISOR } from '@/lib/payroll-calc';
+import { FIXED_DIVISOR, slipStatutoryDeductions } from '@/lib/payroll-calc';
 import { formatDate, formatINR, formatMinutes, formatMonthYear, payrollCycleDates } from '@/lib/format';
 import type { EntityInfo, SlipSnapshot } from '@/lib/types';
 import EntityLogo from '@/components/EntityLogo';
@@ -20,6 +20,8 @@ interface SalarySlipProps {
   entity: EntityInfo;
   payrollContact: string;
   paydayDayOfMonth: number;
+  /** e.g. "6:00 PM" from settings.reviewDeadlineTime */
+  reviewDeadlineTime?: string;
   /** Rule 7 — manual deferred-opening override broke the FINAL chain. */
   ledgerMismatch?: boolean;
 }
@@ -60,6 +62,7 @@ export default function SalarySlip({
   entity,
   payrollContact,
   paydayDayOfMonth,
+  reviewDeadlineTime = '6:00 PM',
   ledgerMismatch = false,
 }: SalarySlipProps) {
   const { inputs, computed, employee } = snapshot;
@@ -67,8 +70,7 @@ export default function SalarySlip({
   const { creditDate, reviewDeadline } = payrollCycleDates(snapshot.monthYear, paydayDayOfMonth);
   const variableLabel = inputs.variableLabel.trim() || 'Variable / Incentive';
   const hasLateness = inputs.lateMinutes > 0 || inputs.flexMinutesEarned > 0;
-  const tds = computed.tdsMonthly ?? inputs.tdsMonthly ?? 0;
-  const pt = computed.ptThisMonth ?? inputs.ptThisMonth ?? 0;
+  const { tds, pt } = slipStatutoryDeductions(computed, inputs);
   /** Prefer entity payroll email; fall back to the global contact setting. */
   const contactLine = entity.payrollEmail?.trim() || payrollContact;
 
@@ -147,7 +149,7 @@ export default function SalarySlip({
               Review window
             </p>
             <p className="font-semibold">
-              Review queries by {formatDate(reviewDeadline)} · 6:00 PM
+              Review queries by {formatDate(reviewDeadline)} · {reviewDeadlineTime}
             </p>
           </div>
         )}
@@ -362,7 +364,8 @@ export default function SalarySlip({
           {isDraft ? (
             <>
               <span className="font-semibold text-ink">Queries:</span> {contactLine} — reply before{' '}
-              {formatDate(reviewDeadline)}, 6:00 PM. Salary credits on {formatDate(creditDate)}.
+              {formatDate(reviewDeadline)}, {reviewDeadlineTime}. Salary credits on{' '}
+              {formatDate(creditDate)}.
             </>
           ) : (
             <>

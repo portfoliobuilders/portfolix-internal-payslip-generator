@@ -1,13 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
-import { createPortal } from 'react-dom';
-import { Download, Eye, FileBadge2, Printer, X } from 'lucide-react';
-import {
-  fetchAuthorisedSlipYtd,
-  logAuthorisedSlipGeneration,
-} from '@/app/actions/payroll';
-import { createSignatorySignedUrls } from '@/app/actions/signatory-assets';
+import { createSignatorySignedUrls, getSignatoryStorageStatus } from '@/app/actions/signatory-assets';
 import { computeAuthorisedYtd } from '@/lib/authorised-slip';
 import {
   authorisedSlipFilename,
@@ -23,6 +16,13 @@ import { useHRStore } from '@/store/useHRStore';
 import AuthorisedSlip from './AuthorisedSlip';
 import SalarySlip from './SalarySlip';
 import { Modal, btnPrimary, btnSecondary, inputCls } from './ui';
+import { useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
+import { Download, Eye, FileBadge2, Printer, X } from 'lucide-react';
+import {
+  fetchAuthorisedSlipYtd,
+  logAuthorisedSlipGeneration,
+} from '@/app/actions/payroll';
 
 interface HistoryViewProps {
   slipHistory: SlipSnapshot[];
@@ -46,6 +46,21 @@ export default function HistoryView({ slipHistory, loading }: HistoryViewProps) 
   } | null>(null);
   const [bankCopyBusy, setBankCopyBusy] = useState(false);
   const [bankCopyError, setBankCopyError] = useState<string | null>(null);
+  const [signatoryStorageConfigured, setSignatoryStorageConfigured] = useState(true);
+  const [signatoryStorageMessage, setSignatoryStorageMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const status = await getSignatoryStorageStatus();
+      if (cancelled) return;
+      setSignatoryStorageConfigured(status.configured);
+      setSignatoryStorageMessage(status.message);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const employeeOptions = useMemo(() => {
     const map = new Map<string, string>();
@@ -142,7 +157,7 @@ export default function HistoryView({ slipHistory, loading }: HistoryViewProps) 
         entityLegalName: entity.name,
         cin: entity.cin,
         registeredAddress: entity.registeredAddress,
-        contactPhone: entity.contactPhone,
+        phone: entity.phone,
         payrollEmail: entity.payrollEmail,
       });
     } catch (err) {
@@ -168,7 +183,11 @@ export default function HistoryView({ slipHistory, loading }: HistoryViewProps) 
   function BankCopyButton({ snapshot, compact = false }: { snapshot: SlipSnapshot; compact?: boolean }) {
     if (snapshot.status !== 'final') return null;
     const entity = settings.entities[snapshot.employee.entityCode];
-    const reason = signatoryIncompleteReason(entity);
+    const settingsReason = signatoryIncompleteReason(entity);
+    const reason = !signatoryStorageConfigured
+      ? signatoryStorageMessage ??
+        'Server key not configured (SUPABASE_SECRET_KEY). Bank copy cannot embed signature/seal.'
+      : settingsReason;
     const disabled = !!reason || bankCopyBusy;
 
     if (compact) {
@@ -358,6 +377,7 @@ export default function HistoryView({ slipHistory, loading }: HistoryViewProps) 
               entity={settings.entities[viewing.employee.entityCode]}
               payrollContact={settings.payrollContact}
               paydayDayOfMonth={settings.paydayDayOfMonth}
+              reviewDeadlineTime={settings.reviewDeadlineTime}
             />
           </div>
         </div>
@@ -372,6 +392,7 @@ export default function HistoryView({ slipHistory, loading }: HistoryViewProps) 
               entity={settings.entities[viewing.employee.entityCode]}
               payrollContact={settings.payrollContact}
               paydayDayOfMonth={settings.paydayDayOfMonth}
+              reviewDeadlineTime={settings.reviewDeadlineTime}
             />
           </div>,
           document.body,
@@ -386,6 +407,7 @@ export default function HistoryView({ slipHistory, loading }: HistoryViewProps) 
               entity={settings.entities[exportTarget.employee.entityCode]}
               payrollContact={settings.payrollContact}
               paydayDayOfMonth={settings.paydayDayOfMonth}
+              reviewDeadlineTime={settings.reviewDeadlineTime}
             />
           </div>,
           document.body,

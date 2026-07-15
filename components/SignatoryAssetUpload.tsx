@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import {
   createSignatorySignedUrl,
+  getSignatoryStorageStatus,
   removeSignatoryAsset,
   uploadSignatoryAsset,
 } from '@/app/actions/signatory-assets';
@@ -24,27 +25,47 @@ export default function SignatoryAssetUpload({ code, kind, label }: SignatoryAss
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [storageConfigured, setStorageConfigured] = useState(true);
+  const [storageMessage, setStorageMessage] = useState<string | null>(null);
 
   const path = kind === 'signature' ? entity.signatureAssetPath : entity.sealAssetPath;
 
   useEffect(() => {
     let cancelled = false;
+    void (async () => {
+      const status = await getSignatoryStorageStatus();
+      if (cancelled) return;
+      setStorageConfigured(status.configured);
+      setStorageMessage(status.message);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
     setPreviewUrl(null);
-    if (!path) return;
+    if (!path || !storageConfigured) return;
 
     void (async () => {
       const result = await createSignatorySignedUrl(path);
       if (cancelled) return;
       if (result.ok) setPreviewUrl(result.data.signedUrl);
+      else setError(result.error);
     })();
 
     return () => {
       cancelled = true;
     };
-  }, [path]);
+  }, [path, storageConfigured]);
 
   async function onFile(file: File | undefined) {
     if (!file) return;
+    if (!storageConfigured) {
+      setError(storageMessage ?? 'Server key not configured.');
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
@@ -55,7 +76,6 @@ export default function SignatoryAssetUpload({ code, kind, label }: SignatoryAss
         setError(result.error);
         return;
       }
-      // Refresh store from the save that uploadSignatoryAsset already performed.
       const { fetchSettings } = await import('@/app/actions/settings');
       const refreshed = await fetchSettings();
       if (refreshed.ok) setSettings(refreshed.data);
@@ -69,6 +89,10 @@ export default function SignatoryAssetUpload({ code, kind, label }: SignatoryAss
   }
 
   async function onRemove() {
+    if (!storageConfigured) {
+      setError(storageMessage ?? 'Server key not configured.');
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
@@ -99,6 +123,12 @@ export default function SignatoryAssetUpload({ code, kind, label }: SignatoryAss
   return (
     <div className="rounded-md border border-hairline bg-surface/40 p-3">
       <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted">{label}</p>
+      {!storageConfigured && (
+        <p className="mb-2 rounded border border-amber-edge bg-amber-tint px-2 py-1.5 text-[11px] font-medium text-amber-brand">
+          Server key not configured — set <span className="amount">SUPABASE_SECRET_KEY</span> on the
+          host. Uploads and bank-copy signatures are disabled (fail closed).
+        </p>
+      )}
       <div className="flex items-center gap-3">
         <div className="flex h-16 w-28 items-center justify-center overflow-hidden rounded border border-hairline bg-paper">
           {previewUrl ? (
@@ -119,7 +149,7 @@ export default function SignatoryAssetUpload({ code, kind, label }: SignatoryAss
           <button
             type="button"
             className="inline-flex min-h-[36px] items-center justify-center gap-1.5 rounded-md border border-hairline bg-paper px-3 text-[12px] font-medium text-ink hover:bg-surface disabled:opacity-50"
-            disabled={busy}
+            disabled={busy || !storageConfigured}
             onClick={() => inputRef.current?.click()}
           >
             {busy ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
@@ -129,7 +159,7 @@ export default function SignatoryAssetUpload({ code, kind, label }: SignatoryAss
             <button
               type="button"
               className="inline-flex min-h-[36px] items-center justify-center gap-1.5 rounded-md border border-hairline bg-paper px-3 text-[12px] font-medium text-amber-brand hover:bg-amber-tint disabled:opacity-50"
-              disabled={busy}
+              disabled={busy || !storageConfigured}
               onClick={() => void onRemove()}
             >
               <Trash2 size={14} /> Remove
@@ -137,7 +167,9 @@ export default function SignatoryAssetUpload({ code, kind, label }: SignatoryAss
           )}
         </div>
       </div>
-      <p className="mt-2 text-[10px] text-muted">PNG, JPEG, or WebP · max 1 MB · private storage</p>
+      <p className="mt-2 text-[10px] text-muted">
+        PNG, JPEG, or WebP · max 1 MB · private storage via server action (no public URL)
+      </p>
       {error && <p className="mt-1 text-[11px] font-medium text-amber-brand">{error}</p>}
     </div>
   );

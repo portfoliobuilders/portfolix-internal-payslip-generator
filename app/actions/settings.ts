@@ -1,5 +1,13 @@
 'use server';
 
+/**
+ * Settings server actions (app_settings.data jsonb singleton).
+ *
+ * TODO(auth session): wrap saveSettings with requirePayrollAdmin() —
+ * settings write access without auth means anyone can replace logos, payday,
+ * and signatory identity. Same guard list as app/actions/payroll.ts and lib/logos.ts.
+ */
+
 import { revalidatePath } from 'next/cache';
 import { mergeSettings, SEED_SETTINGS } from '@/lib/settings-defaults';
 import type { Settings } from '@/lib/types';
@@ -38,6 +46,7 @@ function normalizeSettings(settings: Settings): Settings {
     ...settings,
     paydayDayOfMonth: clampPaydayDay(settings.paydayDayOfMonth),
     payrollContact: settings.payrollContact.trim() || 'SET-IN-SETTINGS',
+    reviewDeadlineTime: settings.reviewDeadlineTime.trim() || '6:00 PM',
     ptDeductionMonths:
       months.length > 0 ? [...new Set(months)].sort((a, b) => a - b) : [8, 2],
   };

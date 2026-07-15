@@ -13,6 +13,7 @@ import {
   formatPayPeriodRange,
   payrollCycleDates,
 } from '@/lib/format';
+import { slipStatutoryDeductions } from '@/lib/payroll-calc';
 import type { AuthorisedSlipYtd, EntityInfo, SlipSnapshot } from '@/lib/types';
 
 interface AuthorisedSlipProps {
@@ -48,8 +49,7 @@ export default function AuthorisedSlip({
   const { inputs, computed, employee } = snapshot;
   const { creditDate } = payrollCycleDates(snapshot.monthYear, paydayDayOfMonth);
 
-  const tds = computed.tdsMonthly ?? inputs.tdsMonthly ?? 0;
-  const pt = computed.ptThisMonth ?? inputs.ptThisMonth ?? 0;
+  const { tds, pt } = slipStatutoryDeductions(computed, inputs);
   const other = computed.otherDeductions;
   const lop = computed.lopDeduction;
   const totalDeductions = computed.totalDeductions;
@@ -71,7 +71,7 @@ export default function AuthorisedSlip({
         </p>
         <p className="mt-0.5 text-[10px] leading-snug text-muted">{entity.registeredAddress}</p>
         <p className="mt-1 text-[10px] text-muted">
-          Tel: <span className="text-ink">{entity.contactPhone}</span>
+          Tel: <span className="text-ink">{entity.phone}</span>
           {' · '}
           Payroll:{' '}
           <span className="text-ink">{entity.payrollEmail}</span>
@@ -281,7 +281,7 @@ export default function AuthorisedSlip({
       <footer className="mt-auto border-t border-hairline pt-3 text-[8.5px] leading-relaxed text-muted">
         <p>
           Digitally issued salary document. For verification contact {entity.payrollEmail} /{' '}
-          {entity.contactPhone}.
+          {entity.phone}.
         </p>
       </footer>
     </div>

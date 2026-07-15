@@ -1,5 +1,13 @@
 'use server';
 
+/**
+ * Payroll server actions.
+ *
+ * TODO(auth session): wrap every mutating export with requirePayrollAdmin() —
+ * also add app/actions/settings.ts and lib/logos.ts to that same guard list
+ * (settings/logo writes without auth let anyone replace branding and signatory identity).
+ */
+
 import { revalidatePath } from 'next/cache';
 import { computeAuthorisedYtd } from '@/lib/authorised-slip';
 import type { AuthorisedSlipYtd, Employee, SignatorySnapshot, SlipSnapshot } from '@/lib/types';
@@ -104,14 +112,15 @@ export async function bulkUpsertEmployees(
     const rows = employees.map((employee) => {
       const empId = normalizeEmployeeId(employee.empId);
       const existing = existingByEmpId.get(empId);
-      const flexLog = existing ? rowToEmployee(existing).flexLog : [];
+      const existingEmployee = existing ? rowToEmployee(existing) : null;
+      const flexLog = existingEmployee?.flexLog ?? [];
       return employeeToRow({
         ...employee,
         empId,
         id: existing?.id ?? generateId(),
         flexLog,
-        tdsMonthly: employee.tdsMonthly ?? (Number(existing?.tds_monthly ?? 0) || 0),
-        ptHalfYearly: employee.ptHalfYearly ?? (Number(existing?.pt_half_yearly ?? 0) || 0),
+        tdsMonthly: employee.tdsMonthly ?? existingEmployee?.tdsMonthly ?? 0,
+        ptHalfYearly: employee.ptHalfYearly ?? existingEmployee?.ptHalfYearly ?? 0,
       });
     });
 
@@ -251,9 +260,10 @@ export async function fetchAuthorisedSlipYtd(
 
 /**
  * Logs one Authorised Slip (bank copy) generation. Reprints are logged, never blocked.
+ * payroll_slip_id references payroll_slips.id (there is no payroll_runs table).
  */
 export async function logAuthorisedSlipGeneration(
-  payrollRunId: string,
+  payrollSlipId: string,
   signatorySnapshot: SignatorySnapshot,
 ): Promise<ActionResult<{ id: string }>> {
   try {
@@ -261,7 +271,7 @@ export async function logAuthorisedSlipGeneration(
     const { data, error } = await supabase
       .from('authorised_slip_log')
       .insert({
-        payroll_run_id: payrollRunId,
+        payroll_slip_id: payrollSlipId,
         signatory_snapshot: signatorySnapshot,
       })
       .select('id')

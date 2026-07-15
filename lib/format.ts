@@ -76,8 +76,11 @@ export function currentMonthKey(): string {
 }
 
 /** "03 Jul 2026 · 6:00 PM" style string for the review deadline. */
-export function formatQueryDeadline(deadline: Date): string {
-  return `${formatDate(deadline)} · 6:00 PM`;
+export function formatQueryDeadline(
+  deadline: Date,
+  timeLabel: string = '6:00 PM',
+): string {
+  return `${formatDate(deadline)} · ${timeLabel}`;
 }
 
 /** PDF filename per spec: PX_PaySlip_YYYY-MM_<EMPID>[_DRAFT].pdf */

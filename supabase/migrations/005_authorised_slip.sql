@@ -1,27 +1,37 @@
--- Authorised Slip (bank copy) foundation:
--- statutory deduction inputs, entity/signatory settings fields (via app_settings seed),
--- authorised generation log, private signatory-assets bucket, employee_id whitespace fix.
+-- Authorised Slip foundation — the ONLY schema addition for this feature.
+-- Entity branding/signatory fields and employee TDS/PT live in jsonb
+-- (app_settings.data / employees.details_json), not as SQL columns.
+--
+-- Idempotent: safe if partially applied from an earlier draft of this migration.
 
--- 1) Employee statutory deduction inputs
-alter table public.employees
-  add column if not exists tds_monthly numeric(12, 2) not null default 0,
-  add column if not exists pt_half_yearly numeric(8, 2) not null default 0;
-
-comment on column public.employees.tds_monthly is
-  'Monthly TDS (income tax) deduction amount; frozen into each slip snapshot at generation.';
-comment on column public.employees.pt_half_yearly is
-  'Kerala Professional Tax half-yearly amount; deducted only in configured PT months.';
-
--- 2) Authorised slip generation log (reprints are logged, never blocked)
+-- 1) authorised_slip_log — one row per bank-copy generation (reprints never blocked)
 create table if not exists public.authorised_slip_log (
   id uuid primary key default gen_random_uuid(),
-  payroll_run_id uuid not null references public.payroll_slips (id) on delete cascade,
+  payroll_slip_id uuid not null references public.payroll_slips (id) on delete cascade,
   generated_at timestamptz not null default timezone('utc', now()),
   signatory_snapshot jsonb not null default '{}'::jsonb
 );
 
-create index if not exists authorised_slip_log_run_idx
-  on public.authorised_slip_log (payroll_run_id, generated_at desc);
+-- Align column name if an earlier draft used payroll_run_id
+do $$
+begin
+  if exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'authorised_slip_log'
+      and column_name = 'payroll_run_id'
+  ) and not exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'authorised_slip_log'
+      and column_name = 'payroll_slip_id'
+  ) then
+    alter table public.authorised_slip_log rename column payroll_run_id to payroll_slip_id;
+  end if;
+end $$;
+
+create index if not exists authorised_slip_log_slip_idx
+  on public.authorised_slip_log (payroll_slip_id, generated_at desc);
 
 alter table public.authorised_slip_log enable row level security;
 
@@ -32,12 +42,11 @@ create policy "Allow anon full access"
   using (true)
   with check (true);
 
--- 3) One-off employee_id whitespace collapse (e.g. "PX-OPS-2512 -005")
+-- 2) One-off employee_id whitespace collapse (e.g. "PX-OPS-2512 -005")
 update public.employees
 set employee_id = upper(trim(regexp_replace(employee_id, '\s+', '', 'g')))
 where employee_id ~ '\s';
 
--- Also fix any frozen empId strings already captured in slip snapshots
 update public.payroll_slips
 set details_json = jsonb_set(
   details_json,
@@ -46,8 +55,29 @@ set details_json = jsonb_set(
 )
 where details_json #>> '{employee,empId}' ~ '\s';
 
--- 4) Seed global PT months + per-entity company/signatory placeholders into app_settings
---    Misspelled or missing contact/CIN/phone values become obvious "SET-IN-SETTINGS" markers.
+-- 3) If a draft migration added SQL TDS/PT columns, fold values into details_json then drop them
+do $$
+begin
+  if exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public' and table_name = 'employees' and column_name = 'tds_monthly'
+  ) then
+    update public.employees
+    set details_json = coalesce(details_json, '{}'::jsonb)
+      || jsonb_build_object(
+        'tdsMonthly', coalesce(tds_monthly, 0),
+        'ptHalfYearly', coalesce(pt_half_yearly, 0)
+      )
+    where details_json is null
+       or details_json->>'tdsMonthly' is null
+       or details_json->>'ptHalfYearly' is null;
+
+    alter table public.employees drop column if exists tds_monthly;
+    alter table public.employees drop column if exists pt_half_yearly;
+  end if;
+end $$;
+
+-- 4) Seed Settings jsonb keys (not SQL columns): PT months + entity signatory placeholders
 update public.app_settings
 set
   data = jsonb_set(
@@ -57,20 +87,13 @@ set
       coalesce(data->'ptDeductionMonths', '[8, 2]'::jsonb),
       true
     ),
-    '{payrollContact}',
-    to_jsonb(
-      case
-        when coalesce(data->>'payrollContact', '') = '' then 'SET-IN-SETTINGS'
-        when data->>'payrollContact' ~* 'erntreprise|entreprise\.com$' then 'SET-IN-SETTINGS'
-        else data->>'payrollContact'
-      end
-    ),
+    '{reviewDeadlineTime}',
+    coalesce(data->'reviewDeadlineTime', '"6:00 PM"'::jsonb),
     true
   ),
   updated_at = timezone('utc', now())
 where id = 1;
 
--- Ensure each entity object has company/signatory keys with placeholders when blank
 update public.app_settings
 set
   data = jsonb_set(
@@ -81,11 +104,7 @@ set
         code,
         coalesce(ent, '{}'::jsonb)
         || jsonb_build_object(
-          'cin',
-          case
-            when coalesce(ent->>'cin', '') = '' then 'SET-IN-SETTINGS'
-            else ent->>'cin'
-          end,
+          'cin', coalesce(nullif(ent->>'cin', ''), 'SET-IN-SETTINGS'),
           'registeredAddress',
           case
             when coalesce(ent->>'registeredAddress', '') <> '' then ent->>'registeredAddress'
@@ -97,30 +116,29 @@ set
               )
             else 'SET-IN-SETTINGS'
           end,
-          'contactPhone',
-          case
-            when coalesce(ent->>'contactPhone', '') = '' then 'SET-IN-SETTINGS'
-            else ent->>'contactPhone'
-          end,
+          'phone',
+          coalesce(
+            nullif(ent->>'phone', ''),
+            nullif(ent->>'contactPhone', ''),
+            'SET-IN-SETTINGS'
+          ),
           'payrollEmail',
           case
-            when coalesce(ent->>'payrollEmail', '') = ''
-              and coalesce(ent->>'contact', '') <> ''
+            when coalesce(ent->>'payrollEmail', '') <> ''
+              and ent->>'payrollEmail' !~* 'erntreprise|entreprise\.com$'
+              then ent->>'payrollEmail'
+            when coalesce(ent->>'contact', '') <> ''
               and ent->>'contact' !~* 'erntreprise|entreprise\.com$'
               then ent->>'contact'
-            when coalesce(ent->>'payrollEmail', '') = '' then 'SET-IN-SETTINGS'
-            when ent->>'payrollEmail' ~* 'erntreprise|entreprise\.com$' then 'SET-IN-SETTINGS'
-            else ent->>'payrollEmail'
+            else 'SET-IN-SETTINGS'
           end,
-          'signatoryName',
-          coalesce(nullif(ent->>'signatoryName', ''), 'SET-IN-SETTINGS'),
+          'signatoryName', coalesce(nullif(ent->>'signatoryName', ''), 'SET-IN-SETTINGS'),
           'signatoryDesignation',
-          coalesce(nullif(ent->>'signatoryDesignation', ''), 'SET-IN-SETTINGS'),
-          'signatureAssetPath',
-          ent->'signatureAssetPath',
-          'sealAssetPath',
-          ent->'sealAssetPath'
+            coalesce(nullif(ent->>'signatoryDesignation', ''), 'SET-IN-SETTINGS'),
+          'signatureAssetPath', ent->'signatureAssetPath',
+          'sealAssetPath', ent->'sealAssetPath'
         )
+        - 'contactPhone'
       )
       from jsonb_each(coalesce(data->'entities', '{}'::jsonb)) as e(code, ent)
     ),
@@ -130,7 +148,7 @@ set
 where id = 1
   and data ? 'entities';
 
--- 5) Private signatory-assets storage bucket (PNG/JPEG/WebP, max 1 MB)
+-- 5) Ensure private signatory-assets bucket exists (created in dashboard; assert shape here)
 insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
 values (
   'signatory-assets',
@@ -141,30 +159,12 @@ values (
 )
 on conflict (id) do update
 set
-  public = excluded.public,
-  file_size_limit = excluded.file_size_limit,
-  allowed_mime_types = excluded.allowed_mime_types;
+  public = false,
+  file_size_limit = 1048576,
+  allowed_mime_types = array['image/png', 'image/jpeg', 'image/webp'];
 
--- Allow app (anon key) to manage objects for signed-URL workflows.
--- Bucket is private: /object/public/... URLs fail; only createSignedUrl works.
+-- Fail closed: no anon/public object policies — server uses SUPABASE_SECRET_KEY (service role)
 drop policy if exists "Signatory assets insert" on storage.objects;
 drop policy if exists "Signatory assets select" on storage.objects;
 drop policy if exists "Signatory assets update" on storage.objects;
 drop policy if exists "Signatory assets delete" on storage.objects;
-
-create policy "Signatory assets insert"
-  on storage.objects for insert
-  with check (bucket_id = 'signatory-assets');
-
-create policy "Signatory assets select"
-  on storage.objects for select
-  using (bucket_id = 'signatory-assets');
-
-create policy "Signatory assets update"
-  on storage.objects for update
-  using (bucket_id = 'signatory-assets')
-  with check (bucket_id = 'signatory-assets');
-
-create policy "Signatory assets delete"
-  on storage.objects for delete
-  using (bucket_id = 'signatory-assets');

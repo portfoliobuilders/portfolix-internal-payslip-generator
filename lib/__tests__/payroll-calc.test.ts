@@ -167,7 +167,7 @@ describe('statutory deductions (TDS + PT)', () => {
       baseSalary: 20000,
       tdsMonthly: 12500,
     });
-    expect(r.tdsMonthly).toBe(12500);
+    expect(r.tds).toBe(12500);
     expect(r.totalDeductions).toBe(12500);
     expect(r.netPay).toBe(7500);
     expect(r.netPayWords).toBe('Rupees Seven Thousand Five Hundred Only');
@@ -187,7 +187,7 @@ describe('statutory deductions (TDS + PT)', () => {
       ptThisMonth: 1250,
       otherDeductions: 100,
     });
-    expect(r.ptThisMonth).toBe(1250);
+    expect(r.pt).toBe(1250);
     expect(r.totalDeductions).toBe(1350);
     expect(r.netPay).toBe(18650);
   });

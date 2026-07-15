@@ -261,8 +261,8 @@ export default function GeneratorView({
         lopDays: result.lopDays,
         lopDeduction: result.lopDeduction,
         otherDeductions: result.otherDeductions,
-        tdsMonthly: result.tdsMonthly,
-        ptThisMonth: result.ptThisMonth,
+        tds: result.tds,
+        pt: result.pt,
         totalDeductions: result.totalDeductions,
         grossFixed: result.grossFixed,
         variableEarned: result.variableEarned,
@@ -568,6 +568,7 @@ export default function GeneratorView({
               entity={entity}
               payrollContact={settings.payrollContact}
               paydayDayOfMonth={settings.paydayDayOfMonth}
+              reviewDeadlineTime={settings.reviewDeadlineTime}
               ledgerMismatch={ledgerMismatch}
             />
           </ScaledPreview>
@@ -588,6 +589,7 @@ export default function GeneratorView({
               entity={entity}
               payrollContact={settings.payrollContact}
               paydayDayOfMonth={settings.paydayDayOfMonth}
+              reviewDeadlineTime={settings.reviewDeadlineTime}
               ledgerMismatch={ledgerMismatch}
             />
           </div>,

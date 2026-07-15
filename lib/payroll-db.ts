@@ -1,9 +1,10 @@
 /**
  * Maps between Supabase row shapes and the app's domain types.
- * Extended employee fields (department, flex log, etc.) live in details_json.
+ * Extended employee fields (department, flex log, TDS/PT, etc.) live in details_json.
  */
 
-import type { Employee, EntityCode, FlexLogEntry, PaymentMode, SlipSnapshot } from '@/lib/types';
+import type { Employee, EntityCode, FlexLogEntry, PaymentMode, SlipSnapshot } from './types';
+import { slipStatutoryDeductions } from './payroll-calc';
 
 export interface EmployeeDetailsJson {
   department: string;
@@ -12,6 +13,10 @@ export interface EmployeeDetailsJson {
   bankLast4: string;
   panMasked: string;
   flexLog: FlexLogEntry[];
+  /** Monthly TDS (₹). Default 0 when absent (legacy rows). */
+  tdsMonthly?: number;
+  /** Kerala PT half-yearly (₹). Default 0 when absent (legacy rows). */
+  ptHalfYearly?: number;
 }
 
 export interface EmployeeRow {
@@ -23,8 +28,6 @@ export interface EmployeeRow {
   designation: string;
   base_salary: number;
   flex_bank_balance: number;
-  tds_monthly: number | null;
-  pt_half_yearly: number | null;
   details_json: EmployeeDetailsJson | null;
 }
 
@@ -51,6 +54,8 @@ function emptyDetails(): EmployeeDetailsJson {
     bankLast4: '',
     panMasked: '',
     flexLog: [],
+    tdsMonthly: 0,
+    ptHalfYearly: 0,
   };
 }
 
@@ -75,8 +80,8 @@ export function rowToEmployee(row: EmployeeRow): Employee {
     panMasked: details.panMasked,
     flexBankBalance: row.flex_bank_balance,
     flexLog: details.flexLog ?? [],
-    tdsMonthly: Number(row.tds_monthly ?? 0) || 0,
-    ptHalfYearly: Number(row.pt_half_yearly ?? 0) || 0,
+    tdsMonthly: Number(details.tdsMonthly ?? 0) || 0,
+    ptHalfYearly: Number(details.ptHalfYearly ?? 0) || 0,
   };
 }
 
@@ -92,8 +97,6 @@ export function employeeToRow(
     designation: employee.designation,
     base_salary: employee.baseSalary,
     flex_bank_balance: employee.flexBankBalance,
-    tds_monthly: employee.tdsMonthly ?? 0,
-    pt_half_yearly: employee.ptHalfYearly ?? 0,
     details_json: {
       department: employee.department,
       employeeAddress: employee.employeeAddress,
@@ -101,22 +104,25 @@ export function employeeToRow(
       bankLast4: employee.bankLast4,
       panMasked: employee.panMasked,
       flexLog: employee.flexLog,
+      tdsMonthly: employee.tdsMonthly ?? 0,
+      ptHalfYearly: employee.ptHalfYearly ?? 0,
     },
   };
 }
 
-/** Back-compat: older frozen snapshots may omit tdsMonthly / ptThisMonth. */
+/** Back-compat: older frozen snapshots may omit tds / pt. */
 export function rowToSlip(row: PayrollSlipRow): SlipSnapshot {
   const details = row.details_json;
   const inputs = {
     ...details.inputs,
-    tdsMonthly: details.inputs.tdsMonthly ?? 0,
-    ptThisMonth: details.inputs.ptThisMonth ?? 0,
+    tdsMonthly: details.inputs?.tdsMonthly ?? 0,
+    ptThisMonth: details.inputs?.ptThisMonth ?? 0,
   };
+  const statutory = slipStatutoryDeductions(details.computed ?? {}, inputs);
   const computed = {
     ...details.computed,
-    tdsMonthly: details.computed.tdsMonthly ?? inputs.tdsMonthly,
-    ptThisMonth: details.computed.ptThisMonth ?? inputs.ptThisMonth,
+    tds: statutory.tds,
+    pt: statutory.pt,
   };
   return {
     id: row.id,

@@ -18,6 +18,8 @@ export const EMPLOYEE_TEMPLATE_HEADERS = [
   'Bank A/C',
   'PAN',
   'Opening Flex-Bank Balance',
+  'TDS Monthly',
+  'PT Half-Yearly',
 ] as const;
 
 export type EmployeeTemplateHeader = (typeof EMPLOYEE_TEMPLATE_HEADERS)[number];
@@ -113,6 +115,12 @@ function validateRow(
   if (!Number.isFinite(employee.flexBankBalance) || employee.flexBankBalance < 0) {
     return `Row ${rowNumber}: Opening Flex-Bank Balance must be 0 or more.`;
   }
+  if (!Number.isFinite(employee.tdsMonthly) || employee.tdsMonthly < 0) {
+    return `Row ${rowNumber}: TDS Monthly must be 0 or more.`;
+  }
+  if (!Number.isFinite(employee.ptHalfYearly) || employee.ptHalfYearly < 0) {
+    return `Row ${rowNumber}: PT Half-Yearly must be 0 or more.`;
+  }
   return null;
 }
 
@@ -137,8 +145,8 @@ function mapRow(row: Record<string, unknown>, rowNumber: number): BulkEmployeeIn
     bankLast4: normalizeBankLast4(row['Bank A/C']),
     panMasked: cellString(row['PAN']).toUpperCase(),
     flexBankBalance: cellNumber(row['Opening Flex-Bank Balance']) || 0,
-    tdsMonthly: 0,
-    ptHalfYearly: 0,
+    tdsMonthly: cellNumber(row['TDS Monthly']) || 0,
+    ptHalfYearly: cellNumber(row['PT Half-Yearly']) || 0,
   };
 
   const error = validateRow(employee, rowNumber);

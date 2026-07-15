@@ -3,7 +3,7 @@
  */
 
 import { parse } from 'date-fns';
-import { roundMoney } from './payroll-calc';
+import { roundMoney, slipStatutoryDeductions } from './payroll-calc';
 import type { AuthorisedSlipYtd, SlipSnapshot } from './types';
 
 /** Indian FY for a slip month: Apr–Mar. Returns { start: 'YYYY-04', end: monthYear }. */
@@ -15,18 +15,11 @@ export function indianFyMonthRange(monthYear: string): { start: string; end: str
   return { start: `${fyStartYear}-04`, end: monthYear };
 }
 
-function slipTds(s: SlipSnapshot): number {
-  return s.computed.tdsMonthly ?? s.inputs.tdsMonthly ?? 0;
-}
-
-function slipPt(s: SlipSnapshot): number {
-  return s.computed.ptThisMonth ?? s.inputs.ptThisMonth ?? 0;
-}
-
 /**
  * Sum this employee's FINAL slip snapshots for the Indian FY up to and
  * including `throughMonthYear`, per Authorised Slip line item.
  * Deterministic; derived from immutable snapshots only.
+ * Missing tds/pt on old finals → 0.
  */
 export function computeAuthorisedYtd(
   slips: SlipSnapshot[],
@@ -64,15 +57,14 @@ export function computeAuthorisedYtd(
 
   let acc = { ...zero };
   for (const s of byMonth.values()) {
+    const { tds, pt } = slipStatutoryDeductions(s.computed, s.inputs);
     const basic = s.inputs.baseSalary;
     const fixedAllowance = s.inputs.fixedAllowance;
     const variablePaid = s.computed.variablePaid;
     const lopDeduction = s.computed.lopDeduction;
-    const professionalTax = slipPt(s);
-    const tds = slipTds(s);
     const otherDeductions = s.computed.otherDeductions;
     const grossEarnings = basic + fixedAllowance + variablePaid;
-    const totalDeductions = lopDeduction + professionalTax + tds + otherDeductions;
+    const totalDeductions = lopDeduction + pt + tds + otherDeductions;
 
     acc = {
       basic: acc.basic + basic,
@@ -80,7 +72,7 @@ export function computeAuthorisedYtd(
       variablePaid: acc.variablePaid + variablePaid,
       grossEarnings: acc.grossEarnings + grossEarnings,
       lopDeduction: acc.lopDeduction + lopDeduction,
-      professionalTax: acc.professionalTax + professionalTax,
+      professionalTax: acc.professionalTax + pt,
       tds: acc.tds + tds,
       otherDeductions: acc.otherDeductions + otherDeductions,
       totalDeductions: acc.totalDeductions + totalDeductions,

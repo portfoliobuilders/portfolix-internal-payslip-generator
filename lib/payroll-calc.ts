@@ -44,8 +44,8 @@ export interface PayrollInput {
   /** Monthly TDS — additive deduction line. Default 0 for back-compat. */
   tdsMonthly?: number;
   /**
-   * Professional Tax for this slip month only. Server derives this as
-   * pt_half_yearly when the slip month ∈ pt_deduction_months, else 0.
+   * Professional Tax for this slip month only. Derived as
+   * ptHalfYearly when the slip month ∈ ptDeductionMonths, else 0.
    */
   ptThisMonth?: number;
   variableEarned: number;
@@ -142,14 +142,34 @@ export function derivePtThisMonth(
 }
 
 /**
+ * Snapshot statutory amounts with back-compat for pre-TDS/PT finals.
+ * Missing fields → 0.00 (old slips are immutable and never regenerated).
+ */
+export function slipStatutoryDeductions(computed: {
+  tds?: number;
+  pt?: number;
+  /** Legacy field name from the first Authorised Slip draft — still accepted. */
+  tdsMonthly?: number;
+  ptThisMonth?: number;
+}, inputs?: {
+  tdsMonthly?: number;
+  ptThisMonth?: number;
+}): { tds: number; pt: number } {
+  return {
+    tds: computed.tds ?? computed.tdsMonthly ?? inputs?.tdsMonthly ?? 0,
+    pt: computed.pt ?? computed.ptThisMonth ?? inputs?.ptThisMonth ?? 0,
+  };
+}
+
+/**
  * The single computation entry point. Produces every derived number
  * shown on a slip, rounded exactly once for display.
  *
  * net = (base + fixedAllowance) − (lopDeduction + tds + pt + otherDeductions) + variablePaid
  */
 export function computePayroll(input: PayrollInput): PayrollResult {
-  const tdsMonthly = input.tdsMonthly ?? 0;
-  const ptThisMonth = input.ptThisMonth ?? 0;
+  const tds = input.tdsMonthly ?? 0;
+  const pt = input.ptThisMonth ?? 0;
 
   const perDayRateExact = input.baseSalary / FIXED_DIVISOR;
 
@@ -165,8 +185,7 @@ export function computePayroll(input: PayrollInput): PayrollResult {
   // Full precision throughout; round once per displayed figure below.
   const lopDeductionExact = lopDays * perDayRateExact;
   const grossFixedExact = input.baseSalary + input.fixedAllowance;
-  const totalDeductionsExact =
-    lopDeductionExact + input.otherDeductions + tdsMonthly + ptThisMonth;
+  const totalDeductionsExact = lopDeductionExact + input.otherDeductions + tds + pt;
 
   const { deferredClosing } = computeDeferral({
     deferredOpening: input.deferredOpening,
@@ -189,8 +208,8 @@ export function computePayroll(input: PayrollInput): PayrollResult {
     lopDays,
     lopDeduction: roundMoney(lopDeductionExact),
     otherDeductions: roundMoney(input.otherDeductions),
-    tdsMonthly: roundMoney(tdsMonthly),
-    ptThisMonth: roundMoney(ptThisMonth),
+    tds: roundMoney(tds),
+    pt: roundMoney(pt),
     totalDeductions: roundMoney(totalDeductionsExact),
     grossFixed: roundMoney(grossFixedExact),
     variableEarned: roundMoney(input.variableEarned),

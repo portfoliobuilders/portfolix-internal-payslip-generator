@@ -84,7 +84,7 @@ export default function SettingsView() {
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
           <Field
             label="Payday day of month"
-            hint="Salary credit date. The query deadline is derived as payday − 2 at 6:00 PM."
+            hint="Salary credit date. The query deadline is derived as payday − 2."
           >
             <NumberInput
               value={settings.paydayDayOfMonth}
@@ -94,6 +94,16 @@ export default function SettingsView() {
                 const day = Math.min(28, Math.max(3, Math.round(Number(e.target.value) || 0)));
                 updateSettings({ paydayDayOfMonth: day });
               }}
+            />
+          </Field>
+          <Field
+            label="Review deadline time"
+            hint="Printed on draft slips with the query-by date (e.g. 6:00 PM)."
+          >
+            <Input
+              value={settings.reviewDeadlineTime}
+              onChange={(e) => updateSettings({ reviewDeadlineTime: e.target.value })}
+              placeholder="6:00 PM"
             />
           </Field>
           <Field
@@ -122,7 +132,7 @@ export default function SettingsView() {
         <p className="mt-4 rounded-md bg-surface px-3 py-2 text-[11px] text-muted">
           Preview for {formatMonthYear(previewMonth)} — review queries by{' '}
           <span className="font-semibold text-amber-brand">
-            {formatQueryDeadline(reviewDeadline)}
+            {formatQueryDeadline(reviewDeadline, settings.reviewDeadlineTime)}
           </span>
           , salary credited{' '}
           <span className="font-semibold text-emerald-deep">{formatDate(creditDate)}</span>.
@@ -198,8 +208,8 @@ export default function SettingsView() {
                   </Field>
                   <Field label="Contact phone">
                     <Input
-                      value={entity.contactPhone}
-                      onChange={(e) => updateEntity(code, { contactPhone: e.target.value })}
+                      value={entity.phone}
+                      onChange={(e) => updateEntity(code, { phone: e.target.value })}
                       placeholder="SET-IN-SETTINGS"
                     />
                   </Field>

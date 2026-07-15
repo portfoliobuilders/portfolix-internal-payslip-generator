@@ -39,4 +39,4 @@ export function signatoryAssetPath(
 }
 
 /** Signed URL lifetime for preview/PDF embedding (seconds). */
-export const SIGNATORY_SIGNED_URL_TTL_SECONDS = 120;
+export const SIGNATORY_SIGNED_URL_TTL_SECONDS = 60;

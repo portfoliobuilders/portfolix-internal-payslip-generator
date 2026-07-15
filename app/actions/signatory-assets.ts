@@ -1,5 +1,12 @@
 'use server';
 
+/**
+ * Signatory asset server actions — PRIVATE bucket only, service-role client only.
+ * Do not reuse lib/logos.ts (browser → public branding bucket).
+ *
+ * TODO(auth session): guard with requirePayrollAdmin() alongside settings writes.
+ */
+
 import { revalidatePath } from 'next/cache';
 import { fetchSettings, saveSettings } from '@/app/actions/settings';
 import type { EntityCode } from '@/lib/types';
@@ -11,19 +18,37 @@ import {
   validateSignatoryAssetFile,
   type SignatoryAssetKind,
 } from '@/lib/signatory-assets';
-import { createClient } from '@/utils/supabase/server';
+import {
+  createServiceRoleClient,
+  isSignatoryStorageConfigured,
+  SIGNATORY_SECRET_MISSING_MESSAGE,
+} from '@/utils/supabase/service-role';
 
 export type ActionResult<T> =
   | { ok: true; data: T }
   | { ok: false; error: string };
 
-async function getSupabase() {
-  return createClient();
+export async function getSignatoryStorageStatus(): Promise<{
+  configured: boolean;
+  message: string | null;
+}> {
+  if (isSignatoryStorageConfigured()) {
+    return { configured: true, message: null };
+  }
+  return { configured: false, message: SIGNATORY_SECRET_MISSING_MESSAGE };
+}
+
+function requireServiceClient() {
+  const client = createServiceRoleClient();
+  if (!client) {
+    return { ok: false as const, error: SIGNATORY_SECRET_MISSING_MESSAGE };
+  }
+  return { ok: true as const, client };
 }
 
 /**
- * Uploads a signature or seal image to the private signatory-assets bucket.
- * Returns the storage path (never a public URL).
+ * Uploads a signature or seal image via the service-role client.
+ * Returns the storage path (never a public URL / never base64 in settings).
  */
 export async function uploadSignatoryAsset(
   entityCode: EntityCode,
@@ -31,6 +56,9 @@ export async function uploadSignatoryAsset(
   formData: FormData,
 ): Promise<ActionResult<{ path: string; signedUrl: string }>> {
   try {
+    const service = requireServiceClient();
+    if (!service.ok) return service;
+
     const file = formData.get('file');
     if (!(file instanceof File)) {
       return { ok: false, error: 'No file uploaded.' };
@@ -50,9 +78,8 @@ export async function uploadSignatoryAsset(
           : 'png';
     const path = signatoryAssetPath(entityCode, kind, extension);
     const bytes = await file.arrayBuffer();
-    const supabase = await getSupabase();
 
-    const { error: uploadError } = await supabase.storage
+    const { error: uploadError } = await service.client.storage
       .from(SIGNATORY_ASSETS_BUCKET)
       .upload(path, bytes, {
         upsert: true,
@@ -78,7 +105,7 @@ export async function uploadSignatoryAsset(
     });
     if (!saveResult.ok) return saveResult;
 
-    const { data: signed, error: signError } = await supabase.storage
+    const { data: signed, error: signError } = await service.client.storage
       .from(SIGNATORY_ASSETS_BUCKET)
       .createSignedUrl(path, SIGNATORY_SIGNED_URL_TTL_SECONDS);
     if (signError || !signed?.signedUrl) {
@@ -101,15 +128,17 @@ export async function removeSignatoryAsset(
   kind: SignatoryAssetKind,
 ): Promise<ActionResult<{ removed: true }>> {
   try {
+    const service = requireServiceClient();
+    if (!service.ok) return service;
+
     const settingsResult = await fetchSettings();
     if (!settingsResult.ok) return settingsResult;
 
     const entity = settingsResult.data.entities[entityCode];
     const path = kind === 'signature' ? entity.signatureAssetPath : entity.sealAssetPath;
-    const supabase = await getSupabase();
 
     if (path?.trim()) {
-      await supabase.storage.from(SIGNATORY_ASSETS_BUCKET).remove([path]);
+      await service.client.storage.from(SIGNATORY_ASSETS_BUCKET).remove([path]);
     }
 
     const patch =
@@ -143,8 +172,10 @@ export async function createSignatorySignedUrl(
   try {
     if (!path?.trim()) return { ok: true, data: { signedUrl: null } };
 
-    const supabase = await getSupabase();
-    const { data, error } = await supabase.storage
+    const service = requireServiceClient();
+    if (!service.ok) return service;
+
+    const { data, error } = await service.client.storage
       .from(SIGNATORY_ASSETS_BUCKET)
       .createSignedUrl(path.trim(), SIGNATORY_SIGNED_URL_TTL_SECONDS);
 
@@ -163,6 +194,9 @@ export async function createSignatorySignedUrls(paths: {
   signatureAssetPath: string | null;
   sealAssetPath: string | null;
 }): Promise<ActionResult<{ signatureUrl: string | null; sealUrl: string | null }>> {
+  if (!isSignatoryStorageConfigured()) {
+    return { ok: false, error: SIGNATORY_SECRET_MISSING_MESSAGE };
+  }
   const [sig, seal] = await Promise.all([
     createSignatorySignedUrl(paths.signatureAssetPath),
     createSignatorySignedUrl(paths.sealAssetPath),

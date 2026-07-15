@@ -18,7 +18,7 @@ export interface EntityInfo {
   cin: string;
   /** Full registered office address printed on the Authorised Slip letterhead. */
   registeredAddress: string;
-  contactPhone: string;
+  phone: string;
   payrollEmail: string;
   signatoryName: string;
   signatoryDesignation: string;
@@ -31,6 +31,11 @@ export interface EntityInfo {
 export interface Settings {
   paydayDayOfMonth: number;
   payrollContact: string;
+  /**
+   * Clock label printed with the draft review deadline (e.g. "6:00 PM").
+   * No longer hardcoded in slip components.
+   */
+  reviewDeadlineTime: string;
   /**
    * Calendar months (1–12) in which Kerala Professional Tax is deducted.
    * Default Aug + Feb: [8, 2].
@@ -69,9 +74,9 @@ export interface Employee {
   /** Flex-bank balance in minutes. */
   flexBankBalance: number;
   flexLog: FlexLogEntry[];
-  /** Monthly TDS deduction (₹). Default 0. */
+  /** Monthly TDS deduction (₹). Stored in details_json. Default 0. */
   tdsMonthly: number;
-  /** Kerala Professional Tax half-yearly amount (₹). Deducted only in PT months. */
+  /** Kerala Professional Tax half-yearly amount (₹). details_json. Default 0. */
   ptHalfYearly: number;
 }
 
@@ -87,7 +92,7 @@ export interface SlipInputs {
   otherDeductions: number;
   /** Monthly TDS amount applied for this slip (frozen at generation). */
   tdsMonthly: number;
-  /** PT amount applied for this slip month (0 when month ∉ pt_deduction_months). */
+  /** PT amount applied for this slip month (0 when month ∉ ptDeductionMonths). */
   ptThisMonth: number;
   variableLabel: string;
   variableEarned: number;
@@ -101,7 +106,10 @@ export interface SlipInputs {
   baseSalary: number;
 }
 
-/** Every derived number on a slip — produced only by lib/payroll-calc.ts. */
+/**
+ * Every derived number on a slip — produced only by lib/payroll-calc.ts.
+ * Older finalized snapshots may omit `tds` / `pt` — renderers must treat missing as 0.
+ */
 export interface SlipComputed {
   perDayRate: number;
   flexAvailable: number;
@@ -111,8 +119,10 @@ export interface SlipComputed {
   lopDays: number;
   lopDeduction: number;
   otherDeductions: number;
-  tdsMonthly: number;
-  ptThisMonth: number;
+  /** Statutory TDS for this slip. Missing on old finals → treat as 0. */
+  tds?: number;
+  /** Professional Tax for this slip month. Missing on old finals → treat as 0. */
+  pt?: number;
   totalDeductions: number;
   grossFixed: number;
   variableEarned: number;
@@ -164,7 +174,7 @@ export interface SignatorySnapshot {
   entityLegalName: string;
   cin: string;
   registeredAddress: string;
-  contactPhone: string;
+  phone: string;
   payrollEmail: string;
 }
 
