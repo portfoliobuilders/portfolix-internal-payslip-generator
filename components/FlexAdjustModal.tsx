@@ -2,21 +2,24 @@
 
 import { useState } from 'react';
 import type { Employee } from '@/lib/types';
+import { upsertEmployee } from '@/app/actions/payroll';
 import { formatDate, formatMinutes } from '@/lib/format';
-import { useHRStore } from '@/store/useHRStore';
 import { Field, Modal, btnPrimary, btnSecondary, inputAmountCls, inputCls } from './ui';
 
 export default function FlexAdjustModal({
   employee,
   onClose,
+  onSaved,
 }: {
   employee: Employee;
   onClose: () => void;
+  onSaved: () => Promise<void>;
 }) {
-  const adjustFlexBank = useHRStore((s) => s.adjustFlexBank);
   const [delta, setDelta] = useState('');
   const [reason, setReason] = useState('');
   const [touched, setTouched] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   const deltaNum = Number(delta);
   const deltaError =
@@ -27,10 +30,33 @@ export default function FlexAdjustModal({
         : null;
   const reasonError = reason.trim().length < 3 ? 'A reason is required for the audit log.' : null;
 
-  function handleApply() {
+  async function handleApply() {
     setTouched(true);
     if (deltaError || reasonError) return;
-    adjustFlexBank(employee.id, deltaNum, reason.trim());
+
+    setSaving(true);
+    setSaveError(null);
+
+    const result = await upsertEmployee({
+      ...employee,
+      flexBankBalance: employee.flexBankBalance + deltaNum,
+      flexLog: [
+        ...employee.flexLog,
+        {
+          date: new Date().toISOString(),
+          delta: deltaNum,
+          reason: reason.trim(),
+        },
+      ],
+    });
+
+    setSaving(false);
+    if (!result.ok) {
+      setSaveError(result.error);
+      return;
+    }
+
+    await onSaved();
     onClose();
   }
 
@@ -38,6 +64,11 @@ export default function FlexAdjustModal({
 
   return (
     <Modal title={`Flex-bank — ${employee.fullName}`} onClose={onClose}>
+      {saveError && (
+        <p className="mb-4 rounded-md border border-amber-edge bg-amber-tint px-3 py-2 text-[12px] font-medium text-amber-brand">
+          {saveError}
+        </p>
+      )}
       <p className="mb-4 text-sm text-muted">
         Current balance:{' '}
         <strong className="amount text-ink">{formatMinutes(employee.flexBankBalance)}</strong>{' '}
@@ -84,7 +115,7 @@ export default function FlexAdjustModal({
                   {entry.delta >= 0 ? '+' : ''}
                   {entry.delta}m
                 </span>
-                <span className="truncate text-muted">{entry.reason}</span>
+                <span className="min-w-0 flex-1 truncate text-muted">{entry.reason}</span>
               </li>
             ))}
           </ul>
@@ -92,8 +123,10 @@ export default function FlexAdjustModal({
       )}
 
       <div className="mt-6 flex justify-end gap-2">
-        <button className={btnSecondary} onClick={onClose}>Cancel</button>
-        <button className={btnPrimary} onClick={handleApply}>Apply adjustment</button>
+        <button className={btnSecondary} onClick={onClose} disabled={saving}>Cancel</button>
+        <button className={btnPrimary} onClick={() => void handleApply()} disabled={saving}>
+          {saving ? 'Saving…' : 'Apply adjustment'}
+        </button>
       </div>
     </Modal>
   );
