@@ -18,9 +18,8 @@ import type {
   SlipSnapshot,
   WorkMode,
 } from '@/lib/types';
-import { SEED_SETTINGS } from '@/lib/seed-settings';
+import { SEED_SETTINGS } from '@/lib/settings-defaults';
 import { defaultPaymentTypeForEngagement } from './workforce';
-import type { Employee, EntityCode, FlexLogEntry, PaymentMode, SlipSnapshot } from './types';
 import { slipStatutoryDeductions } from './payroll-calc';
 
 export interface EmployeeDetailsJson {
@@ -268,6 +267,8 @@ export function rowToSettings(row: AppSettingsRow): Settings {
   return {
     paydayDayOfMonth: row.payday_day_of_month,
     payrollContact: row.payroll_contact,
+    reviewDeadlineTime: SEED_SETTINGS.reviewDeadlineTime,
+    ptDeductionMonths: [...SEED_SETTINGS.ptDeductionMonths],
     entities: mergeEntityBranding(row.entity_branding),
   };
 }

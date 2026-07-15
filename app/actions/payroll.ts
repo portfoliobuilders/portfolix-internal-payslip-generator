@@ -9,7 +9,13 @@
  */
 
 import { revalidatePath } from 'next/cache';
-import type { Employee, Settings, SlipSnapshot } from '@/lib/types';
+import type {
+  AuthorisedSlipYtd,
+  Employee,
+  Settings,
+  SignatorySnapshot,
+  SlipSnapshot,
+} from '@/lib/types';
 import {
   APP_SETTINGS_ID,
   defaultSettingsRow,
@@ -28,6 +34,10 @@ import {
 import type { BulkEmployeeInput } from '@/lib/employee-excel';
 import { createClient } from '@/utils/supabase/server';
 import { statementMetaFor } from '@/lib/workforce';
+import { computeAuthorisedYtd } from '@/lib/authorised-slip';
+import { calendarDaysInMonthYear } from '@/lib/calculation-method';
+import { buildServerFinalSnapshot } from '@/lib/payroll-integrity';
+import { findFinalSlipForMonth } from '@/lib/payroll-helpers';
 
 export type ActionResult<T> =
   | { ok: true; data: T }
@@ -292,46 +302,310 @@ export async function fetchPayrollHistory(): Promise<ActionResult<SlipSnapshot[]
   }
 }
 
-/** Convenience: finalize a slip and commit the employee's new flex-bank balance atomically (best-effort). */
+/**
+ * Finalize a payroll slip with server-side recomputation.
+ *
+ * Client-supplied `computed` / `newFlexBalance` are NOT trusted.
+ * Duplicate active FINALs are blocked unless supersedeConfirmed=true.
+ * Legacy period/attendance gates emit warnings until enforceStrictGates is enabled.
+ */
 export async function finalizePayrollSlip(
   snapshot: SlipSnapshot,
-  newFlexBalance: number,
+  _clientNewFlexBalance: number,
   settingsSnapshot?: Settings,
-): Promise<ActionResult<{ slip: SlipSnapshot; employee: Employee }>> {
-  const slipResult = await savePayrollSlip({ ...snapshot, status: 'final' }, settingsSnapshot);
-  if (!slipResult.ok) return slipResult;
+  options?: {
+    supersedeConfirmed?: boolean;
+    enforceStrictGates?: boolean;
+    attendanceLocked?: boolean;
+    paymentStatus?:
+      | 'NOT_SCHEDULED'
+      | 'SCHEDULED'
+      | 'PROCESSING'
+      | 'PARTIALLY_PAID'
+      | 'PAID'
+      | 'FAILED'
+      | 'REJECTED_BY_BANK'
+      | 'ON_HOLD'
+      | 'PAYMENT_DEFERRED'
+      | 'OVERDUE'
+      | 'REVERSED'
+      | 'CANCELLED'
+      | 'UNDER_RECONCILIATION'
+      | 'UNPAID';
+    salaryCreditDate?: string | null;
+    expectedPaymentDate?: string | null;
+  },
+): Promise<ActionResult<{ slip: SlipSnapshot; employee: Employee; warnings: string[] }>> {
+  try {
+    const settings =
+      settingsSnapshot ??
+      (
+        await (async () => {
+          const { fetchSettings } = await import('@/app/actions/settings');
+          const result = await fetchSettings();
+          return result.ok ? result.data : null;
+        })()
+      );
 
-  const employeesResult = await fetchEmployees();
-  if (!employeesResult.ok) return employeesResult;
+    if (!settings) {
+      return { ok: false, error: 'Settings unavailable; cannot finalize payroll.' };
+    }
 
-  const employee = employeesResult.data.find(
-    (e) => e.empId === snapshot.employeeId || e.id === snapshot.employeeId,
-  );
-  if (!employee) {
-    return { ok: false, error: 'Employee not found after saving slip.' };
+    const employeesResult = await fetchEmployees();
+    if (!employeesResult.ok) return employeesResult;
+
+    const employee = employeesResult.data.find(
+      (e) => e.id === snapshot.employeeId || e.empId === snapshot.employeeId,
+    );
+    if (!employee) {
+      return { ok: false, error: 'Employee not found.' };
+    }
+
+    const historyResult = await fetchPayrollHistory();
+    if (!historyResult.ok) return historyResult;
+
+    const existingFinal = findFinalSlipForMonth(
+      historyResult.data,
+      snapshot.employeeId,
+      snapshot.monthYear,
+    );
+
+    const built = buildServerFinalSnapshot({
+      trusted: {
+        employeeId: snapshot.employeeId,
+        monthYear: snapshot.monthYear,
+        baseSalary: snapshot.inputs.baseSalary,
+        flexBankBalance: snapshot.inputs.flexBankBalanceBefore,
+        flexMinutesEarned: snapshot.inputs.flexMinutesEarned,
+        totalLateMinutes: snapshot.inputs.lateMinutes,
+        absentDays: snapshot.inputs.absentDays,
+        halfDays: snapshot.inputs.halfDays,
+        fixedAllowance: snapshot.inputs.fixedAllowance,
+        otherDeductions: snapshot.inputs.otherDeductions,
+        tdsMonthly: snapshot.inputs.tdsMonthly ?? employee.tdsMonthly ?? 0,
+        ptHalfYearly: employee.ptHalfYearly ?? 0,
+        variableEarned: snapshot.inputs.variableEarned,
+        variablePaid: snapshot.inputs.variablePaid,
+        deferredOpening: snapshot.inputs.deferredOpening,
+        committedPayoutDate: snapshot.inputs.committedPayoutDate,
+        variableLabel: snapshot.inputs.variableLabel,
+        remarks: snapshot.inputs.remarks,
+        compensationAmount: snapshot.inputs.compensationAmount,
+        attendanceLocked: options?.attendanceLocked ?? false,
+      },
+      settings,
+      employeeSnapshot: {
+        fullName: employee.fullName,
+        empId: employee.empId,
+        entityCode: employee.entityCode,
+        department: employee.department,
+        designation: employee.designation,
+        joiningDate: employee.joiningDate,
+        employeeAddress: employee.employeeAddress,
+        paymentMode: employee.paymentMode,
+        engagementType: employee.engagementType,
+        employmentStatus: employee.employmentStatus,
+        paymentType: employee.paymentType,
+        compensationAmount: employee.compensationAmount,
+        bankLast4: employee.bankLast4,
+        panMasked: employee.panMasked,
+      },
+      slipId: snapshot.id && snapshot.id !== 'preview' ? snapshot.id : generateId(),
+      generatedAt: new Date().toISOString(),
+      existingFinal: Boolean(existingFinal),
+      supersedeConfirmed: options?.supersedeConfirmed ?? false,
+      history: historyResult.data,
+      workflowStatus: 'APPROVED',
+      paymentStatus: options?.paymentStatus ?? 'NOT_SCHEDULED',
+      salaryCreditDate: options?.salaryCreditDate ?? null,
+      expectedPaymentDate: options?.expectedPaymentDate ?? null,
+      integrityStatus: 'OK',
+      enforceStrictGates: options?.enforceStrictGates ?? false,
+      clientComputed: snapshot.computed,
+    });
+
+    if (!built.ok || !built.snapshot || built.newFlexBalance == null) {
+      const message = built.issues
+        .filter((i) => i.severity === 'error')
+        .map((i) => i.message)
+        .join(' ');
+      return {
+        ok: false,
+        error: message || 'Payroll finalization blocked by integrity checks.',
+      };
+    }
+
+    const warnings = built.issues
+      .filter((i) => i.severity === 'warning')
+      .map((i) => i.message);
+
+    const supabase = await getSupabase();
+
+    // Supersede prior active FINAL when explicitly confirmed.
+    if (existingFinal && options?.supersedeConfirmed) {
+      await supabase
+        .from('payroll_slips')
+        .update({
+          active_final: false,
+          workflow_status: 'SUPERSEDED',
+          status: 'final',
+        })
+        .eq('id', existingFinal.id);
+
+      await supabase.from('payroll_audit_logs').insert({
+        action: 'PAYROLL_SUPERSEDED',
+        entity_type: 'payroll_slip',
+        entity_id: existingFinal.id,
+        previous_values: { status: existingFinal.status },
+        new_values: { workflow_status: 'SUPERSEDED', superseded_by: built.snapshot.id },
+        reason: `Superseded by ${built.snapshot.id} for ${built.snapshot.monthYear}`,
+      });
+    } else {
+      // DB-level duplicate guard (no-op if migrations not yet applied).
+      try {
+        await supabase.rpc('assert_no_duplicate_active_final', {
+          p_employee_id: built.snapshot.employeeId,
+          p_month_year: built.snapshot.monthYear,
+          p_except_id: null,
+        });
+      } catch {
+        // Function may be missing before migrations are applied — app-level check already ran.
+      }
+    }
+
+    const slipResult = await savePayrollSlip(built.snapshot, settings);
+    if (!slipResult.ok) return slipResult;
+
+    // Annotate integrity columns when migration 009 is present.
+    await supabase
+      .from('payroll_slips')
+      .update({
+        workflow_status: 'FINAL',
+        integrity_status: 'OK',
+        payment_status: options?.paymentStatus === 'UNPAID'
+          ? 'NOT_SCHEDULED'
+          : (options?.paymentStatus ?? 'NOT_SCHEDULED'),
+        salary_credit_date: options?.salaryCreditDate ?? null,
+        expected_payment_date: options?.expectedPaymentDate ?? null,
+        lop_days: built.snapshot.computed.lopDays,
+        calendar_days: calendarDaysInMonthYear(built.snapshot.monthYear),
+        attendance_locked: options?.attendanceLocked ?? false,
+        calculation_method_code: built.calculationMethodCode,
+        payroll_divisor: built.payrollDivisor,
+        server_computed_at: new Date().toISOString(),
+        active_final: true,
+        supersedes: existingFinal && options?.supersedeConfirmed ? existingFinal.id : null,
+      })
+      .eq('id', built.snapshot.id);
+
+    await supabase.from('payroll_audit_logs').insert({
+      action: 'PAYROLL_FINALIZED',
+      entity_type: 'payroll_slip',
+      entity_id: built.snapshot.id,
+      previous_values: null,
+      new_values: {
+        monthYear: built.snapshot.monthYear,
+        netPay: built.snapshot.computed.netPay,
+        newFlexBalance: built.newFlexBalance,
+        warnings,
+      },
+      reason: `Server-recomputed final for ${built.snapshot.monthYear}`,
+    });
+
+    const delta = built.newFlexBalance - employee.flexBankBalance;
+    const flexLog =
+      delta === 0
+        ? employee.flexLog
+        : [
+            ...employee.flexLog,
+            {
+              date: new Date().toISOString(),
+              delta,
+              reason: `Payroll finalized for ${built.snapshot.monthYear}`,
+            },
+          ];
+
+    const employeeResult = await upsertEmployee({
+      ...employee,
+      flexBankBalance: built.newFlexBalance,
+      flexLog,
+    });
+    if (!employeeResult.ok) return employeeResult;
+
+    // Parent salary-payment obligation — FINAL ≠ PAID.
+    try {
+      const { ensureSalaryPaymentObligation } = await import('@/app/actions/salary-payment');
+      const dueCommitted =
+        options?.expectedPaymentDate ??
+        options?.salaryCreditDate ??
+        null;
+      await ensureSalaryPaymentObligation({
+        payrollRecordId: built.snapshot.id,
+        employeeId: built.snapshot.employeeId,
+        monthYear: built.snapshot.monthYear,
+        netSalaryPayable: built.snapshot.computed.netPay,
+        paydayDayOfMonth: settings.paydayDayOfMonth,
+        companyCommittedDate: dueCommitted,
+        actorUserId: 'system',
+      });
+    } catch {
+      // Payment tables may not exist until migration 011 is applied.
+    }
+
+    return {
+      ok: true,
+      data: { slip: slipResult.data, employee: employeeResult.data, warnings },
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : 'Failed to finalize payroll slip.',
+    };
   }
+}
 
-  const delta = newFlexBalance - employee.flexBankBalance;
-  const flexLog =
-    delta === 0
-      ? employee.flexLog
-      : [
-          ...employee.flexLog,
-          {
-            date: new Date().toISOString(),
-            delta,
-            reason: `Payroll finalized for ${snapshot.monthYear}`,
-          },
-        ];
+/**
+ * YTD line items for the Authorised Slip — Indian FY, FINAL snapshots only,
+ * up to and including the given slip month.
+ */
+export async function fetchAuthorisedSlipYtd(
+  employeeId: string,
+  throughMonthYear: string,
+): Promise<ActionResult<AuthorisedSlipYtd>> {
+  const history = await fetchPayrollHistory();
+  if (!history.ok) return history;
+  return {
+    ok: true,
+    data: computeAuthorisedYtd(history.data, employeeId, throughMonthYear),
+  };
+}
 
-  const employeeResult = await upsertEmployee({
-    ...employee,
-    flexBankBalance: newFlexBalance,
-    flexLog,
-  });
-  if (!employeeResult.ok) return employeeResult;
+/**
+ * Logs one Authorised Slip (bank copy) generation. Reprints are logged, never blocked.
+ */
+export async function logAuthorisedSlipGeneration(
+  payrollSlipId: string,
+  signatorySnapshot: SignatorySnapshot,
+): Promise<ActionResult<{ id: string }>> {
+  try {
+    const supabase = await getSupabase();
+    const { data, error } = await supabase
+      .from('authorised_slip_log')
+      .insert({
+        payroll_slip_id: payrollSlipId,
+        signatory_snapshot: signatorySnapshot,
+      })
+      .select('id')
+      .single();
 
-  return { ok: true, data: { slip: slipResult.data, employee: employeeResult.data } };
+    if (error) return { ok: false, error: error.message };
+    return { ok: true, data: { id: (data as { id: string }).id } };
+  } catch (err) {
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : 'Failed to log authorised slip generation.',
+    };
+  }
 }
 
 /** Returns application settings from Supabase, seeding defaults if missing. */
