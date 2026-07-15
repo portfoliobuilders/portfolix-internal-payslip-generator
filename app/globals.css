@@ -16,6 +16,16 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
+/* Hide the scrollbar on horizontally scrollable elements (e.g. the mobile
+   nav tab bar) while keeping them scrollable. */
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
 /* Salary slip status accents — emerald-600 (final) / amber-600 (draft). */
 .slip-badge-draft {
   @apply border-amber-300 bg-amber-50 text-amber-600;
@@ -37,14 +47,29 @@ body {
   @apply border-emerald-600 bg-emerald-50 text-emerald-600;
 }
 
-/* Two-column amount rows — fixed right column for currency alignment. */
+/* Two-column amount rows — fixed right column for currency alignment.
+   Widened to 8.5rem so 7-figure amounts never wrap. Shared baseline +
+   uniform row height so PDF capture stays aligned. */
 .slip-amount-row {
-  @apply grid gap-x-4 py-[5px];
-  grid-template-columns: minmax(0, 1fr) 7.5rem;
+  @apply grid items-baseline gap-x-4 py-[5px];
+  grid-template-columns: minmax(0, 1fr) 8.5rem;
+  min-height: 1.375rem;
 }
 
 .slip-amount-row > .amount {
-  @apply text-right;
+  @apply text-right tabular-nums;
+}
+
+/* Attendance half-width stats — tighter value column so figures sit with
+   their labels instead of floating to the page edge. */
+.slip-stat-row {
+  @apply grid items-baseline gap-x-3 py-[5px];
+  grid-template-columns: minmax(0, 1fr) 3.75rem;
+  min-height: 1.375rem;
+}
+
+.slip-stat-row > .amount {
+  @apply text-right tabular-nums;
 }
 
 /* Off-screen unscaled slip copy: rendered (so html2canvas can capture
@@ -78,6 +103,14 @@ body {
   /* Hide the entire app chrome; show only the slip sheet. */
   .no-print {
     display: none !important;
+  }
+
+  /* The app wrapper keeps min-h-screen (100vh). With its children hidden by
+     .no-print it still reserves a full viewport height, which prints as a
+     blank leading page before the slip (the classic "extra blank sheet").
+     Collapse it in print so only the slip sheet is emitted. */
+  .min-h-screen {
+    min-height: 0 !important;
   }
 
   #slip-print-root,

@@ -5,6 +5,7 @@ import {
   computeDeferral,
   computeFlexBank,
   computePayroll,
+  derivePtThisMonth,
   floorToHalfDay,
   roundMoney,
   validateVariablePaid,
@@ -20,6 +21,8 @@ const BASE_INPUT = {
   halfDays: 0,
   fixedAllowance: 0,
   otherDeductions: 0,
+  tdsMonthly: 0,
+  ptThisMonth: 0,
   variableEarned: 0,
   variablePaid: 0,
   deferredOpening: 0,
@@ -130,6 +133,63 @@ describe('net pay (rule 5)', () => {
     // rate exact = 400.04; net = 10001 − 400.04 = 9600.96
     expect(r.netPay).toBe(9600.96);
     expect(r.perDayRate).toBe(400.04);
+  });
+
+  it('REGRESSION: standard money vector still nets ₹20,400.00 exactly (tds=0, pt=0)', () => {
+    // ₹20,000 / 1 absent / 1 half / 600 late / 60+100 flex / 5000 earned − 2000 paid
+    const r = computePayroll({
+      ...BASE_INPUT,
+      baseSalary: 20000,
+      absentDays: 1,
+      halfDays: 1,
+      totalLateMinutes: 600,
+      flexBankBalance: 60,
+      flexMinutesEarned: 100,
+      variableEarned: 5000,
+      variablePaid: 2000,
+      tdsMonthly: 0,
+      ptThisMonth: 0,
+    });
+    // unpaid late = 440 → 0.5 LOP; lopDays = 1 + 0.5 + 0.5 = 2; lop = 1600
+    // net = 20000 − 1600 + 2000 = 20400
+    expect(r.lopDays).toBe(2);
+    expect(r.lopDeduction).toBe(1600);
+    expect(r.totalDeductions).toBe(1600);
+    expect(r.netPay).toBe(20400);
+    expect(r.netPayWords).toBe('Rupees Twenty Thousand Four Hundred Only');
+  });
+});
+
+describe('statutory deductions (TDS + PT)', () => {
+  it('tds=12500 reduces net accordingly with correct words', () => {
+    const r = computePayroll({
+      ...BASE_INPUT,
+      baseSalary: 20000,
+      tdsMonthly: 12500,
+    });
+    expect(r.tds).toBe(12500);
+    expect(r.totalDeductions).toBe(12500);
+    expect(r.netPay).toBe(7500);
+    expect(r.netPayWords).toBe('Rupees Seven Thousand Five Hundred Only');
+  });
+
+  it('derivePtThisMonth applies only in configured months', () => {
+    expect(derivePtThisMonth(1250, '2026-08', [8, 2])).toBe(1250);
+    expect(derivePtThisMonth(1250, '2026-02', [8, 2])).toBe(1250);
+    expect(derivePtThisMonth(1250, '2026-07', [8, 2])).toBe(0);
+    expect(derivePtThisMonth(1250, '2026-01', [8, 2])).toBe(0);
+  });
+
+  it('ptThisMonth is an additive deduction line', () => {
+    const r = computePayroll({
+      ...BASE_INPUT,
+      baseSalary: 20000,
+      ptThisMonth: 1250,
+      otherDeductions: 100,
+    });
+    expect(r.pt).toBe(1250);
+    expect(r.totalDeductions).toBe(1350);
+    expect(r.netPay).toBe(18650);
   });
 });
 

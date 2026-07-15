@@ -1,7 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 64" role="img" aria-label="Portfolix Enterprise Pvt Ltd">
-  <rect width="160" height="64" fill="#000000"/>
-  <g fill="#E30613">
-    <path d="M18 12 L30 12 L30 26 L44 26 L44 12 L56 12 L56 52 L44 52 L44 36 L30 36 L30 52 L18 52 Z" transform="skewX(-12)"/>
-    <rect x="62" y="44" width="10" height="10"/>
-  </g>
-</svg>
