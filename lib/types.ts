@@ -7,7 +7,7 @@ export type EntityCode = 'PX' | 'PB' | 'PT' | 'PH';
 
 export interface EntityInfo {
   name: string;
-  /** e.g. "A unit of Portfolix Enterprise Pvt Ltd" — empty for the parent. */
+  /** e.g. "A unit of Portfolix Entreprise Pvt Ltd" — empty for the parent. */
   legalLine: string;
   addressLines: string[];
   /** Legacy display contact; prefer payrollEmail for payroll documents. */

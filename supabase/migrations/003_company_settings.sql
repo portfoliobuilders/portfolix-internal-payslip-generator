@@ -18,7 +18,7 @@ values (
   1,
   5,
   'payroll@portfolix.tech',
-  'Portfolix Enterprise Pvt Ltd',
+  'Portfolix Entreprise Pvt Ltd',
   '',
   'Portfolix House, 2nd Floor
 Sector 62, Noida, UP 201309, India'

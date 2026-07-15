@@ -89,7 +89,7 @@ check('draft banner exact text', sheetText.includes('INTERNAL DRAFT: Invalid for
 check('deferred closing ₹1,000.00 present', sheetText.includes('₹1,000.00'));
 check('review deadline printed', sheetText.includes('Review queries by 03 Aug 2026 · 6:00 PM'));
 check('credit date printed', sheetText.includes('05 Aug 2026'));
-check('entity legal line', sheetText.includes('A unit of Portfolix Enterprise Pvt Ltd'));
+check('entity legal line', sheetText.includes('A unit of Portfolix Entreprise Pvt Ltd'));
 
 // deferredClosing = 0 + 6000 - 5000 = 1000 > 0 → payout date required, export blocked
 const exportBtn = page.locator('button:has-text("Download draft PDF")');

@@ -1,6 +1,6 @@
 # Portfolix Internal Workforce Payment Statement Generator
 
-A workforce payment statement generator for Portfolix Enterprise Pvt Ltd and its brands (Portfolio Builders,
+A workforce payment statement generator for Portfolix Entreprise Pvt Ltd and its brands (Portfolio Builders,
 Portfolix.tech, Portfolix Hub). A stopgap for the HR team until the official Portfolix EMS ships.
 
 **Supabase-backed.** Employees, slip history, payroll settings, and entity branding are stored in
@@ -17,7 +17,7 @@ the cloud.
   stored snapshot (never recomputed).
 - **Settings** — edit payroll calendar, payroll contact, per-entity branding (name, legal line,
   address, contact), and **upload a logo** per entity. Click **Save Settings** to persist changes.
-  The app header uses the Portfolix Enterprise (PX) logo.
+  The app header uses the Portfolix Entreprise (PX) logo.
 
 ## Payroll rules (enforced by `lib/payroll-calc.ts`)
 
