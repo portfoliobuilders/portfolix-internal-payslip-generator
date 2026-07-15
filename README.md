@@ -1,8 +1,7 @@
 # Portfolix SlipGen — Internal Payslip Generator
 
-Internal workforce payment statement generator for **Portfolix Entreprise Pvt Ltd** and its brands
-(Portfolio Builders, Portfolix.tech, Portfolix Hub). A stopgap for the HR team until the official
-Portfolix EMS ships.
+A workforce payment statement generator for Portfolix Entreprise Pvt Ltd and its brands (Portfolio Builders,
+Portfolix.tech, Portfolix Hub). A stopgap for the HR team until the official Portfolix EMS ships.
 
 **Live app:** [portfolix-internal-payslip-generato.vercel.app](https://portfolix-internal-payslip-generato.vercel.app)
 
@@ -24,19 +23,16 @@ cloud. Bank-copy signatory assets (signature + seal) live in a private Storage b
 
 ## Features
 
-- **Workforce Roster** — regular employees, probation/notice period staff, interns/trainees/apprentices, contract employees, freelancers, and consultants. Add/edit/archive people; inline Flex-Bank adjustments with a required reason (audit-logged); **Excel template download** and **bulk upload**.
-- **Generator** — inputs on the left, live A4 preview on the right; Draft/Final toggle; dynamic document titles (Salary Slip / Stipend Statement / Payment Statement); print-identical `@media print` CSS; PDF export (`PX_PaySlip_YYYY-MM_<EMPID>[_DRAFT].pdf`).
-- **Payment History** — immutable snapshots of every generated statement; filterable; re-download from the stored snapshot (**never recomputed**).
-- **Authorised Slip (bank copy)** — from History/Generator, only against a **FINAL** snapshot; embeds authorised signature and company seal via short-lived signed Storage URLs; YTD from prior FINAL slips only. Needs `SUPABASE_SECRET_KEY` plus signatory name, designation, signature, and seal.
-- **Settings** — edit payroll calendar, payroll contact, and per-entity branding (name, legal line, address) with **logo upload**. Click **Save Settings** to persist. The app header uses the Portfolix Entreprise (PX) logo.
-
-## Stack
-
-- **Next.js 14** (App Router) + React 18 + TypeScript + Tailwind CSS
-- **Supabase** — Postgres (employees, payroll_slips, app_settings, authorised_slip_log) + private Storage (`signatory-assets`)
-- **Zustand** — client UI/state; Server Actions in `app/actions/` for persistence
-- **html2canvas + jspdf** — client-side PDF export
-- **Vitest** — unit tests for the pure payroll engine
+- **Workforce Roster** — supports regular employees, probation/notice period staff, interns/trainees/apprentices, contract employees, freelancers, and consultants.
+- **Roster management** — add/edit/archive people, inline Flex-Bank adjustments with a required
+  reason (audit-logged), **Excel template download** and **bulk upload** to Supabase.
+- **Generator** — split-screen: inputs on the left, live A4 preview on the right, Draft/Final
+  toggle, dynamic output (Salary Slip / Stipend Statement / Payment Statement), print-identical `@media print` CSS.
+- **Payment History** — immutable snapshots of every generated statement, filterable, re-downloadable from the
+  stored snapshot (never recomputed).
+- **Settings** — edit payroll calendar, payroll contact, per-entity branding (name, legal line,
+  address, contact), and **upload a logo** per entity. Click **Save Settings** to persist changes.
+  The app header uses the Portfolix Entreprise (PX) logo.
 
 ## Payroll rules (enforced by `lib/payroll-calc.ts`)
 
