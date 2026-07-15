@@ -1,106 +1,174 @@
 /**
- * Configurable payroll day-count / per-day rate basis.
- * Replaces hardcoded UI trust of a fixed 25-day divisor for new structures,
- * while DEFAULT_CALCULATION_METHOD_CODE remains 'FIXED_25' for back-compat.
+ * Configurable LOP / salary-calculation day-count divisor.
+ *
+ * This is NOT the attendance-cycle length.
+ * Attendance windows live in lib/payroll-cycle.ts.
+ *
+ * Display label for the historical default:
+ *   LOP Calculation Basis: Fixed 25-day divisor
  */
 
 export type CalculationMethodCode =
+  | 'FIXED_25_DAY_DIVISOR'
+  | 'FIXED_26_DAY_DIVISOR'
+  | 'FIXED_30_DAY_DIVISOR'
+  | 'CALENDAR_DAY_DIVISOR'
+  | 'ACTUAL_WORKING_DAYS'
+  | 'EMPLOYEE_CONTRACTUAL_DIVISOR'
+  /** @deprecated legacy aliases retained for stored rows */
   | 'CALENDAR_DAYS'
   | 'FIXED_30'
   | 'FIXED_26'
   | 'FIXED_25'
-  | 'ACTUAL_WORKING_DAYS'
   | 'EMPLOYEE_CONTRACTUAL';
 
 export interface CalculationMethod {
   code: CalculationMethodCode;
   label: string;
-  /** Null when divisor is derived from the pay period (calendar / working days). */
+  /** Null when divisor is derived from calendar / working days. */
   fixedDivisor: number | null;
   requiresWorkingDaysInput: boolean;
 }
 
+function method(
+  code: CalculationMethodCode,
+  label: string,
+  fixedDivisor: number | null,
+  requiresWorkingDaysInput: boolean,
+): CalculationMethod {
+  return { code, label, fixedDivisor, requiresWorkingDaysInput };
+}
+
 export const CALCULATION_METHODS: Record<CalculationMethodCode, CalculationMethod> = {
-  CALENDAR_DAYS: {
-    code: 'CALENDAR_DAYS',
-    label: 'Calendar-day basis',
-    fixedDivisor: null,
-    requiresWorkingDaysInput: false,
-  },
-  FIXED_30: {
-    code: 'FIXED_30',
-    label: 'Fixed 30-day basis',
-    fixedDivisor: 30,
-    requiresWorkingDaysInput: false,
-  },
-  FIXED_26: {
-    code: 'FIXED_26',
-    label: 'Fixed 26-day basis',
-    fixedDivisor: 26,
-    requiresWorkingDaysInput: false,
-  },
-  FIXED_25: {
-    code: 'FIXED_25',
-    label: 'Fixed 25-day basis',
-    fixedDivisor: 25,
-    requiresWorkingDaysInput: false,
-  },
-  ACTUAL_WORKING_DAYS: {
-    code: 'ACTUAL_WORKING_DAYS',
-    label: 'Actual working-day basis',
-    fixedDivisor: null,
-    requiresWorkingDaysInput: true,
-  },
-  EMPLOYEE_CONTRACTUAL: {
-    code: 'EMPLOYEE_CONTRACTUAL',
-    label: 'Employee-specific contractual basis',
-    fixedDivisor: null,
-    requiresWorkingDaysInput: true,
-  },
+  FIXED_25_DAY_DIVISOR: method(
+    'FIXED_25_DAY_DIVISOR',
+    'LOP Calculation Basis: Fixed 25-day divisor',
+    25,
+    false,
+  ),
+  FIXED_26_DAY_DIVISOR: method(
+    'FIXED_26_DAY_DIVISOR',
+    'LOP Calculation Basis: Fixed 26-day divisor',
+    26,
+    false,
+  ),
+  FIXED_30_DAY_DIVISOR: method(
+    'FIXED_30_DAY_DIVISOR',
+    'LOP Calculation Basis: Fixed 30-day divisor',
+    30,
+    false,
+  ),
+  CALENDAR_DAY_DIVISOR: method(
+    'CALENDAR_DAY_DIVISOR',
+    'LOP Calculation Basis: Calendar-day divisor',
+    null,
+    false,
+  ),
+  ACTUAL_WORKING_DAYS: method(
+    'ACTUAL_WORKING_DAYS',
+    'LOP Calculation Basis: Actual working days',
+    null,
+    true,
+  ),
+  EMPLOYEE_CONTRACTUAL_DIVISOR: method(
+    'EMPLOYEE_CONTRACTUAL_DIVISOR',
+    'LOP Calculation Basis: Employee contractual divisor',
+    null,
+    true,
+  ),
+  FIXED_25: method('FIXED_25', 'LOP Calculation Basis: Fixed 25-day divisor', 25, false),
+  FIXED_26: method('FIXED_26', 'LOP Calculation Basis: Fixed 26-day divisor', 26, false),
+  FIXED_30: method('FIXED_30', 'LOP Calculation Basis: Fixed 30-day divisor', 30, false),
+  CALENDAR_DAYS: method(
+    'CALENDAR_DAYS',
+    'LOP Calculation Basis: Calendar-day divisor',
+    null,
+    false,
+  ),
+  EMPLOYEE_CONTRACTUAL: method(
+    'EMPLOYEE_CONTRACTUAL',
+    'LOP Calculation Basis: Employee contractual divisor',
+    null,
+    true,
+  ),
 };
 
 /** Back-compat default matching historical Portfolix policy. */
-export const DEFAULT_CALCULATION_METHOD_CODE: CalculationMethodCode = 'FIXED_25';
+export const DEFAULT_CALCULATION_METHOD_CODE: CalculationMethodCode = 'FIXED_25_DAY_DIVISOR';
+
+/** Map legacy stored codes → canonical requirement codes. */
+const ALIASES: Record<string, CalculationMethodCode> = {
+  FIXED_25: 'FIXED_25_DAY_DIVISOR',
+  FIXED_26: 'FIXED_26_DAY_DIVISOR',
+  FIXED_30: 'FIXED_30_DAY_DIVISOR',
+  CALENDAR_DAYS: 'CALENDAR_DAY_DIVISOR',
+  EMPLOYEE_CONTRACTUAL: 'EMPLOYEE_CONTRACTUAL_DIVISOR',
+  FIXED_25_DAY_DIVISOR: 'FIXED_25_DAY_DIVISOR',
+  FIXED_26_DAY_DIVISOR: 'FIXED_26_DAY_DIVISOR',
+  FIXED_30_DAY_DIVISOR: 'FIXED_30_DAY_DIVISOR',
+  CALENDAR_DAY_DIVISOR: 'CALENDAR_DAY_DIVISOR',
+  ACTUAL_WORKING_DAYS: 'ACTUAL_WORKING_DAYS',
+  EMPLOYEE_CONTRACTUAL_DIVISOR: 'EMPLOYEE_CONTRACTUAL_DIVISOR',
+};
+
+export function normalizeCalculationMethodCode(
+  code: string | null | undefined,
+): CalculationMethodCode {
+  if (!code) return DEFAULT_CALCULATION_METHOD_CODE;
+  const canonical = ALIASES[code];
+  if (!canonical) {
+    throw new Error(`Unknown calculation method: ${code}`);
+  }
+  return canonical;
+}
 
 export function resolvePayrollDivisor(input: {
-  methodCode: CalculationMethodCode;
-  /** Days in the calendar month (1–31). */
+  methodCode: CalculationMethodCode | string;
+  /** Days in the calendar month (1–31) — used only for calendar-day divisor. */
   calendarDaysInMonth: number;
   /** Working days when method requires them. */
   workingDays?: number | null;
-  /** Contractual divisor override when method is EMPLOYEE_CONTRACTUAL. */
+  /** Contractual divisor override when method is employee contractual. */
   contractualDivisor?: number | null;
-}): { divisor: number; source: string } {
-  const method = CALCULATION_METHODS[input.methodCode];
+}): { divisor: number; source: string; methodCode: CalculationMethodCode } {
+  const methodCode = normalizeCalculationMethodCode(input.methodCode);
+  const meta = CALCULATION_METHODS[methodCode];
 
-  if (method.fixedDivisor != null) {
-    return { divisor: method.fixedDivisor, source: method.label };
+  if (meta.fixedDivisor != null) {
+    return { divisor: meta.fixedDivisor, source: meta.label, methodCode };
   }
 
-  if (input.methodCode === 'CALENDAR_DAYS') {
+  if (methodCode === 'CALENDAR_DAY_DIVISOR' || methodCode === 'CALENDAR_DAYS') {
     if (input.calendarDaysInMonth < 28 || input.calendarDaysInMonth > 31) {
       throw new Error(`Invalid calendar days: ${input.calendarDaysInMonth}`);
     }
-    return { divisor: input.calendarDaysInMonth, source: method.label };
+    return {
+      divisor: input.calendarDaysInMonth,
+      source: meta.label,
+      methodCode,
+    };
   }
 
-  if (input.methodCode === 'ACTUAL_WORKING_DAYS') {
+  if (methodCode === 'ACTUAL_WORKING_DAYS') {
     const days = input.workingDays;
     if (days == null || !(days > 0)) {
       throw new Error('Working days are required for actual working-day basis.');
     }
-    return { divisor: days, source: method.label };
+    return { divisor: days, source: meta.label, methodCode };
   }
 
-  if (input.methodCode === 'EMPLOYEE_CONTRACTUAL') {
+  if (
+    methodCode === 'EMPLOYEE_CONTRACTUAL_DIVISOR' ||
+    methodCode === 'EMPLOYEE_CONTRACTUAL'
+  ) {
     const days = input.contractualDivisor ?? input.workingDays;
     if (days == null || !(days > 0)) {
       throw new Error('Contractual divisor is required for employee-specific basis.');
     }
-    return { divisor: days, source: method.label };
+    return { divisor: days, source: meta.label, methodCode };
   }
 
-  throw new Error(`Unhandled calculation method: ${input.methodCode}`);
+  throw new Error(`Unhandled calculation method: ${methodCode}`);
 }
 
 /** Calendar days in YYYY-MM. */
@@ -108,4 +176,10 @@ export function calendarDaysInMonthYear(monthYear: string): number {
   const [y, m] = monthYear.split('-').map(Number);
   if (!y || !m || m < 1 || m > 12) throw new Error(`Invalid monthYear: ${monthYear}`);
   return new Date(y, m, 0).getDate();
+}
+
+/** Short UI label — never call this the “pay period”. */
+export function lopCalculationBasisLabel(methodCode: CalculationMethodCode | string): string {
+  const code = normalizeCalculationMethodCode(methodCode);
+  return CALCULATION_METHODS[code].label;
 }

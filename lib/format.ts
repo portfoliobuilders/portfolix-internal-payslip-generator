@@ -51,8 +51,11 @@ export function dateInMonth(monthYear: string, dayOfMonth: number): Date {
 }
 
 /**
- * Payroll cycle dates for a slip month. Salary credits on payday of the
+ * Payroll cycle dates for a slip month. Salary is due on payday of the
  * FOLLOWING month; review queries close 2 days before payday (T−2).
+ *
+ * Prefer lib/payment-schedule.ts for per-employee scheduled days.
+ * Prefer lib/payroll-cycle.ts for attendance windows (not calendar month).
  */
 export function payrollCycleDates(
   monthYear: string,
@@ -64,6 +67,32 @@ export function payrollCycleDates(
   const creditDate = dateInMonth(nextMonthYear, paydayDayOfMonth);
   const reviewDeadline = dateInMonth(nextMonthYear, paydayDayOfMonth - 2);
   return { creditDate, reviewDeadline };
+}
+
+/**
+ * Display range for salary month label only — NOT the attendance cycle.
+ * For attendance use formatAttendanceCycleRange from lib/payroll-cycle.ts.
+ * @deprecated Prefer explicit attendance period fields from the server.
+ */
+export function formatPayPeriodRange(monthYear: string): string {
+  const base = parse(monthYear, 'yyyy-MM', new Date());
+  if (!isValid(base)) return monthYear;
+  const start = new Date(base.getFullYear(), base.getMonth(), 1);
+  const end = new Date(base.getFullYear(), base.getMonth() + 1, 0);
+  return `${format(start, 'dd MMM yyyy')} – ${format(end, 'dd MMM yyyy')}`;
+}
+
+/** Authorised bank-copy PDF filename. */
+export function authorisedSlipFilename(
+  monthYear: string,
+  empId: string,
+  documentNumber?: string | null,
+): string {
+  const safeEmpId = empId.replace(/[^A-Za-z0-9-]/g, '');
+  const suffix = documentNumber
+    ? `_${documentNumber.replace(/[^A-Za-z0-9-]/g, '')}`
+    : '';
+  return `PX_AuthorisedSalarySlip_${monthYear}_${safeEmpId}${suffix}.pdf`;
 }
 
 /** Minutes → 'Xh Ym' compact display. */

@@ -22,7 +22,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="en">
       <body className="min-h-screen">
         <AppHeader />
-        <main className="no-print mx-auto max-w-[1400px] px-6 py-6">{children}</main>
+        <main className="no-print mx-auto min-w-0 max-w-[1400px] px-4 py-6 sm:px-6 lg:px-8">
+          {children}
+        </main>
       </body>
     </html>
   );

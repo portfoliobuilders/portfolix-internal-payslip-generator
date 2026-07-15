@@ -495,6 +495,15 @@ export async function finalizePayrollSlip(
         server_computed_at: new Date().toISOString(),
         active_final: true,
         supersedes: existingFinal && options?.supersedeConfirmed ? existingFinal.id : null,
+        salary_month: built.snapshot.salaryMonth ?? built.snapshot.monthYear,
+        attendance_period_start: built.snapshot.attendancePeriodStart ?? null,
+        attendance_period_end: built.snapshot.attendancePeriodEnd ?? null,
+        payroll_cycle_method: built.snapshot.payrollCycleMethod ?? null,
+        original_due_date: built.snapshot.originalDueDate ?? options?.expectedPaymentDate ?? null,
+        scheduled_payment_date: options?.expectedPaymentDate ?? null,
+        actual_credit_date: options?.salaryCreditDate ?? null,
+        legal_entity_id: built.snapshot.employee.entityCode,
+        revision_number: built.snapshot.revisionNumber ?? 1,
       })
       .eq('id', built.snapshot.id);
 
@@ -535,16 +544,26 @@ export async function finalizePayrollSlip(
     // Parent salary-payment obligation — FINAL ≠ PAID.
     try {
       const { ensureSalaryPaymentObligation } = await import('@/app/actions/salary-payment');
+      const { resolvePaymentSchedule } = await import('@/lib/payment-schedule');
+      const schedule = resolvePaymentSchedule({
+        salaryMonth: built.snapshot.monthYear,
+        companyDefaultPaymentDay: settings.paydayDayOfMonth,
+        employeePreferredPaymentDay:
+          (employee as { preferredPaymentDay?: number | null }).preferredPaymentDay ??
+          null,
+        employeeDefaultPaymentDay:
+          (employee as { defaultPaymentDay?: number | null }).defaultPaymentDay ?? null,
+      });
       const dueCommitted =
-        options?.expectedPaymentDate ??
-        options?.salaryCreditDate ??
-        null;
+        options?.expectedPaymentDate ?? schedule.scheduledPaymentDate;
       await ensureSalaryPaymentObligation({
         payrollRecordId: built.snapshot.id,
         employeeId: built.snapshot.employeeId,
         monthYear: built.snapshot.monthYear,
         netSalaryPayable: built.snapshot.computed.netPay,
         paydayDayOfMonth: settings.paydayDayOfMonth,
+        originalDueDate: schedule.originalDueDate,
+        scheduledPaymentDate: dueCommitted,
         companyCommittedDate: dueCommitted,
         actorUserId: 'system',
       });

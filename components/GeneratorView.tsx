@@ -6,12 +6,12 @@ import { format } from 'date-fns';
 import { AlertTriangle, Download, Printer } from 'lucide-react';
 import { computePayroll, derivePtThisMonth, validateVariablePaid } from '@/lib/payroll-calc';
 import {
-  authorisedSlipFilename,
   formatINR,
   formatMinutes,
   formatMonthYear,
   slipFilename,
 } from '@/lib/format';
+import { exportAuthorisedSalarySlipPdf } from '@/lib/authorised-export';
 import { exportElementToPdf } from '@/lib/pdf-export';
 import { finalizePayrollSlip, savePayrollSlip, fetchAuthorisedSlipYtd, logAuthorisedSlipGeneration } from '@/app/actions/payroll';
 import { createSignatorySignedUrls, getSignatoryStorageStatus } from '@/app/actions/signatory-assets';
@@ -524,46 +524,15 @@ export default function GeneratorView({
     setExporting(true);
     setAuthorisedError(null);
     try {
-      let bundle = authorisedBundle;
-      if (!bundle || bundle.snapshot.id !== existingFinal.id) {
-        const [ytdResult, urlsResult] = await Promise.all([
-          fetchAuthorisedSlipYtd(existingFinal.employeeId, existingFinal.monthYear),
-          createSignatorySignedUrls({
-            signatureAssetPath: entity.signatureAssetPath,
-            sealAssetPath: entity.sealAssetPath,
-          }),
-        ]);
-        if (!ytdResult.ok) {
-          setAuthorisedError(ytdResult.error);
-          return;
-        }
-        if (!urlsResult.ok) {
-          setAuthorisedError(urlsResult.error);
-          return;
-        }
-        bundle = {
-          snapshot: existingFinal,
-          ytd:
-            ytdResult.data ??
-            computeAuthorisedYtd(slipHistory, existingFinal.employeeId, existingFinal.monthYear),
-          signatureUrl: urlsResult.data.signatureUrl,
-          sealUrl: urlsResult.data.sealUrl,
-        };
-        setAuthorisedBundle(bundle);
-        await new Promise((resolve) => setTimeout(resolve, 80));
+      // Production bank PDF: text/vector + verification registry (not html2canvas).
+      const exported = await exportAuthorisedSalarySlipPdf({
+        snapshot: existingFinal,
+        entity,
+      });
+      if (!exported.ok) {
+        setAuthorisedError(exported.error);
+        return;
       }
-
-      const el = document.getElementById('slip-print-root');
-      if (!el) throw new Error('Authorised slip element not ready');
-
-      await exportElementToPdf(
-        el,
-        authorisedSlipFilename(
-          existingFinal.employee.entityCode,
-          existingFinal.monthYear,
-          existingFinal.employee.empId,
-        ),
-      );
 
       await logAuthorisedSlipGeneration(existingFinal.id, {
         signatoryName: entity.signatoryName,

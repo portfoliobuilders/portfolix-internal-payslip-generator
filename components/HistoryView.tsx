@@ -4,30 +4,24 @@ import { createPortal } from 'react-dom';
 import { useEffect, useMemo, useState } from 'react';
 import { Download, Eye, FileBadge2, Printer, Trash2, Wallet, X } from 'lucide-react';
 import {
-  fetchAuthorisedSlipYtd,
   logAuthorisedSlipGeneration,
   deletePayrollSlip,
 } from '@/app/actions/payroll';
+import { fetchPaymentObligationsForHistory } from '@/app/actions/salary-payment';
+import { getSignatoryStorageStatus } from '@/app/actions/signatory-assets';
+import { exportAuthorisedSalarySlipPdf } from '@/lib/authorised-export';
 import {
-  assertAuthorisedSlipPaymentGate,
-  fetchPaymentObligationsForHistory,
-} from '@/app/actions/salary-payment';
-import { createSignatorySignedUrls, getSignatoryStorageStatus } from '@/app/actions/signatory-assets';
-import { computeAuthorisedYtd } from '@/lib/authorised-slip';
-import {
-  authorisedSlipFilename,
   formatDate,
-  formatDateTime,
   formatINR,
   formatMonthYear,
   slipFilename,
 } from '@/lib/format';
+import { formatAttendanceCycleRange } from '@/lib/payroll-cycle';
 import { exportElementToPdf } from '@/lib/pdf-export';
 import { signatoryIncompleteReason } from '@/lib/settings-defaults';
-import type { SalaryPaymentObligation } from '@/lib/salary-payment-types';
-import type { AuthorisedSlipYtd, SlipSnapshot } from '@/lib/types';
+import type { SalaryPaymentObligation, DocumentLifecycleStatus } from '@/lib/salary-payment-types';
+import type { SlipSnapshot } from '@/lib/types';
 import { useHRStore } from '@/store/useHRStore';
-import AuthorisedSlip from './AuthorisedSlip';
 import PaymentLedgerDrawer from './PaymentLedgerDrawer';
 import SalarySlip from './SalarySlip';
 import Toast from './Toast';
@@ -55,12 +49,6 @@ export default function HistoryView({ slipHistory, loading, error, onRefresh }: 
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   const [bankCopyPending, setBankCopyPending] = useState<SlipSnapshot | null>(null);
-  const [bankCopyExport, setBankCopyExport] = useState<{
-    snapshot: SlipSnapshot;
-    ytd: AuthorisedSlipYtd;
-    signatureUrl: string | null;
-    sealUrl: string | null;
-  } | null>(null);
   const [bankCopyBusy, setBankCopyBusy] = useState(false);
   const [bankCopyError, setBankCopyError] = useState<string | null>(null);
   const [signatoryStorageConfigured, setSignatoryStorageConfigured] = useState(true);
@@ -140,7 +128,7 @@ export default function HistoryView({ slipHistory, loading, error, onRefresh }: 
   }
 
   async function handleDelete() {
-    if (!deleteTarget) return;
+    if (!deleteTarget || deleteTarget.status === 'final') return;
     setDeleting(true);
     setDeleteError(null);
     const result = await deletePayrollSlip(deleteTarget.id);
@@ -166,54 +154,14 @@ export default function HistoryView({ slipHistory, loading, error, onRefresh }: 
     setBankCopyBusy(true);
     setBankCopyError(null);
     try {
-      const paymentGate = await assertAuthorisedSlipPaymentGate(snapshot.id);
-      if (!paymentGate.ok) {
-        setBankCopyError(paymentGate.error);
+      // Production bank PDF: text/vector + verification registry (not html2canvas).
+      const exported = await exportAuthorisedSalarySlipPdf({ snapshot, entity });
+      if (!exported.ok) {
+        setBankCopyError(exported.error);
         return;
       }
-
-      const [ytdResult, urlsResult] = await Promise.all([
-        fetchAuthorisedSlipYtd(snapshot.employeeId, snapshot.monthYear),
-        createSignatorySignedUrls({
-          signatureAssetPath: entity.signatureAssetPath,
-          sealAssetPath: entity.sealAssetPath,
-        }),
-      ]);
-
-      if (!ytdResult.ok) {
-        setBankCopyError(ytdResult.error);
-        return;
-      }
-      if (!urlsResult.ok) {
-        setBankCopyError(urlsResult.error);
-        return;
-      }
-
-      // Prefer server YTD; fall back to client-side from loaded history if needed.
-      const ytd =
-        ytdResult.data ??
-        computeAuthorisedYtd(slipHistory, snapshot.employeeId, snapshot.monthYear);
 
       setBankCopyPending(null);
-      setBankCopyExport({
-        snapshot,
-        ytd,
-        signatureUrl: urlsResult.data.signatureUrl,
-        sealUrl: urlsResult.data.sealUrl,
-      });
-
-      await new Promise((resolve) => setTimeout(resolve, 80));
-      const el = document.getElementById('authorised-export-root');
-      if (!el) throw new Error('Authorised slip element not ready.');
-
-      await exportElementToPdf(
-        el,
-        authorisedSlipFilename(
-          snapshot.employee.entityCode,
-          snapshot.monthYear,
-          snapshot.employee.empId,
-        ),
-      );
 
       // Reprints are logged, never blocked — log after successful PDF.
       await logAuthorisedSlipGeneration(snapshot.id, {
@@ -231,8 +179,63 @@ export default function HistoryView({ slipHistory, loading, error, onRefresh }: 
       setBankCopyError(err instanceof Error ? err.message : 'Failed to generate bank copy.');
     } finally {
       setBankCopyBusy(false);
-      setBankCopyExport(null);
     }
+  }
+
+  function InternalDocBadge({ status }: { status?: DocumentLifecycleStatus }) {
+    if (!status) return <span className="text-[11px] text-muted">—</span>;
+    const internalStatuses: DocumentLifecycleStatus[] = [
+      'INTERNAL_AVAILABLE',
+      'PARTIAL_ADVICE_ALLOWED',
+      'OUTSTANDING_STATEMENT_ALLOWED',
+      'NOT_READY',
+      'DRAFT',
+    ];
+    if (!internalStatuses.includes(status)) {
+      return <span className="text-[11px] text-muted">—</span>;
+    }
+    const label =
+      status === 'INTERNAL_AVAILABLE'
+        ? 'Available'
+        : status === 'PARTIAL_ADVICE_ALLOWED'
+          ? 'Partial'
+          : status === 'OUTSTANDING_STATEMENT_ALLOWED'
+            ? 'Outstanding'
+            : status.replace(/_/g, ' ');
+    return (
+      <span className="rounded border border-hairline bg-surface px-1.5 py-0.5 text-[10px] font-medium">
+        {label}
+      </span>
+    );
+  }
+
+  function AuthorisedDocBadge({ status }: { status?: DocumentLifecycleStatus }) {
+    if (!status || !status.startsWith('AUTHORISED')) {
+      return <span className="text-[11px] text-muted">—</span>;
+    }
+    const label =
+      status === 'AUTHORISED_BLOCKED'
+        ? 'Blocked'
+        : status === 'AUTHORISED_ELIGIBLE'
+          ? 'Eligible'
+          : status === 'AUTHORISED_ISSUED'
+            ? 'Issued'
+            : status.replace(/_/g, ' ');
+    return (
+      <span className="rounded border border-hairline bg-surface px-1.5 py-0.5 text-[10px] font-medium">
+        {label}
+      </span>
+    );
+  }
+
+  function attendanceCycleLabel(snapshot: SlipSnapshot): string {
+    if (snapshot.attendancePeriodStart && snapshot.attendancePeriodEnd) {
+      return formatAttendanceCycleRange(
+        snapshot.attendancePeriodStart,
+        snapshot.attendancePeriodEnd,
+      );
+    }
+    return '—';
   }
 
   function StatusBadge({ status }: { status: SlipSnapshot['status'] }) {
@@ -366,7 +369,7 @@ export default function HistoryView({ slipHistory, loading, error, onRefresh }: 
           </label>
           <label className="block">
             <span className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-muted">Type</span>
-            <select className={`${inputCls} w-56`} value={statementFilter} onChange={(e) => setStatementFilter(e.target.value)}>
+            <select className={`${inputCls} w-full sm:w-56`} value={statementFilter} onChange={(e) => setStatementFilter(e.target.value)}>
               <option value="">All statements</option>
               <option value="Salary Slip">Salary Slips</option>
               <option value="Stipend Statement">Stipend Statements</option>
@@ -376,12 +379,13 @@ export default function HistoryView({ slipHistory, loading, error, onRefresh }: 
           </label>
           <label className="block">
             <span className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-muted">Month</span>
-            <input type="month" className={`${inputCls} w-40`} value={monthFilter} onChange={(e) => setMonthFilter(e.target.value)} />
+            <input type="month" className={`${inputCls} w-full sm:w-40`} value={monthFilter} onChange={(e) => setMonthFilter(e.target.value)} />
           </label>
         </div>
       </div>
 
-      <div className="overflow-x-auto rounded-lg border border-hairline bg-paper shadow-card">
+      {/* Wide payment columns: horizontal scroll on small screens (no clipping). */}
+      <div className="min-w-0 overflow-x-auto overscroll-x-contain rounded-lg border border-hairline bg-paper shadow-card [-webkit-overflow-scrolling:touch]">
         {filtered.length === 0 ? (
           <p className="px-4 py-14 text-center text-sm text-muted">
             {slipHistory.length === 0
@@ -389,12 +393,15 @@ export default function HistoryView({ slipHistory, loading, error, onRefresh }: 
               : 'No slips match the current filters.'}
           </p>
         ) : (
-          <table className="w-full min-w-[1100px] text-sm">
+          <table className="w-full min-w-[1280px] text-sm">
             <thead>
               <tr className="border-b border-hairline text-left text-[11px] uppercase tracking-wide text-muted">
                 <th className="px-3 py-2 font-semibold">Employee</th>
-                <th className="px-3 py-2 font-semibold">Pay month</th>
+                <th className="px-3 py-2 font-semibold">Salary month</th>
+                <th className="px-3 py-2 font-semibold">Attendance cycle</th>
                 <th className="px-3 py-2 font-semibold">Payroll</th>
+                <th className="px-3 py-2 font-semibold">Internal doc</th>
+                <th className="px-3 py-2 font-semibold">Authorised doc</th>
                 <th className="px-3 py-2 font-semibold">Payment</th>
                 <th className="px-3 py-2 text-right font-semibold">Net due</th>
                 <th className="px-3 py-2 text-right font-semibold">Confirmed</th>
@@ -403,7 +410,7 @@ export default function HistoryView({ slipHistory, loading, error, onRefresh }: 
                 <th className="px-3 py-2 font-semibold">Revised expected</th>
                 <th className="px-3 py-2 font-semibold">Last paid</th>
                 <th className="px-3 py-2 font-semibold">Timeliness</th>
-                <th className="px-3 py-2 text-right font-semibold">Actions</th>
+                <th className="sticky right-0 bg-paper px-3 py-2 text-right font-semibold">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-hairline">
@@ -416,7 +423,16 @@ export default function HistoryView({ slipHistory, loading, error, onRefresh }: 
                     <p className="text-[12px] text-muted">{s.employee.empId}</p>
                   </td>
                   <td className="px-3 py-2.5 whitespace-nowrap">{formatMonthYear(s.monthYear)}</td>
+                  <td className="px-3 py-2.5 text-[12px] text-muted whitespace-nowrap">
+                    {attendanceCycleLabel(s)}
+                  </td>
                   <td className="px-3 py-2.5"><StatusBadge status={s.status} /></td>
+                  <td className="px-3 py-2.5">
+                    <InternalDocBadge status={obl?.documentStatus} />
+                  </td>
+                  <td className="px-3 py-2.5">
+                    <AuthorisedDocBadge status={obl?.documentStatus} />
+                  </td>
                   <td className="px-3 py-2.5"><PaymentBadge obligation={obl} /></td>
                   <td className="amount px-3 py-2.5 text-right font-medium">
                     {formatINR(obl?.netSalaryPayable ?? s.computed.netPay)}
@@ -439,18 +455,20 @@ export default function HistoryView({ slipHistory, loading, error, onRefresh }: 
                   <td className="px-3 py-2.5 text-[11px] text-muted">
                     {obl ? obl.timeliness.replace(/_/g, ' ') : '—'}
                   </td>
-                  <td className="px-3 py-2.5">
-                    <div className="flex justify-end gap-1">
+                  <td className="sticky right-0 bg-paper px-3 py-2.5">
+                    <div className="flex max-w-[11rem] flex-wrap justify-end gap-0.5 sm:max-w-none">
                       <button
                         title="View slip"
-                        className="rounded p-1.5 text-muted hover:bg-surface hover:text-ink"
+                        aria-label="View slip"
+                        className="flex h-11 w-11 items-center justify-center rounded-md text-muted transition-colors duration-150 hover:bg-surface hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink/20 lg:h-9 lg:w-9"
                         onClick={() => setViewing(s)}
                       >
                         <Eye size={15} />
                       </button>
                       <button
                         title="Re-download PDF (from stored snapshot)"
-                        className="rounded p-1.5 text-muted hover:bg-surface hover:text-ink"
+                        aria-label="Re-download PDF (from stored snapshot)"
+                        className="flex h-11 w-11 items-center justify-center rounded-md text-muted transition-colors duration-150 hover:bg-surface hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink/20 disabled:cursor-not-allowed disabled:opacity-40 lg:h-9 lg:w-9"
                         disabled={exportTarget !== null}
                         onClick={() => void redownload(s)}
                       >
@@ -459,7 +477,8 @@ export default function HistoryView({ slipHistory, loading, error, onRefresh }: 
                       {s.status === 'final' && (
                         <button
                           title="Payment Ledger"
-                          className="rounded p-1.5 text-muted hover:bg-surface hover:text-ink"
+                          aria-label="Payment Ledger"
+                          className="flex h-11 w-11 items-center justify-center rounded-md text-muted transition-colors duration-150 hover:bg-surface hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink/20 lg:h-9 lg:w-9"
                           onClick={() => setLedgerTarget(s)}
                         >
                           <Wallet size={15} />
@@ -467,8 +486,17 @@ export default function HistoryView({ slipHistory, loading, error, onRefresh }: 
                       )}
                       <BankCopyButton snapshot={s} compact />
                       <button
-                        title="Delete slip"
-                        className="rounded p-1.5 text-muted hover:bg-surface hover:text-amber-brand"
+                        title={
+                          s.status === 'final'
+                            ? 'Final slips cannot be deleted — supersede or cancel/revoke instead'
+                            : 'Delete draft slip'
+                        }
+                        aria-label={
+                          s.status === 'final'
+                            ? 'Final slips cannot be deleted — supersede or cancel/revoke instead'
+                            : 'Delete draft slip'
+                        }
+                        className="flex h-11 w-11 items-center justify-center rounded-md text-muted transition-colors duration-150 hover:bg-surface hover:text-amber-brand focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink/20 lg:h-9 lg:w-9"
                         onClick={() => {
                           setDeleteError(null);
                           setDeleteTarget(s);
@@ -488,12 +516,12 @@ export default function HistoryView({ slipHistory, loading, error, onRefresh }: 
 
       {viewing && (
         <div
-          className="no-print fixed inset-0 z-50 overflow-auto bg-ink/50 p-4 backdrop-blur-[2px] sm:p-6"
+          className="no-print fixed inset-0 z-50 overflow-auto bg-ink/50 p-3 backdrop-blur-[2px] sm:p-6"
           onMouseDown={(e) => {
             if (e.target === e.currentTarget) setViewing(null);
           }}
         >
-          <div className="mx-auto w-fit">
+          <div className="mx-auto w-full max-w-[210mm]">
             <div className="mb-2 flex flex-wrap justify-end gap-2">
               <button className={`${btnSecondary} bg-paper`} onClick={() => window.print()}>
                 <Printer size={14} /> Print
@@ -519,13 +547,16 @@ export default function HistoryView({ slipHistory, loading, error, onRefresh }: 
                 {bankCopyError}
               </p>
             )}
-            <SalarySlip
-              snapshot={viewing}
-              entity={settings.entities[viewing.employee.entityCode]}
-              payrollContact={settings.payrollContact}
-              paydayDayOfMonth={settings.paydayDayOfMonth}
-              reviewDeadlineTime={settings.reviewDeadlineTime}
-            />
+            {/* Keep A4 slip layout intact; scroll horizontally if viewport is narrower. */}
+            <div className="overflow-x-auto overscroll-x-contain [-webkit-overflow-scrolling:touch]">
+              <SalarySlip
+                snapshot={viewing}
+                entity={settings.entities[viewing.employee.entityCode]}
+                payrollContact={settings.payrollContact}
+                paydayDayOfMonth={settings.paydayDayOfMonth}
+                reviewDeadlineTime={settings.reviewDeadlineTime}
+              />
+            </div>
           </div>
         </div>
       )}
@@ -555,22 +586,6 @@ export default function HistoryView({ slipHistory, loading, error, onRefresh }: 
               payrollContact={settings.payrollContact}
               paydayDayOfMonth={settings.paydayDayOfMonth}
               reviewDeadlineTime={settings.reviewDeadlineTime}
-            />
-          </div>,
-          document.body,
-        )}
-
-      {bankCopyExport &&
-        typeof document !== 'undefined' &&
-        createPortal(
-          <div id="authorised-export-root" style={{ position: 'absolute', top: 0, left: -10000 }}>
-            <AuthorisedSlip
-              snapshot={bankCopyExport.snapshot}
-              entity={settings.entities[bankCopyExport.snapshot.employee.entityCode]}
-              ytd={bankCopyExport.ytd}
-              paydayDayOfMonth={settings.paydayDayOfMonth}
-              signatureUrl={bankCopyExport.signatureUrl}
-              sealUrl={bankCopyExport.sealUrl}
             />
           </div>,
           document.body,
@@ -614,7 +629,24 @@ export default function HistoryView({ slipHistory, loading, error, onRefresh }: 
         </Modal>
       )}
 
-      {deleteTarget && (
+      {deleteTarget && deleteTarget.status === 'final' && (
+        <Modal
+          title="Cannot delete final slip"
+          onClose={() => setDeleteTarget(null)}
+        >
+          <p className="text-sm text-ink">
+            Final payroll snapshots cannot be permanently deleted. To correct this record, supersede
+            it with a new final slip from the Generator, or cancel/revoke through payroll operations.
+          </p>
+          <div className="mt-5 flex justify-end">
+            <button className={btnPrimary} onClick={() => setDeleteTarget(null)}>
+              OK
+            </button>
+          </div>
+        </Modal>
+      )}
+
+      {deleteTarget && deleteTarget.status === 'draft' && (
         <Modal
           title="Delete slip from history?"
           onClose={() => {
@@ -624,8 +656,7 @@ export default function HistoryView({ slipHistory, loading, error, onRefresh }: 
           <p className="text-sm text-ink">
             Permanently remove the stored snapshot for{' '}
             <strong>{deleteTarget.employee.fullName}</strong> ({deleteTarget.employee.empId}) ·{' '}
-            {formatMonthYear(deleteTarget.monthYear)}
-            {deleteTarget.status === 'final' ? ' (Final)' : ' (Draft)'}?
+            {formatMonthYear(deleteTarget.monthYear)} (Draft)?
           </p>
           <p className="mt-2 text-[12px] text-muted">
             Re-download and bank copy will no longer be available for this entry. Employee flex-bank

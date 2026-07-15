@@ -10,6 +10,7 @@ import type {
   EmploymentStatus,
   EngagementType,
   EntityCode,
+  EntityInfo,
   FlexLogEntry,
   PaymentMode,
   PaymentType,
