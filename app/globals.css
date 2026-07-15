@@ -48,14 +48,28 @@ body {
 }
 
 /* Two-column amount rows — fixed right column for currency alignment.
-   Widened to 8.5rem so 7-figure amounts never wrap. */
+   Widened to 8.5rem so 7-figure amounts never wrap. Shared baseline +
+   uniform row height so PDF capture stays aligned. */
 .slip-amount-row {
-  @apply grid gap-x-4 py-[5px];
+  @apply grid items-baseline gap-x-4 py-[5px];
   grid-template-columns: minmax(0, 1fr) 8.5rem;
+  min-height: 1.375rem;
 }
 
 .slip-amount-row > .amount {
-  @apply text-right;
+  @apply text-right tabular-nums;
+}
+
+/* Attendance half-width stats — tighter value column so figures sit with
+   their labels instead of floating to the page edge. */
+.slip-stat-row {
+  @apply grid items-baseline gap-x-3 py-[5px];
+  grid-template-columns: minmax(0, 1fr) 3.75rem;
+  min-height: 1.375rem;
+}
+
+.slip-stat-row > .amount {
+  @apply text-right tabular-nums;
 }
 
 /* Off-screen unscaled slip copy: rendered (so html2canvas can capture

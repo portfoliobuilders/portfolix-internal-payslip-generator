@@ -31,14 +31,16 @@ function Row({
   value,
   bold = false,
   sub,
+  rowClassName = 'slip-amount-row',
 }: {
   label: React.ReactNode;
   value: string;
   bold?: boolean;
   sub?: React.ReactNode;
+  rowClassName?: string;
 }) {
   return (
-    <div className={`slip-amount-row ${bold ? 'font-semibold' : ''}`}>
+    <div className={`${rowClassName} ${bold ? 'font-semibold' : ''}`}>
       <div className="min-w-0">
         <span className="text-[11px] leading-snug">{label}</span>
         {sub && <div className="text-[9.5px] leading-snug text-muted">{sub}</div>}
@@ -66,6 +68,7 @@ export default function SalarySlip({
   ledgerMismatch = false,
 }: SalarySlipProps) {
   const { inputs, computed, employee } = snapshot;
+  /** Review window and draft chrome key ONLY on the rendered variant. */
   const isDraft = snapshot.status === 'draft';
   const { creditDate, reviewDeadline } = payrollCycleDates(snapshot.monthYear, paydayDayOfMonth);
   const variableLabel = inputs.variableLabel.trim() || 'Variable / Incentive';
@@ -217,10 +220,22 @@ export default function SalarySlip({
           </p>
         </div>
         <div className="mt-1.5 grid grid-cols-2 gap-x-6">
-          <Row label="Absent days" value={String(inputs.absentDays)} />
-          <Row label="Half days" value={String(inputs.halfDays)} />
-          <Row label="Late minutes" value={formatMinutes(inputs.lateMinutes)} />
-          <Row label="LOP days (total)" value={computed.lopDays.toFixed(1)} />
+          <Row
+            rowClassName="slip-stat-row"
+            label="Absent days"
+            value={String(inputs.absentDays)}
+          />
+          <Row rowClassName="slip-stat-row" label="Half days" value={String(inputs.halfDays)} />
+          <Row
+            rowClassName="slip-stat-row"
+            label="Late minutes"
+            value={formatMinutes(inputs.lateMinutes)}
+          />
+          <Row
+            rowClassName="slip-stat-row"
+            label="LOP days (total)"
+            value={computed.lopDays.toFixed(1)}
+          />
         </div>
         {isDraft && hasLateness && (
           <div className="mt-1 rounded border border-hairline px-3 py-1.5 text-[9.5px] text-muted">
@@ -250,14 +265,18 @@ export default function SalarySlip({
           <SectionTitle tag="B">Deductions</SectionTitle>
           <div className="flex-1">
             <Row
-              label={`Loss of pay — ${computed.lopDays.toFixed(1)} day(s)`}
+              label={
+                <span className="whitespace-nowrap">
+                  Loss of pay — {computed.lopDays.toFixed(1)} day(s)
+                </span>
+              }
               sub={
                 <>
-                  <span className="amount whitespace-nowrap">
+                  <span className="amount block whitespace-nowrap">
                     × {formatINR(computed.perDayRate)}/day
                   </span>
                   {isDraft && (
-                    <span className="block">
+                    <span className="mt-0.5 block">
                       {inputs.absentDays} absent + {inputs.halfDays} × 0.5 half-day +{' '}
                       {computed.lopFromLateness.toFixed(1)} from lateness
                     </span>
@@ -358,8 +377,8 @@ export default function SalarySlip({
         </section>
       )}
 
-      {/* ---------- Footer ---------- */}
-      <footer className="mt-auto border-t border-hairline pt-3 text-[8.5px] leading-relaxed text-muted">
+      {/* ---------- Footer — fixed margin (no flex-push dead gap) ---------- */}
+      <footer className="mt-6 border-t border-hairline pt-3 text-[8.5px] leading-relaxed text-muted">
         <p>
           {isDraft ? (
             <>
