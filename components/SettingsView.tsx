@@ -196,7 +196,9 @@ export default function SettingsView() {
                 <h4 className="mb-3 text-sm font-semibold text-ink">Company &amp; Signatory</h4>
                 <p className="mb-4 text-[12px] text-muted">
                   Printed on the Authorised Slip (bank copy). Use SET-IN-SETTINGS until real values
-                  are confirmed — never ship guessed emails or CIN numbers.
+                  are confirmed — never ship guessed emails or CIN numbers. This section is always
+                  available; text fields save through the normal settings path even when signature
+                  uploads are disabled.
                 </p>
                 <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                   <Field label="CIN">
