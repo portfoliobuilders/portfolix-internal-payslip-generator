@@ -17,7 +17,6 @@ import { computeAuthorisedYtd } from '@/lib/authorised-slip';
 import {
   authorisedSlipFilename,
   formatDate,
-  formatDateTime,
   formatINR,
   formatMonthYear,
   slipFilename,

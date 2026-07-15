@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
   FIXED_DIVISOR,
-  MINUTES_PER_DAY,
   computeDeferral,
   computeFlexBank,
   computePayroll,
