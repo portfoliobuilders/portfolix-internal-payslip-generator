@@ -1,6 +1,6 @@
 /**
  * Maps between Supabase row shapes and the app's domain types.
- * Extended employee fields (department, flex log, etc.) live in details_json.
+ * Extended employee fields (department, flex log, TDS/PT, etc.) live in details_json.
  */
 
 import type {
@@ -21,6 +21,11 @@ export interface EmployeeDetailsJson {
   bankLast4: string;
   panMasked: string;
   flexLog: FlexLogEntry[];
+  reportingManager?: string;
+  workMode?: WorkMode;
+  agreementType?: AgreementType;
+  documentsStatus?: DocumentsStatus;
+  notes?: string;
 }
 
 export interface EmployeeRow {
@@ -31,6 +36,19 @@ export interface EmployeeRow {
   joining_date: string;
   designation: string;
   base_salary: number;
+  compensation_amount: number | null;
+  engagement_type: EngagementType | null;
+  employment_status: EmploymentStatus | null;
+  payment_type: PaymentType | null;
+  internship_start_date: string | null;
+  internship_end_date: string | null;
+  probation_start_date: string | null;
+  probation_end_date: string | null;
+  notice_start_date: string | null;
+  notice_end_date: string | null;
+  contract_start_date: string | null;
+  contract_end_date: string | null;
+  offboarding_date: string | null;
   flex_bank_balance: number;
   details_json: EmployeeDetailsJson | null;
 }
@@ -45,6 +63,11 @@ export interface PayrollSlipRow {
 
 const ENTITY_CODES: EntityCode[] = ['PX', 'PB', 'PT', 'PH'];
 
+/** Trim and strip all internal whitespace from a business employee ID. */
+export function normalizeEmployeeId(raw: string): string {
+  return raw.trim().replace(/\s+/g, '').toUpperCase();
+}
+
 function emptyDetails(): EmployeeDetailsJson {
   return {
     department: '',
@@ -53,6 +76,11 @@ function emptyDetails(): EmployeeDetailsJson {
     bankLast4: '',
     panMasked: '',
     flexLog: [],
+    reportingManager: '',
+    workMode: 'office',
+    agreementType: 'offer_letter',
+    documentsStatus: 'pending',
+    notes: '',
   };
 }
 
@@ -65,18 +93,39 @@ export function rowToEmployee(row: EmployeeRow): Employee {
   return {
     id: row.id,
     fullName: row.full_name,
-    empId: row.employee_id,
+    empId: normalizeEmployeeId(row.employee_id),
     entityCode,
     department: details.department,
     designation: row.designation,
     joiningDate: row.joining_date,
     employeeAddress: details.employeeAddress,
     baseSalary: row.base_salary,
+    compensationAmount: row.compensation_amount ?? row.base_salary,
+    engagementType: row.engagement_type ?? 'regular_employee',
+    employmentStatus: row.employment_status ?? 'active',
+    paymentType:
+      row.payment_type ?? defaultPaymentTypeForEngagement(row.engagement_type ?? 'regular_employee'),
     paymentMode: details.paymentMode,
+    internshipStartDate: row.internship_start_date,
+    internshipEndDate: row.internship_end_date,
+    probationStartDate: row.probation_start_date,
+    probationEndDate: row.probation_end_date,
+    noticeStartDate: row.notice_start_date,
+    noticeEndDate: row.notice_end_date,
+    contractStartDate: row.contract_start_date,
+    contractEndDate: row.contract_end_date,
+    offboardingDate: row.offboarding_date,
+    reportingManager: details.reportingManager ?? '',
+    workMode: details.workMode ?? 'office',
+    agreementType: details.agreementType ?? 'offer_letter',
+    documentsStatus: details.documentsStatus ?? 'pending',
+    notes: details.notes ?? '',
     bankLast4: details.bankLast4,
     panMasked: details.panMasked,
     flexBankBalance: row.flex_bank_balance,
     flexLog: details.flexLog ?? [],
+    tdsMonthly: Number(details.tdsMonthly ?? 0) || 0,
+    ptHalfYearly: Number(details.ptHalfYearly ?? 0) || 0,
   };
 }
 
@@ -87,10 +136,23 @@ export function employeeToRow(
     ...(employee.id ? { id: employee.id } : {}),
     full_name: employee.fullName,
     entity_id: employee.entityCode,
-    employee_id: employee.empId,
+    employee_id: normalizeEmployeeId(employee.empId),
     joining_date: employee.joiningDate,
     designation: employee.designation,
     base_salary: employee.baseSalary,
+    compensation_amount: employee.compensationAmount,
+    engagement_type: employee.engagementType,
+    employment_status: employee.employmentStatus,
+    payment_type: employee.paymentType,
+    internship_start_date: employee.internshipStartDate,
+    internship_end_date: employee.internshipEndDate,
+    probation_start_date: employee.probationStartDate,
+    probation_end_date: employee.probationEndDate,
+    notice_start_date: employee.noticeStartDate,
+    notice_end_date: employee.noticeEndDate,
+    contract_start_date: employee.contractStartDate,
+    contract_end_date: employee.contractEndDate,
+    offboarding_date: employee.offboardingDate,
     flex_bank_balance: employee.flexBankBalance,
     details_json: {
       department: employee.department,
@@ -99,28 +161,59 @@ export function employeeToRow(
       bankLast4: employee.bankLast4,
       panMasked: employee.panMasked,
       flexLog: employee.flexLog,
+      reportingManager: employee.reportingManager,
+      workMode: employee.workMode,
+      agreementType: employee.agreementType,
+      documentsStatus: employee.documentsStatus,
+      notes: employee.notes,
     },
   };
 }
 
+/** Back-compat: older frozen snapshots may omit tds / pt. */
 export function rowToSlip(row: PayrollSlipRow): SlipSnapshot {
+  const details = row.details_json;
+  const inputs = {
+    ...details.inputs,
+    tdsMonthly: details.inputs?.tdsMonthly ?? 0,
+    ptThisMonth: details.inputs?.ptThisMonth ?? 0,
+  };
+  const statutory = slipStatutoryDeductions(details.computed ?? {}, inputs);
+  const computed = {
+    ...details.computed,
+    tds: statutory.tds,
+    pt: statutory.pt,
+  };
   return {
     id: row.id,
     employeeId: row.employee_id,
     monthYear: row.month_year,
     status: row.status,
-    ...row.details_json,
+    ...details,
+    inputs,
+    computed,
+    employee: {
+      ...details.employee,
+      empId: normalizeEmployeeId(details.employee.empId),
+    },
   };
 }
 
 export function slipToRow(snapshot: SlipSnapshot): Omit<PayrollSlipRow, 'id'> & { id?: string } {
-  const { id, employeeId, monthYear, status, ...details } = snapshot;
+  const { id, employeeId: _employeeId, monthYear, status, ...details } = snapshot;
   return {
     ...(id ? { id } : {}),
-    employee_id: employeeId,
+    // FK targets employees.employee_id (e.g. PB-TEST-001), not the internal UUID.
+    employee_id: snapshot.employee.empId,
     month_year: monthYear,
     status,
-    details_json: details,
+    details_json: {
+      ...details,
+      employee: {
+        ...details.employee,
+        empId: normalizeEmployeeId(details.employee.empId),
+      },
+    },
   };
 }
 

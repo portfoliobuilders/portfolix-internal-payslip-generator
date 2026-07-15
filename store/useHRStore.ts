@@ -6,6 +6,7 @@
  */
 
 import { create } from 'zustand';
+import { SEED_SETTINGS } from '@/lib/settings-defaults';
 import type { EntityCode, EntityInfo, Settings } from '@/lib/types';
 import { SEED_SETTINGS } from '@/lib/seed-settings';
 

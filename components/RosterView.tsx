@@ -2,10 +2,11 @@
 
 import { useRef, useState } from 'react';
 import { Download, FilePlus2, Loader2, Pencil, Timer, Trash2, Upload, UserPlus } from 'lucide-react';
-import { bulkUpsertEmployees, deleteEmployee } from '@/app/actions/payroll';
+import { archiveEmployee, bulkUpsertEmployees, deleteEmployee } from '@/app/actions/payroll';
 import type { Employee } from '@/lib/types';
 import { downloadEmployeeTemplate, parseEmployeeSpreadsheet } from '@/lib/employee-excel';
 import { formatINR, formatMinutes } from '@/lib/format';
+import { compensationLabelForPaymentType } from '@/lib/workforce';
 import { useHRStore } from '@/store/useHRStore';
 import { useUIStore } from '@/store/useUIStore';
 import EmployeeFormModal from './EmployeeFormModal';
@@ -20,6 +21,16 @@ interface RosterViewProps {
   onGenerateFor: () => void;
 }
 
+const FILTER_OPTIONS = [
+  ['all', 'All'],
+  ['regular', 'Regular Employees'],
+  ['interns', 'Interns'],
+  ['probation', 'Probation'],
+  ['notice', 'Notice Period'],
+  ['freelance', 'Freelancers/Consultants'],
+  ['offboarded', 'Offboarded/Completed'],
+] as const;
+
 export default function RosterView({
   employees,
   loading,
@@ -33,11 +44,24 @@ export default function RosterView({
   const [formTarget, setFormTarget] = useState<Employee | null | 'new'>(null);
   const [flexTarget, setFlexTarget] = useState<Employee | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Employee | null>(null);
+  const [archiveTarget, setArchiveTarget] = useState<Employee | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [archiving, setArchiving] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'failed'>('idle');
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [filter, setFilter] = useState('all');
+
+  const filteredEmployees = employees.filter((entry) => {
+    if (filter === 'regular') return entry.engagementType === 'regular_employee';
+    if (filter === 'interns') return ['intern', 'trainee', 'apprentice'].includes(entry.engagementType);
+    if (filter === 'probation') return entry.engagementType === 'probation_employee' || entry.employmentStatus === 'probation';
+    if (filter === 'notice') return entry.engagementType === 'notice_period_employee' || entry.employmentStatus === 'notice_period';
+    if (filter === 'freelance') return entry.engagementType === 'freelancer' || entry.engagementType === 'consultant';
+    if (filter === 'offboarded') return ['offboarded', 'completed'].includes(entry.employmentStatus);
+    return true;
+  });
 
   async function handleDelete() {
     if (!deleteTarget) return;
@@ -90,12 +114,27 @@ export default function RosterView({
     }
   }
 
+  async function handleArchive() {
+    if (!archiveTarget) return;
+    setArchiving(true);
+    setActionError(null);
+    const result = await archiveEmployee(archiveTarget.id, new Date().toISOString().slice(0, 10));
+    setArchiving(false);
+    if (!result.ok) {
+      setActionError(result.error);
+      return;
+    }
+    setArchiveTarget(null);
+    setToastMessage('Person archived/offboarded.');
+    await onRefresh();
+  }
+
   return (
     <div className="space-y-4">
-      <div className="rounded-lg border border-hairline bg-paper">
+      <div className="overflow-hidden rounded-lg border border-hairline bg-paper shadow-card">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-hairline px-4 py-3">
           <div>
-            <h1 className="text-sm font-semibold">Employee Roster</h1>
+            <h1 className="text-sm font-semibold">Workforce Roster</h1>
             <p className="text-[12px] text-muted">
               {loading
                 ? 'Loading employees…'
@@ -105,16 +144,16 @@ export default function RosterView({
               {saveStatus === 'failed' && ' · Save failed'}
             </p>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:flex-wrap sm:items-center">
             <button
-              className={btnPrimary}
+              className={`${btnPrimary} w-full sm:w-auto`}
               onClick={() => downloadEmployeeTemplate()}
               disabled={loading || uploading}
             >
               <Download size={14} /> Download Excel Template
             </button>
             <button
-              className={btnSecondary}
+              className={`${btnSecondary} w-full sm:w-auto`}
               onClick={() => fileInputRef.current?.click()}
               disabled={loading || uploading}
             >
@@ -139,12 +178,21 @@ export default function RosterView({
                 e.target.value = '';
               }}
             />
-            <button className={btnPrimary} onClick={() => setFormTarget('new')} disabled={loading || uploading}>
+            <button
+              className={`${btnPrimary} w-full sm:w-auto`}
+              onClick={() => setFormTarget('new')}
+              disabled={loading || uploading}
+            >
               <UserPlus size={14} /> Add employee
             </button>
           </div>
         </div>
 
+        <div className="flex flex-wrap gap-2 border-b border-hairline px-4 py-2">
+          {FILTER_OPTIONS.map(([id, label]) => (
+            <button key={id} onClick={() => setFilter(id)} className={`rounded px-2 py-1 text-xs ${filter === id ? 'bg-ink text-paper' : 'bg-surface text-muted'}`}>{label}</button>
+          ))}
+        </div>
         {actionError && (
           <p className="border-b border-hairline px-4 py-2 text-[12px] font-medium text-amber-brand">
             {actionError}
@@ -152,7 +200,7 @@ export default function RosterView({
         )}
         {loading ? (
           <p className="px-4 py-14 text-center text-sm text-muted">Loading roster from Supabase…</p>
-        ) : employees.length === 0 ? (
+        ) : filteredEmployees.length === 0 ? (
           <p className="px-4 py-14 text-center text-sm text-muted">
             No employees yet. Download the Excel template or add your first employee manually.
           </p>
@@ -163,13 +211,13 @@ export default function RosterView({
                 <th className="px-4 py-2 font-semibold">Employee</th>
                 <th className="px-4 py-2 font-semibold">Entity</th>
                 <th className="px-4 py-2 font-semibold">Role</th>
-                <th className="px-4 py-2 text-right font-semibold">Base salary</th>
+                <th className="px-4 py-2 text-right font-semibold">Compensation</th>
                 <th className="px-4 py-2 text-right font-semibold">Flex bank</th>
                 <th className="px-4 py-2 text-right font-semibold">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-hairline">
-              {employees.map((e) => (
+              {filteredEmployees.map((e) => (
                 <tr key={e.id} className="hover:bg-surface/60">
                   <td className="px-4 py-2.5">
                     <p className="font-medium">{e.fullName}</p>
@@ -186,7 +234,8 @@ export default function RosterView({
                     <p className="text-[12px] text-muted">{e.department}</p>
                   </td>
                   <td className="amount px-4 py-2.5 text-right font-medium">
-                    {formatINR(e.baseSalary)}
+                    {formatINR(e.compensationAmount)}
+                    <p className="text-[11px] text-muted">{compensationLabelForPaymentType(e.paymentType)}</p>
                   </td>
                   <td className="amount px-4 py-2.5 text-right">
                     {formatMinutes(e.flexBankBalance)}
@@ -218,9 +267,9 @@ export default function RosterView({
                         <Pencil size={15} />
                       </button>
                       <button
-                        title="Delete"
+                        title="Archive / Offboard"
                         className="rounded p-1.5 text-muted hover:bg-surface hover:text-amber-brand"
-                        onClick={() => setDeleteTarget(e)}
+                        onClick={() => setArchiveTarget(e)}
                       >
                         <Trash2 size={15} />
                       </button>
@@ -275,6 +324,24 @@ export default function RosterView({
             </button>
             <button className={btnPrimary} onClick={() => void handleDelete()} disabled={deleting}>
               {deleting ? 'Deleting…' : 'Delete'}
+            </button>
+          </div>
+        </Modal>
+      )}
+      {archiveTarget && (
+        <Modal title="Archive / offboard person?" onClose={() => setArchiveTarget(null)}>
+          <p className="text-sm">
+            Archive <strong>{archiveTarget.fullName}</strong> from active roster? Historical statements stay available and this person can still be viewed in history.
+          </p>
+          <div className="mt-3 rounded border border-amber-edge bg-amber-tint p-2 text-xs text-amber-brand">
+            Hard delete is still available as an admin danger action.
+          </div>
+          <div className="mt-5 flex justify-end gap-2">
+            <button className={btnSecondary} onClick={() => setArchiveTarget(null)} disabled={archiving}>
+              Cancel
+            </button>
+            <button className={btnPrimary} onClick={() => void handleArchive()} disabled={archiving}>
+              {archiving ? 'Archiving…' : 'Archive / Offboard'}
             </button>
           </div>
         </Modal>

@@ -41,10 +41,24 @@ export interface PayrollInput {
   halfDays: number;
   fixedAllowance: number;
   otherDeductions: number;
+  /** Monthly TDS — additive deduction line. Default 0 for back-compat. */
+  tdsMonthly?: number;
+  /**
+   * Professional Tax for this slip month only. Derived as
+   * ptHalfYearly when the slip month ∈ ptDeductionMonths, else 0.
+   */
+  ptThisMonth?: number;
   variableEarned: number;
   variablePaid: number;
   deferredOpening: number;
   committedPayoutDate: string | null;
+  /**
+   * Payroll day-count divisor used for per-day rate.
+   * Defaults to FIXED_DIVISOR (25) for back-compat. Must be provided by the
+   * server integrity layer from the approved calculation method — never trust
+   * a client-submitted final daily rate.
+   */
+  payrollDivisor?: number;
 }
 
 export interface PayrollResult extends SlipComputed {
@@ -120,11 +134,55 @@ export function validateVariablePaid(input: {
 }
 
 /**
+ * Derives this month's PT deduction from the employee's half-yearly PT
+ * and the configured deduction months (1–12).
+ */
+export function derivePtThisMonth(
+  ptHalfYearly: number,
+  monthYear: string,
+  ptDeductionMonths: number[],
+): number {
+  const month = Number(monthYear.slice(5, 7));
+  if (!Number.isFinite(month) || month < 1 || month > 12) return 0;
+  if (!ptDeductionMonths.includes(month)) return 0;
+  return Math.max(0, ptHalfYearly);
+}
+
+/**
+ * Snapshot statutory amounts with back-compat for pre-TDS/PT finals.
+ * Missing fields → 0.00 (old slips are immutable and never regenerated).
+ */
+export function slipStatutoryDeductions(computed: {
+  tds?: number;
+  pt?: number;
+  /** Legacy field name from the first Authorised Slip draft — still accepted. */
+  tdsMonthly?: number;
+  ptThisMonth?: number;
+}, inputs?: {
+  tdsMonthly?: number;
+  ptThisMonth?: number;
+}): { tds: number; pt: number } {
+  return {
+    tds: computed.tds ?? computed.tdsMonthly ?? inputs?.tdsMonthly ?? 0,
+    pt: computed.pt ?? computed.ptThisMonth ?? inputs?.ptThisMonth ?? 0,
+  };
+}
+
+/**
  * The single computation entry point. Produces every derived number
  * shown on a slip, rounded exactly once for display.
+ *
+ * net = (base + fixedAllowance) − (lopDeduction + tds + pt + otherDeductions) + variablePaid
  */
 export function computePayroll(input: PayrollInput): PayrollResult {
-  const perDayRateExact = input.baseSalary / FIXED_DIVISOR;
+  const tds = input.tdsMonthly ?? 0;
+  const pt = input.ptThisMonth ?? 0;
+
+  const divisor = input.payrollDivisor ?? FIXED_DIVISOR;
+  if (!(divisor > 0) || !Number.isFinite(divisor)) {
+    throw new Error(`Invalid payroll divisor: ${divisor}`);
+  }
+  const perDayRateExact = input.baseSalary / divisor;
 
   const flex = computeFlexBank({
     flexBankBalance: input.flexBankBalance,
@@ -138,7 +196,7 @@ export function computePayroll(input: PayrollInput): PayrollResult {
   // Full precision throughout; round once per displayed figure below.
   const lopDeductionExact = lopDays * perDayRateExact;
   const grossFixedExact = input.baseSalary + input.fixedAllowance;
-  const totalDeductionsExact = lopDeductionExact + input.otherDeductions;
+  const totalDeductionsExact = lopDeductionExact + input.otherDeductions + tds + pt;
 
   const { deferredClosing } = computeDeferral({
     deferredOpening: input.deferredOpening,
@@ -146,7 +204,7 @@ export function computePayroll(input: PayrollInput): PayrollResult {
     variablePaid: input.variablePaid,
   });
 
-  // Rule 5: net = (base + fixedAllowance) − (lop + other) + variablePaid, rounded once.
+  // Rule 5: net = (base + fixedAllowance) − (lop + tds + pt + other) + variablePaid, rounded once.
   const netExact = grossFixedExact - totalDeductionsExact + input.variablePaid;
   const netPay = roundMoney(netExact);
 
@@ -161,6 +219,8 @@ export function computePayroll(input: PayrollInput): PayrollResult {
     lopDays,
     lopDeduction: roundMoney(lopDeductionExact),
     otherDeductions: roundMoney(input.otherDeductions),
+    tds: roundMoney(tds),
+    pt: roundMoney(pt),
     totalDeductions: roundMoney(totalDeductionsExact),
     grossFixed: roundMoney(grossFixedExact),
     variableEarned: roundMoney(input.variableEarned),

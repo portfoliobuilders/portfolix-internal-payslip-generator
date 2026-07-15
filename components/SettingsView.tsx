@@ -1,20 +1,22 @@
 'use client';
 
+import { useEffect, useMemo, useState } from 'react';
+import { AlertTriangle, CheckCircle2 } from 'lucide-react';
 import type { EntityCode } from '@/lib/types';
+import { fetchCompanySettings, updateCompanySettings } from '@/app/actions/settings';
 import { useHRStore } from '@/store/useHRStore';
 import { Field, Input, NumberInput, Textarea, btnPrimary, btnSecondary } from '@/components/ui';
 import EntityLogoUpload from '@/components/EntityLogoUpload';
 import PayrollStressTestPanel from '@/components/PayrollStressTestPanel';
 import {
   currentMonthKey,
-  formatDate,
   formatMonthYear,
   formatQueryDeadline,
   payrollCycleDates,
 } from '@/lib/format';
 import { AlertTriangle, CheckCircle2, Loader2 } from 'lucide-react';
 
-const ENTITY_ORDER: EntityCode[] = ['PX', 'PB', 'PT', 'PH'];
+const PRIMARY_ENTITY: EntityCode = 'PX';
 
 interface SettingsViewProps {
   loading: boolean;
@@ -38,11 +40,13 @@ export default function SettingsView({
   onSave,
 }: SettingsViewProps) {
   const settings = useHRStore((s) => s.settings);
+  const setSettings = useHRStore((s) => s.setSettings);
   const updateSettings = useHRStore((s) => s.updateSettings);
   const updateEntity = useHRStore((s) => s.updateEntity);
   const discardSettingsChanges = useHRStore((s) => s.discardSettingsChanges);
 
   const previewMonth = currentMonthKey();
+  const primaryEntity = settings.entities[PRIMARY_ENTITY];
   const { creditDate, reviewDeadline } = payrollCycleDates(
     previewMonth,
     settings.paydayDayOfMonth,
@@ -110,94 +114,83 @@ export default function SettingsView({
       )}
 
       <div className="rounded-lg border border-hairline bg-paper p-5">
-        <h3 className="mb-4 text-sm font-semibold text-ink">Payroll calendar &amp; contact</h3>
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <Field
-            label="Payday day of month"
-            hint="Salary credit date. The query deadline is derived as payday − 2 at 6:00 PM."
-          >
+        <h3 className="text-sm font-semibold text-ink">Payroll calendar</h3>
+        <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <Field label="Payday (day of month)">
             <NumberInput
               value={settings.paydayDayOfMonth}
               min={3}
               max={28}
-              onChange={(e) => {
-                const day = Math.min(28, Math.max(3, Math.round(Number(e.target.value) || 0)));
-                updateSettings({ paydayDayOfMonth: day });
-              }}
+              onChange={(e) =>
+                updateSettings({ paydayDayOfMonth: Number(e.target.value) || 5 })
+              }
             />
           </Field>
-          <Field label="Payroll contact (printed on the slip footer)">
+          <Field label="Payroll contact">
             <Input
               value={settings.payrollContact}
               onChange={(e) => updateSettings({ payrollContact: e.target.value })}
+              placeholder="payroll@example.com"
             />
           </Field>
         </div>
-        <p className="mt-4 rounded-md bg-surface px-3 py-2 text-[11px] text-muted">
-          Preview for {formatMonthYear(previewMonth)} — review queries by{' '}
-          <span className="font-semibold text-amber-brand">
-            {formatQueryDeadline(reviewDeadline)}
-          </span>
-          , salary credited{' '}
-          <span className="font-semibold text-emerald-deep">{formatDate(creditDate)}</span>.
+        <p className="mt-3 text-[12px] text-muted">
+          Preview for {formatMonthYear(previewMonth)}: credit {creditDate.toDateString()} · query
+          deadline {formatQueryDeadline(reviewDeadline, settings.reviewDeadlineTime)}
         </p>
       </div>
 
-      <div className="space-y-4">
-        {ENTITY_ORDER.map((code) => {
-          const entity = settings.entities[code];
-          return (
-            <div key={code} className="rounded-lg border border-hairline bg-paper p-5">
-              <div className="mb-4 flex items-center gap-2">
-                <span className="rounded bg-surface px-1.5 py-0.5 text-[11px] font-semibold text-ink">
-                  {code}
-                </span>
-                <h3 className="text-sm font-semibold text-ink">{entity.name || 'Entity'}</h3>
-              </div>
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <div className="sm:col-span-2">
-                  <EntityLogoUpload code={code} />
-                </div>
-                <Field label="Display name">
-                  <Input
-                    value={entity.name}
-                    onChange={(e) => updateEntity(code, { name: e.target.value })}
-                  />
-                </Field>
-                <Field
-                  label="Legal line"
-                  hint='Non-parent brands use "A unit of Portfolix Enterprise Pvt Ltd".'
-                >
-                  <Input
-                    value={entity.legalLine}
-                    onChange={(e) => updateEntity(code, { legalLine: e.target.value })}
-                    placeholder="A unit of Portfolix Enterprise Pvt Ltd"
-                  />
-                </Field>
-                <Field label="Contact">
-                  <Input
-                    value={entity.contact}
-                    onChange={(e) => updateEntity(code, { contact: e.target.value })}
-                  />
-                </Field>
-                <Field label="Address (one line per row)">
-                  <Textarea
-                    value={entity.addressLines.join('\n')}
-                    onChange={(e) => updateEntity(code, { addressLines: e.target.value.split('\n') })}
-                    onBlur={(e) =>
-                      updateEntity(code, {
-                        addressLines: e.target.value
-                          .split('\n')
-                          .map((l) => l.trim())
-                          .filter(Boolean),
-                      })
-                    }
-                  />
-                </Field>
-              </div>
-            </div>
-          );
-        })}
+      <div className="rounded-lg border border-hairline bg-paper p-5">
+        <div className="mb-4 flex items-center gap-2">
+          <span className="rounded bg-surface px-1.5 py-0.5 text-[11px] font-semibold text-ink">
+            {PRIMARY_ENTITY}
+          </span>
+          <h3 className="text-sm font-semibold text-ink">{primaryEntity.name || 'Entity branding'}</h3>
+        </div>
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div className="sm:col-span-2">
+            <EntityLogoUpload code={PRIMARY_ENTITY} />
+          </div>
+          <Field label="Display name">
+            <Input
+              value={primaryEntity.name}
+              onChange={(e) => updateEntity(PRIMARY_ENTITY, { name: e.target.value })}
+            />
+          </Field>
+          <Field
+            label="Legal line"
+            hint='Optional; for sub-brands use "A unit of …" only when accurate.'
+          >
+            <Input
+              value={primaryEntity.legalLine}
+              onChange={(e) => updateEntity(PRIMARY_ENTITY, { legalLine: e.target.value })}
+              placeholder="A unit of …"
+            />
+          </Field>
+          <div className="sm:col-span-2">
+            <Field label="Address (one line per row)">
+              <Textarea
+                value={primaryEntity.addressLines.join('\n')}
+                onChange={(e) =>
+                  updateEntity(PRIMARY_ENTITY, {
+                    addressLines: e.target.value
+                      .split('\n')
+                      .map((line) => line.trim())
+                      .filter(Boolean),
+                  })
+                }
+                rows={4}
+              />
+            </Field>
+          </div>
+        </div>
+      </div>
+
+      <div className="flex items-center gap-3">
+        <button className={btnPrimary} onClick={() => void handleSave()} disabled={saving || loading}>
+          {saving ? 'Saving…' : 'Save settings'}
+        </button>
+        {loading && <p className="text-xs text-muted">Loading settings from Supabase…</p>}
       </div>
 
       <PayrollStressTestPanel />
