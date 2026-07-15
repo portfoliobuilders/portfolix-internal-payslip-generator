@@ -13,8 +13,6 @@ import type {
   FlexLogEntry,
   PaymentMode,
   PaymentType,
-  Settings,
-  EntityInfo,
   SlipSnapshot,
   WorkMode,
 } from '@/lib/types';
@@ -34,10 +32,6 @@ export interface EmployeeDetailsJson {
   agreementType?: AgreementType;
   documentsStatus?: DocumentsStatus;
   notes?: string;
-  /** Monthly TDS (₹). Default 0 when absent (legacy rows). */
-  tdsMonthly?: number;
-  /** Kerala PT half-yearly (₹). Default 0 when absent (legacy rows). */
-  ptHalfYearly?: number;
 }
 
 export interface EmployeeRow {
@@ -93,8 +87,6 @@ function emptyDetails(): EmployeeDetailsJson {
     agreementType: 'offer_letter',
     documentsStatus: 'pending',
     notes: '',
-    tdsMonthly: 0,
-    ptHalfYearly: 0,
   };
 }
 
@@ -180,8 +172,6 @@ export function employeeToRow(
       agreementType: employee.agreementType,
       documentsStatus: employee.documentsStatus,
       notes: employee.notes,
-      tdsMonthly: employee.tdsMonthly ?? 0,
-      ptHalfYearly: employee.ptHalfYearly ?? 0,
     },
   };
 }
@@ -216,10 +206,11 @@ export function rowToSlip(row: PayrollSlipRow): SlipSnapshot {
 }
 
 export function slipToRow(snapshot: SlipSnapshot): Omit<PayrollSlipRow, 'id'> & { id?: string } {
-  const { id, employeeId, monthYear, status, ...details } = snapshot;
+  const { id, employeeId: _employeeId, monthYear, status, ...details } = snapshot;
   return {
     ...(id ? { id } : {}),
-    employee_id: employeeId,
+    // FK targets employees.employee_id (e.g. PB-TEST-001), not the internal UUID.
+    employee_id: snapshot.employee.empId,
     month_year: monthYear,
     status,
     details_json: {

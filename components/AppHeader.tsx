@@ -31,8 +31,8 @@ export default function AppHeader() {
             ) : (
               // eslint-disable-next-line @next/next/no-img-element
               <img
-                src="/logos/portfolix-enterprise.svg"
-                alt="Portfolix Enterprise Pvt Ltd"
+                src="/logos/portfolix-entreprise.png"
+                alt="Portfolix Entreprise Pvt Ltd"
                 className="max-h-full max-w-full object-contain"
               />
             )}

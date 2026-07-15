@@ -100,25 +100,3 @@ export function slipFilename(
   const safeEmpId = empId.replace(/[^A-Za-z0-9-]/g, '');
   return `PX_${prefix}_${monthYear}_${safeEmpId}${isDraft ? '_DRAFT' : ''}.pdf`;
 }
-
-/** Inclusive calendar pay-period for a month: "01 Jul 2026 – 31 Jul 2026". */
-export function formatPayPeriodRange(monthYear: string): string {
-  const start = parse(monthYear, 'yyyy-MM', new Date());
-  if (!isValid(start)) return monthYear;
-  const end = new Date(start.getFullYear(), start.getMonth() + 1, 0);
-  return `${format(start, 'dd MMM yyyy')} – ${format(end, 'dd MMM yyyy')}`;
-}
-
-/**
- * Authorised (bank copy) PDF filename:
- * {ENTITY}_SalarySlip_{YYYY-MM}_{EMPID}.pdf
- */
-export function authorisedSlipFilename(
-  entityCode: string,
-  monthYear: string,
-  empId: string,
-): string {
-  const safeEntity = entityCode.replace(/[^A-Za-z0-9]/g, '') || 'PX';
-  const safeEmpId = empId.replace(/[^A-Za-z0-9-]/g, '');
-  return `${safeEntity}_SalarySlip_${monthYear}_${safeEmpId}.pdf`;
-}

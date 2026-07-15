@@ -1,14 +1,10 @@
-import { createBrowserClient } from '@supabase/ssr';
-import type { SupabaseClient } from '@supabase/supabase-js';
-import { getSupabaseEnv, logMissingSupabaseCredentials } from './config';
-import { createMockSupabaseClient } from './mock-client';
+import { createBrowserClient } from "@supabase/ssr";
 
-export function createClient(): SupabaseClient {
-  const env = getSupabaseEnv();
-  if (!env) {
-    logMissingSupabaseCredentials('client');
-    return createMockSupabaseClient();
-  }
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
 
-  return createBrowserClient(env.url, env.key);
-}
+export const createClient = () =>
+  createBrowserClient(
+    supabaseUrl!,
+    supabaseKey!,
+  );
