@@ -169,7 +169,7 @@ export interface BuildFinalSnapshotArgs {
   /** All history used for YTD (FINAL only aggregated). */
   history: SlipSnapshot[];
   workflowStatus?: PayrollWorkflowStatus;
-  paymentStatus?: 'UNPAID' | 'PROCESSING' | 'PAID';
+  paymentStatus?: FinalizationContext['paymentStatus'];
   salaryCreditDate?: string | null;
   expectedPaymentDate?: string | null;
   integrityStatus?: IntegrityStatus;
@@ -206,7 +206,7 @@ export function buildServerFinalSnapshot(args: BuildFinalSnapshotArgs): BuildFin
     now: args.now,
     workflowStatus: args.workflowStatus ?? 'APPROVED',
     attendance,
-    paymentStatus: args.paymentStatus ?? 'UNPAID',
+    paymentStatus: args.paymentStatus ?? 'NOT_SCHEDULED',
     salaryCreditDate: args.salaryCreditDate ?? null,
     expectedPaymentDate: args.expectedPaymentDate ?? null,
     existingFinalForPeriod: args.existingFinal && !args.supersedeConfirmed,

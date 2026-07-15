@@ -7,7 +7,7 @@
 alter table public.payroll_slips
   add column if not exists workflow_status text not null default 'DRAFT',
   add column if not exists integrity_status text not null default 'OK',
-  add column if not exists payment_status text not null default 'UNPAID',
+  add column if not exists payment_status text not null default 'NOT_SCHEDULED',
   add column if not exists salary_credit_date date,
   add column if not exists expected_payment_date date,
   add column if not exists payment_mode text,
@@ -50,7 +50,11 @@ begin
     drop constraint if exists payroll_slips_payment_status_check;
   alter table public.payroll_slips
     add constraint payroll_slips_payment_status_check
-    check (payment_status in ('UNPAID','PROCESSING','PAID'));
+    check (payment_status in (
+      'NOT_SCHEDULED','SCHEDULED','PROCESSING','PARTIALLY_PAID','PAID',
+      'FAILED','REJECTED_BY_BANK','ON_HOLD','PAYMENT_DEFERRED','OVERDUE',
+      'REVERSED','CANCELLED','UNDER_RECONCILIATION'
+    ));
 end $$;
 
 -- Mark ALL existing rows as legacy/unverified without changing financial JSON.

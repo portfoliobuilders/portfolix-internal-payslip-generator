@@ -50,7 +50,23 @@ export interface FinalizationContext {
   now?: Date;
   workflowStatus: PayrollWorkflowStatus;
   attendance: AttendanceTotals;
-  paymentStatus: 'UNPAID' | 'PROCESSING' | 'PAID';
+  /** Obligation payment status — FINAL payroll does not imply PAID. */
+  paymentStatus:
+    | 'NOT_SCHEDULED'
+    | 'SCHEDULED'
+    | 'PROCESSING'
+    | 'PARTIALLY_PAID'
+    | 'PAID'
+    | 'FAILED'
+    | 'REJECTED_BY_BANK'
+    | 'ON_HOLD'
+    | 'PAYMENT_DEFERRED'
+    | 'OVERDUE'
+    | 'REVERSED'
+    | 'CANCELLED'
+    | 'UNDER_RECONCILIATION'
+    /** @deprecated Phase 2 legacy alias — treat as NOT_SCHEDULED */
+    | 'UNPAID';
   salaryCreditDate: string | null;
   expectedPaymentDate: string | null;
   documentIssueDate?: string | null;
