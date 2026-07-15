@@ -1,0 +1,39 @@
+---
+description: Portfolix SlipGen — payroll math, architecture, design, and workflow constraints for agents
+globs: app/**/*.{ts,tsx},components/**/*.{ts,tsx},lib/**/*.{ts,tsx},hooks/**/*.{ts,tsx},store/**/*.{ts,tsx},utils/supabase/**/*.ts,middleware.ts
+alwaysApply: false
+---
+
+# Portfolix SlipGen agent rules
+
+## Architecture
+- This is a Next.js App Router + Supabase application. Server actions live in `app/actions/`, Supabase helpers in `utils/supabase/`.
+- The client is UNTRUSTED. All payroll computation, validation, and persistence happen server-side or through the store's single computation path. Never trust computed figures (netPay, deductions, snapshots) supplied by the browser.
+- `lib/payroll-calc.ts` and `lib/amount-in-words.ts` remain dependency-free pure modules and are the ONLY place payroll math exists. UI renders engine output and never re-derives a number. Slip snapshots are immutable; re-downloads render stored snapshots, never recompute.
+- Fail closed: missing env, failed guard, or missing SUPABASE_SECRET_KEY throws or disables the dependent feature with a clear message. No mock Supabase clients outside tests. SUPABASE_SECRET_KEY is server-only and used exclusively via `utils/supabase/service-role.ts`.
+- Only masked PAN and last-4 bank digits are ever stored or accepted.
+- Signatory signature/seal assets live in the PRIVATE `signatory-assets` bucket, uploaded and read only through server actions with short-lived signed URLs. Never public URLs, never base64 data URLs in settings.
+- Allowed dependencies include @supabase/ssr, @supabase/supabase-js, zustand, zod, html2canvas, jspdf, date-fns, lucide-react, tailwindcss. Do not add any other package without asking.
+
+## Payroll math
+- `perDayRate = baseSalary ÷ 25` — the 25-day constant is hardcoded and not editable in the UI.
+- Flex bank: `flexAvailable = balance + earned`; `unpaidLate = max(late − flexAvailable, 0)`; LOP-from-lateness = `unpaidLate ÷ 480` **floored to 0.5 day (always favors the employee)**.
+- `lopDays = absent + 0.5 × halfDays + LOP-from-lateness`.
+- `net = (base + fixedAllowance) − (lopDays × rate + otherDeductions) + variablePaid`, rounded once.
+- Deferral is **variable-only**; `deferredClosing > 0` requires a committed payout date before export; the deferred-opening ledger auto-chains from the last FINAL slip.
+- `variablePaid ≤ variableEarned + deferredOpening` — reject otherwise.
+- All math lives only in `lib/payroll-calc.ts` and `lib/amount-in-words.ts`. UI and stores never re-derive a number.
+
+## Design system
+- 60/30/10 tokens in `tailwind.config.ts`: neutrals (`paper`, `surface`, `ink`, `muted`, `hairline`); Inter sans-serif; `emerald-brand` for FINAL slips and net-pay bands; `amber-brand` for DRAFT badges and warnings.
+- All monetary figures use `.amount` (tabular nums).
+- Slip status classes: `slip-badge-draft`, `slip-badge-final`, `slip-banner-deferred`, `slip-net-band`; amount rows use `.slip-amount-row` (fixed right column).
+- A4 slip print output must match the PDF export (`app/globals.css` `@media print`, `198mm` slip width).
+- Dates always render as `DD MMM yyyy` via `date-fns` (`lib/format.ts`).
+
+## Workflow
+- Tabs: Employee Roster → Generator → History → Settings.
+- **Roster**: CRUD employees; flex-bank adjust with mandatory reason (audit log); Excel template download + bulk upload.
+- **Generator**: split-screen inputs + live A4 preview; Draft/Final toggle; Print + PDF (`PX_PaySlip_YYYY-MM_<EMPID>[_DRAFT].pdf`); FINAL commits flex balance + deferred ledger; confirm before superseding an existing FINAL for the same employee+month.
+- **History**: immutable snapshots — filter by employee/month/status; re-download uses stored snapshot numbers, never recomputed.
+- **Settings**: payroll calendar (payday day-of-month, query deadline T−2 at 6:00 PM), payroll contact on every slip, per-entity branding and logo upload.

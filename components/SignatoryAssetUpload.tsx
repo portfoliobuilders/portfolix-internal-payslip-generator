@@ -125,8 +125,8 @@ export default function SignatoryAssetUpload({ code, kind, label }: SignatoryAss
       <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted">{label}</p>
       {!storageConfigured && (
         <p className="mb-2 rounded border border-amber-edge bg-amber-tint px-2 py-1.5 text-[11px] font-medium text-amber-brand">
-          Server key not configured — set <span className="amount">SUPABASE_SECRET_KEY</span> on the
-          host. Uploads and bank-copy signatures are disabled (fail closed).
+          Signature &amp; seal uploads require the server key (SUPABASE_SECRET_KEY) — set it in
+          Vercel and redeploy.
         </p>
       )}
       <div className="flex items-center gap-3">

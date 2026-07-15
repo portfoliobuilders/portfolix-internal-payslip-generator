@@ -277,8 +277,8 @@ export default function AuthorisedSlip({
         </div>
       </section>
 
-      {/* ---------- Footer ---------- */}
-      <footer className="mt-auto border-t border-hairline pt-3 text-[8.5px] leading-relaxed text-muted">
+      {/* ---------- Footer — fixed margin (no flex-push dead gap) ---------- */}
+      <footer className="mt-6 border-t border-hairline pt-3 text-[8.5px] leading-relaxed text-muted">
         <p>
           Digitally issued salary document. For verification contact {entity.payrollEmail} /{' '}
           {entity.phone}.
