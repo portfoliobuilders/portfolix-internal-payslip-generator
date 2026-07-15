@@ -95,6 +95,7 @@ export default function SalarySlip({
     employee.engagementType,
     employee.employmentStatus,
   );
+  const { tds, pt } = slipStatutoryDeductions(computed, inputs);
 
   return (
     <div
