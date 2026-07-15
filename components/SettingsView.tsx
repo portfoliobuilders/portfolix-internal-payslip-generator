@@ -4,6 +4,7 @@ import type { EntityCode } from '@/lib/types';
 import { useHRStore } from '@/store/useHRStore';
 import { Field, Input, NumberInput, Textarea } from '@/components/ui';
 import EntityLogoUpload from '@/components/EntityLogoUpload';
+import SignatoryAssetUpload from '@/components/SignatoryAssetUpload';
 import PayrollStressTestPanel from '@/components/PayrollStressTestPanel';
 import {
   currentMonthKey,
@@ -15,6 +16,13 @@ import {
 import { AlertTriangle, CheckCircle2, Loader2 } from 'lucide-react';
 
 const ENTITY_ORDER: EntityCode[] = ['PX', 'PB', 'PT', 'PH'];
+
+function parsePtMonths(raw: string): number[] {
+  return raw
+    .split(/[,\s]+/)
+    .map((s) => Number(s.trim()))
+    .filter((n) => Number.isInteger(n) && n >= 1 && n <= 12);
+}
 
 export default function SettingsView() {
   const settings = useHRStore((s) => s.settings);
@@ -76,7 +84,7 @@ export default function SettingsView() {
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
           <Field
             label="Payday day of month"
-            hint="Salary credit date. The query deadline is derived as payday − 2 at 6:00 PM."
+            hint="Salary credit date. The query deadline is derived as payday − 2."
           >
             <NumberInput
               value={settings.paydayDayOfMonth}
@@ -88,17 +96,43 @@ export default function SettingsView() {
               }}
             />
           </Field>
-          <Field label="Payroll contact (printed on the slip footer)">
+          <Field
+            label="Review deadline time"
+            hint="Printed on draft slips with the query-by date (e.g. 6:00 PM)."
+          >
+            <Input
+              value={settings.reviewDeadlineTime}
+              onChange={(e) => updateSettings({ reviewDeadlineTime: e.target.value })}
+              placeholder="6:00 PM"
+            />
+          </Field>
+          <Field
+            label="Payroll contact (legacy fallback)"
+            hint="Prefer each entity’s payroll email under Company & Signatory."
+          >
             <Input
               value={settings.payrollContact}
               onChange={(e) => updateSettings({ payrollContact: e.target.value })}
+            />
+          </Field>
+          <Field
+            label="PT deduction months"
+            hint="Months (1–12) when Kerala half-yearly Professional Tax is deducted. Default: 8, 2."
+          >
+            <Input
+              value={settings.ptDeductionMonths.join(', ')}
+              onChange={(e) => {
+                const months = parsePtMonths(e.target.value);
+                if (months.length > 0) updateSettings({ ptDeductionMonths: months });
+              }}
+              placeholder="8, 2"
             />
           </Field>
         </div>
         <p className="mt-4 rounded-md bg-surface px-3 py-2 text-[11px] text-muted">
           Preview for {formatMonthYear(previewMonth)} — review queries by{' '}
           <span className="font-semibold text-amber-brand">
-            {formatQueryDeadline(reviewDeadline)}
+            {formatQueryDeadline(reviewDeadline, settings.reviewDeadlineTime)}
           </span>
           , salary credited{' '}
           <span className="font-semibold text-emerald-deep">{formatDate(creditDate)}</span>.
@@ -136,7 +170,7 @@ export default function SettingsView() {
                     placeholder="A unit of Portfolix Enterprise Pvt Ltd"
                   />
                 </Field>
-                <Field label="Contact">
+                <Field label="Contact (legacy)">
                   <Input
                     value={entity.contact}
                     onChange={(e) => updateEntity(code, { contact: e.target.value })}
@@ -156,6 +190,64 @@ export default function SettingsView() {
                     }
                   />
                 </Field>
+              </div>
+
+              <div className="mt-6 border-t border-hairline pt-5">
+                <h4 className="mb-3 text-sm font-semibold text-ink">Company &amp; Signatory</h4>
+                <p className="mb-4 text-[12px] text-muted">
+                  Printed on the Authorised Slip (bank copy). Use SET-IN-SETTINGS until real values
+                  are confirmed — never ship guessed emails or CIN numbers.
+                </p>
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                  <Field label="CIN">
+                    <Input
+                      value={entity.cin}
+                      onChange={(e) => updateEntity(code, { cin: e.target.value })}
+                      placeholder="SET-IN-SETTINGS"
+                    />
+                  </Field>
+                  <Field label="Contact phone">
+                    <Input
+                      value={entity.phone}
+                      onChange={(e) => updateEntity(code, { phone: e.target.value })}
+                      placeholder="SET-IN-SETTINGS"
+                    />
+                  </Field>
+                  <Field label="Payroll email">
+                    <Input
+                      value={entity.payrollEmail}
+                      onChange={(e) => updateEntity(code, { payrollEmail: e.target.value })}
+                      placeholder="SET-IN-SETTINGS"
+                    />
+                  </Field>
+                  <div className="md:col-span-2">
+                    <Field label="Registered address">
+                      <Textarea
+                        value={entity.registeredAddress}
+                        onChange={(e) => updateEntity(code, { registeredAddress: e.target.value })}
+                        placeholder="SET-IN-SETTINGS"
+                      />
+                    </Field>
+                  </div>
+                  <Field label="Signatory name">
+                    <Input
+                      value={entity.signatoryName}
+                      onChange={(e) => updateEntity(code, { signatoryName: e.target.value })}
+                      placeholder="SET-IN-SETTINGS"
+                    />
+                  </Field>
+                  <Field label="Signatory designation">
+                    <Input
+                      value={entity.signatoryDesignation}
+                      onChange={(e) =>
+                        updateEntity(code, { signatoryDesignation: e.target.value })
+                      }
+                      placeholder="SET-IN-SETTINGS"
+                    />
+                  </Field>
+                  <SignatoryAssetUpload code={code} kind="signature" label="Authorised signature" />
+                  <SignatoryAssetUpload code={code} kind="seal" label="Company seal" />
+                </div>
               </div>
             </div>
           );

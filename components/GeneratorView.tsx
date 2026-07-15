@@ -4,8 +4,8 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { format } from 'date-fns';
 import { AlertTriangle, Download, Printer } from 'lucide-react';
-import { computePayroll, validateVariablePaid } from '@/lib/payroll-calc';
-import { formatINR, slipFilename } from '@/lib/format';
+import { computePayroll, derivePtThisMonth, validateVariablePaid } from '@/lib/payroll-calc';
+import { formatINR, formatMinutes, slipFilename } from '@/lib/format';
 import { exportElementToPdf } from '@/lib/pdf-export';
 import { finalizePayrollSlip, savePayrollSlip } from '@/app/actions/payroll';
 import type { Employee, SlipSnapshot, SlipStatus } from '@/lib/types';
@@ -163,6 +163,15 @@ export default function GeneratorView({
     setForm((f) => ({ ...f, [key]: value }));
 
   // ---------- Live computation via the pure engine ----------
+  const ptThisMonth = useMemo(() => {
+    if (!employee) return 0;
+    return derivePtThisMonth(
+      employee.ptHalfYearly,
+      form.monthYear,
+      settings.ptDeductionMonths,
+    );
+  }, [employee, form.monthYear, settings.ptDeductionMonths]);
+
   const result = useMemo(() => {
     if (!employee) return null;
     return computePayroll({
@@ -174,12 +183,14 @@ export default function GeneratorView({
       halfDays: num(form.halfDays),
       fixedAllowance: num(form.fixedAllowance),
       otherDeductions: num(form.otherDeductions),
+      tdsMonthly: employee.tdsMonthly,
+      ptThisMonth,
       variableEarned: num(form.variableEarned),
       variablePaid: num(form.variablePaid),
       deferredOpening: num(form.deferredOpening),
       committedPayoutDate: form.committedPayoutDate || null,
     });
-  }, [employee, form, flexBankBase]);
+  }, [employee, form, flexBankBase, ptThisMonth]);
 
   const needsPayoutDate = (result?.deferredClosing ?? 0) > 0;
 
@@ -230,6 +241,8 @@ export default function GeneratorView({
         flexMinutesEarned: num(form.flexMinutesEarned),
         fixedAllowance: num(form.fixedAllowance),
         otherDeductions: num(form.otherDeductions),
+        tdsMonthly: employee.tdsMonthly,
+        ptThisMonth,
         variableLabel: form.variableLabel,
         variableEarned: num(form.variableEarned),
         variablePaid: num(form.variablePaid),
@@ -248,6 +261,8 @@ export default function GeneratorView({
         lopDays: result.lopDays,
         lopDeduction: result.lopDeduction,
         otherDeductions: result.otherDeductions,
+        tds: result.tds,
+        pt: result.pt,
         totalDeductions: result.totalDeductions,
         grossFixed: result.grossFixed,
         variableEarned: result.variableEarned,
@@ -390,8 +405,102 @@ export default function GeneratorView({
             <Field label="Other deductions (₹)" error={errors.otherDeductions ?? null}>
               <input type="number" min={0} step="0.01" className={inputAmountCls} value={form.otherDeductions} onChange={(e) => set('otherDeductions', e.target.value)} />
             </Field>
+            <Field
+              label="TDS this month (₹)"
+              hint="From employee roster — edit on the employee record."
+            >
+              <input
+                type="number"
+                className={inputAmountCls}
+                value={employee ? String(employee.tdsMonthly) : '0'}
+                readOnly
+                disabled
+              />
+            </Field>
+            <Field
+              label="Professional Tax this month (₹)"
+              hint={
+                employee
+                  ? `Half-yearly ₹${employee.ptHalfYearly.toFixed(2)} · deducted in months ${settings.ptDeductionMonths.join(', ')}`
+                  : undefined
+              }
+            >
+              <input
+                type="number"
+                className={inputAmountCls}
+                value={String(ptThisMonth)}
+                readOnly
+                disabled
+              />
+            </Field>
           </div>
         </div>
+
+        {employee && result && (
+          <div className="rounded-lg border border-hairline bg-surface px-4 py-3">
+            <div className="mb-2 flex items-center justify-between">
+              <h2 className="text-[12px] font-semibold uppercase tracking-wide text-muted">
+                Flex bank
+              </h2>
+              <span className="amount text-[12px] font-semibold text-ink">
+                {formatMinutes(result.flexAvailable)} available
+              </span>
+            </div>
+            <div className="grid grid-cols-3 gap-2 text-[11px]">
+              <div>
+                <p className="text-muted">Carried in</p>
+                <p className="amount font-semibold text-ink">{formatMinutes(flexBankBase)}</p>
+              </div>
+              <div>
+                <p className="text-muted">+ Earned this month</p>
+                <p className="amount font-semibold text-ink">
+                  {formatMinutes(num(form.flexMinutesEarned))}
+                </p>
+              </div>
+              <div>
+                <p className="text-muted">= Available</p>
+                <p className="amount font-semibold text-ink">
+                  {formatMinutes(result.flexAvailable)}
+                </p>
+              </div>
+            </div>
+            <div className="mt-2 border-t border-hairline pt-2 text-[11px] leading-relaxed">
+              {num(form.lateMinutes) > 0 ? (
+                <p className="text-ink">
+                  Absorbs{' '}
+                  <span className="amount font-semibold text-emerald-deep">
+                    {formatMinutes(result.flexOffsetMinutes)}
+                  </span>{' '}
+                  of {formatMinutes(num(form.lateMinutes))} late this month
+                  {result.unpaidLateMinutes > 0 ? (
+                    <>
+                      {' · '}
+                      <span className="amount font-semibold text-amber-brand">
+                        {formatMinutes(result.unpaidLateMinutes)}
+                      </span>{' '}
+                      unpaid → {result.lopFromLateness.toFixed(1)} LOP day(s)
+                    </>
+                  ) : (
+                    <> · no loss of pay</>
+                  )}
+                  {' · '}balance after:{' '}
+                  <span className="amount font-semibold text-ink">
+                    {formatMinutes(result.newFlexBalance)}
+                  </span>
+                </p>
+              ) : (
+                <p className="text-muted">
+                  No late minutes this month — the flex bank is{' '}
+                  <span className="font-semibold text-ink">untouched</span> and{' '}
+                  <span className="amount font-semibold text-ink">
+                    {formatMinutes(result.newFlexBalance)}
+                  </span>{' '}
+                  carries forward. Flex only reduces pay when there are late minutes to absorb.
+                </p>
+              )}
+            </div>
+          </div>
+        )}
 
         <div className="rounded-lg border border-hairline bg-paper p-4 shadow-card">
           <h2 className="mb-3 text-[12px] font-semibold uppercase tracking-wide text-muted">
@@ -525,6 +634,7 @@ export default function GeneratorView({
               entity={entity}
               payrollContact={settings.payrollContact}
               paydayDayOfMonth={settings.paydayDayOfMonth}
+              reviewDeadlineTime={settings.reviewDeadlineTime}
               ledgerMismatch={ledgerMismatch}
             />
           </ScaledPreview>
@@ -545,6 +655,7 @@ export default function GeneratorView({
               entity={entity}
               payrollContact={settings.payrollContact}
               paydayDayOfMonth={settings.paydayDayOfMonth}
+              reviewDeadlineTime={settings.reviewDeadlineTime}
               ledgerMismatch={ledgerMismatch}
             />
           </div>,

@@ -10,7 +10,7 @@
  */
 
 import { CheckCircle2 } from 'lucide-react';
-import { FIXED_DIVISOR } from '@/lib/payroll-calc';
+import { FIXED_DIVISOR, slipStatutoryDeductions } from '@/lib/payroll-calc';
 import { formatDate, formatINR, formatMinutes, formatMonthYear, payrollCycleDates } from '@/lib/format';
 import type { EntityInfo, SlipSnapshot } from '@/lib/types';
 import EntityLogo from '@/components/EntityLogo';
@@ -20,6 +20,8 @@ interface SalarySlipProps {
   entity: EntityInfo;
   payrollContact: string;
   paydayDayOfMonth: number;
+  /** e.g. "6:00 PM" from settings.reviewDeadlineTime */
+  reviewDeadlineTime?: string;
   /** Rule 7 — manual deferred-opening override broke the FINAL chain. */
   ledgerMismatch?: boolean;
 }
@@ -60,6 +62,7 @@ export default function SalarySlip({
   entity,
   payrollContact,
   paydayDayOfMonth,
+  reviewDeadlineTime = '6:00 PM',
   ledgerMismatch = false,
 }: SalarySlipProps) {
   const { inputs, computed, employee } = snapshot;
@@ -67,6 +70,9 @@ export default function SalarySlip({
   const { creditDate, reviewDeadline } = payrollCycleDates(snapshot.monthYear, paydayDayOfMonth);
   const variableLabel = inputs.variableLabel.trim() || 'Variable / Incentive';
   const hasLateness = inputs.lateMinutes > 0 || inputs.flexMinutesEarned > 0;
+  const { tds, pt } = slipStatutoryDeductions(computed, inputs);
+  /** Prefer entity payroll email; fall back to the global contact setting. */
+  const contactLine = entity.payrollEmail?.trim() || payrollContact;
 
   return (
     <div
@@ -128,19 +134,25 @@ export default function SalarySlip({
       )}
 
       {/* ---------- Period strip ---------- */}
-      <div className="mt-3 grid grid-cols-3 divide-x divide-hairline rounded border border-hairline bg-surface text-[10px]">
+      <div
+        className={`mt-3 grid divide-x divide-hairline rounded border border-hairline bg-surface text-[10px] ${
+          isDraft ? 'grid-cols-3' : 'grid-cols-2'
+        }`}
+      >
         <div className="px-3 py-2">
           <p className="text-[8.5px] font-semibold uppercase tracking-wider text-muted">Issue date</p>
           <p className="font-semibold">{formatDate(snapshot.generatedAt)}</p>
         </div>
-        <div className="px-3 py-2">
-          <p className="text-[8.5px] font-semibold uppercase tracking-wider text-muted">
-            Review window
-          </p>
-          <p className="font-semibold">
-            Review queries by {formatDate(reviewDeadline)} · 6:00 PM
-          </p>
-        </div>
+        {isDraft && (
+          <div className="px-3 py-2">
+            <p className="text-[8.5px] font-semibold uppercase tracking-wider text-muted">
+              Review window
+            </p>
+            <p className="font-semibold">
+              Review queries by {formatDate(reviewDeadline)} · {reviewDeadlineTime}
+            </p>
+          </div>
+        )}
         <div className="px-3 py-2">
           <p className="text-[8.5px] font-semibold uppercase tracking-wider text-muted">
             Salary credit
@@ -254,6 +266,8 @@ export default function SalarySlip({
               }
               value={formatINR(computed.lopDeduction)}
             />
+            <Row label="Professional Tax (Kerala)" value={formatINR(pt)} />
+            <Row label="TDS (Income Tax)" value={formatINR(tds)} />
             <Row label="Other deductions" value={formatINR(computed.otherDeductions)} />
           </div>
           <div className="mt-auto border-t border-ink/60">
@@ -347,8 +361,18 @@ export default function SalarySlip({
       {/* ---------- Footer ---------- */}
       <footer className="mt-auto border-t border-hairline pt-3 text-[8.5px] leading-relaxed text-muted">
         <p>
-          <span className="font-semibold text-ink">Queries:</span> {payrollContact} — reply before{' '}
-          {formatDate(reviewDeadline)}, 6:00 PM. Salary credits on {formatDate(creditDate)}.
+          {isDraft ? (
+            <>
+              <span className="font-semibold text-ink">Queries:</span> {contactLine} — reply before{' '}
+              {formatDate(reviewDeadline)}, {reviewDeadlineTime}. Salary credits on{' '}
+              {formatDate(creditDate)}.
+            </>
+          ) : (
+            <>
+              <span className="font-semibold text-ink">Payroll contact:</span> {contactLine}. Salary
+              credits on {formatDate(creditDate)}.
+            </>
+          )}
         </p>
         <p>
           Draft slips are superseded by the final slip issued on payday; only the slip marked FINAL
