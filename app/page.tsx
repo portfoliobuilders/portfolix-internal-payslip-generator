@@ -1,44 +1,22 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { Cloud, FileClock, FilePlus2, Settings, Users } from 'lucide-react';
-import { fetchSettings } from '@/app/actions/settings';
+import { useRouter } from 'next/navigation';
 import RosterView from '@/components/RosterView';
-import GeneratorView from '@/components/GeneratorView';
-import HistoryView from '@/components/HistoryView';
-import SettingsView from '@/components/SettingsView';
-import EntityLogo from '@/components/EntityLogo';
-import { usePayrollData } from '@/hooks/usePayrollData';
-import { useHRStore } from '@/store/useHRStore';
+import { usePayrollContext } from '@/components/PayrollDataProvider';
 
-type Tab = 'roster' | 'generator' | 'history' | 'settings';
-
-const TABS: { id: Tab; label: string; icon: typeof Users }[] = [
-  { id: 'roster', label: 'Employee Roster', icon: Users },
-  { id: 'generator', label: 'Generator', icon: FilePlus2 },
-  { id: 'history', label: 'History', icon: FileClock },
-  { id: 'settings', label: 'Settings', icon: Settings },
-];
-
-export default function Home() {
-  const [tab, setTab] = useState<Tab>('roster');
-  const pxEntity = useHRStore((s) => s.settings.entities.PX);
-  const setSettings = useHRStore((s) => s.setSettings);
-  const { employees, slipHistory, loading, error, refresh } = usePayrollData();
-  const [mounted, setMounted] = useState(false);
-  useEffect(() => setMounted(true), []);
-
-  useEffect(() => {
-    void fetchSettings().then((result) => {
-      if (result.ok) {
-        setSettings(result.data);
-      } else {
-        console.error('[settings] fetch failed:', result.error);
-      }
-    });
-  }, [setSettings]);
+export default function RosterPage() {
+  const router = useRouter();
+  const { employees, loading, refresh } = usePayrollContext();
 
   return (
+    <RosterView
+      employees={employees}
+      loading={loading}
+      onRefresh={refresh}
+      // RosterView sets the preselected employee in useUIStore before calling
+      // this, then we navigate; GeneratorView reads that on mount.
+      onGenerateFor={() => router.push('/generator')}
+    />
     <div className="min-h-screen">
       <header className="no-print sticky top-0 z-40 border-b border-hairline bg-paper/90 backdrop-blur supports-[backdrop-filter]:bg-paper/80">
         <div className="mx-auto flex max-w-[1400px] flex-col gap-2.5 px-4 py-3 sm:px-6 md:flex-row md:items-center md:gap-6 lg:px-8">
