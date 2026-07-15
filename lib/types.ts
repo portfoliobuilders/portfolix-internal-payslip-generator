@@ -7,21 +7,79 @@ export type EntityCode = 'PX' | 'PB' | 'PT' | 'PH';
 
 export interface EntityInfo {
   name: string;
-  /** e.g. "A unit of Portfolix Enterprise Pvt Ltd" — empty for the parent. */
+  /** e.g. "A unit of Portfolix Entreprise Pvt Ltd" — empty for the parent. */
   legalLine: string;
   addressLines: string[];
+  /** Legacy display contact; prefer payrollEmail for payroll documents. */
   contact: string;
   /** Custom logo as a data URL; null uses the bundled default for this entity. */
   logoDataUrl: string | null;
+  /** Company Identification Number — from Settings, never hardcoded on documents. */
+  cin: string;
+  /** Full registered office address printed on the Authorised Slip letterhead. */
+  registeredAddress: string;
+  phone: string;
+  payrollEmail: string;
+  signatoryName: string;
+  signatoryDesignation: string;
+  /** Private storage path in the signatory-assets bucket (never a public URL). */
+  signatureAssetPath: string | null;
+  /** Private storage path in the signatory-assets bucket (never a public URL). */
+  sealAssetPath: string | null;
 }
 
 export interface Settings {
   paydayDayOfMonth: number;
   payrollContact: string;
+  /**
+   * Clock label printed with the draft review deadline (e.g. "6:00 PM").
+   * No longer hardcoded in slip components.
+   */
+  reviewDeadlineTime: string;
+  /**
+   * Calendar months (1–12) in which Kerala Professional Tax is deducted.
+   * Default Aug + Feb: [8, 2].
+   */
+  ptDeductionMonths: number[];
   entities: Record<EntityCode, EntityInfo>;
 }
 
 export type PaymentMode = 'Bank Transfer' | 'UPI' | 'Cheque' | 'Cash';
+export type EngagementType =
+  | 'regular_employee'
+  | 'probation_employee'
+  | 'notice_period_employee'
+  | 'intern'
+  | 'trainee'
+  | 'apprentice'
+  | 'contract_employee'
+  | 'freelancer'
+  | 'consultant';
+export type EmploymentStatus =
+  | 'active'
+  | 'probation'
+  | 'notice_period'
+  | 'completed'
+  | 'resigned'
+  | 'terminated'
+  | 'offboarded'
+  | 'inactive';
+export type PaymentType =
+  | 'salary'
+  | 'stipend'
+  | 'professional_fee'
+  | 'consultancy_fee'
+  | 'contract_remuneration'
+  | 'honorarium';
+export type WorkMode = 'office' | 'remote' | 'hybrid';
+export type AgreementType =
+  | 'offer_letter'
+  | 'internship_offer'
+  | 'freelancer_agreement'
+  | 'consultancy_agreement'
+  | 'contract_agreement'
+  | 'apprenticeship_contract';
+export type DocumentsStatus = 'pending' | 'partially_collected' | 'completed';
 
 export interface FlexLogEntry {
   /** ISO date string of the adjustment. */
@@ -43,7 +101,25 @@ export interface Employee {
   joiningDate: string;
   employeeAddress: string;
   baseSalary: number;
+  compensationAmount: number;
+  engagementType: EngagementType;
+  employmentStatus: EmploymentStatus;
+  paymentType: PaymentType;
   paymentMode: PaymentMode;
+  internshipStartDate: string | null;
+  internshipEndDate: string | null;
+  probationStartDate: string | null;
+  probationEndDate: string | null;
+  noticeStartDate: string | null;
+  noticeEndDate: string | null;
+  contractStartDate: string | null;
+  contractEndDate: string | null;
+  offboardingDate: string | null;
+  reportingManager: string;
+  workMode: WorkMode;
+  agreementType: AgreementType;
+  documentsStatus: DocumentsStatus;
+  notes: string;
   /** Only the last 4 digits are ever stored. */
   bankLast4: string;
   /** Masked PAN, e.g. 'ABXXXXXX1F'. Never store the full number. */
@@ -51,6 +127,10 @@ export interface Employee {
   /** Flex-bank balance in minutes. */
   flexBankBalance: number;
   flexLog: FlexLogEntry[];
+  /** Monthly TDS deduction (₹). Stored in details_json. Default 0. */
+  tdsMonthly: number;
+  /** Kerala Professional Tax half-yearly amount (₹). details_json. Default 0. */
+  ptHalfYearly: number;
 }
 
 export type SlipStatus = 'draft' | 'final';
@@ -63,6 +143,10 @@ export interface SlipInputs {
   flexMinutesEarned: number;
   fixedAllowance: number;
   otherDeductions: number;
+  /** Monthly TDS amount applied for this slip (frozen at generation). */
+  tdsMonthly: number;
+  /** PT amount applied for this slip month (0 when month ∉ ptDeductionMonths). */
+  ptThisMonth: number;
   variableLabel: string;
   variableEarned: number;
   variablePaid: number;
@@ -73,9 +157,13 @@ export interface SlipInputs {
   /** Flex balance the computation started from (for audit). */
   flexBankBalanceBefore: number;
   baseSalary: number;
+  compensationAmount: number;
 }
 
-/** Every derived number on a slip — produced only by lib/payroll-calc.ts. */
+/**
+ * Every derived number on a slip — produced only by lib/payroll-calc.ts.
+ * Older finalized snapshots may omit `tds` / `pt` — renderers must treat missing as 0.
+ */
 export interface SlipComputed {
   perDayRate: number;
   flexAvailable: number;
@@ -85,6 +173,10 @@ export interface SlipComputed {
   lopDays: number;
   lopDeduction: number;
   otherDeductions: number;
+  /** Statutory TDS for this slip. Missing on old finals → treat as 0. */
+  tds?: number;
+  /** Professional Tax for this slip month. Missing on old finals → treat as 0. */
+  pt?: number;
   totalDeductions: number;
   grossFixed: number;
   variableEarned: number;
@@ -107,8 +199,48 @@ export interface SlipEmployeeInfo {
   joiningDate: string;
   employeeAddress: string;
   paymentMode: PaymentMode;
+  engagementType: EngagementType;
+  employmentStatus: EmploymentStatus;
+  paymentType: PaymentType;
+  compensationAmount: number;
   bankLast4: string;
   panMasked: string;
+}
+
+export interface PaymentStatementMeta {
+  statementTitle: string;
+  mainEarningLabel: string;
+  disclaimer: string | null;
+  statusBadge: 'Probation' | 'Notice Period' | null;
+}
+
+export interface PaymentStatementHistoryEntry {
+  statementId: string;
+  personId: string;
+  employeeId: string;
+  personName: string;
+  entityId: string;
+  engagementType: EngagementType;
+  employmentStatus: EmploymentStatus;
+  paymentType: PaymentType;
+  statementTitle: string;
+  month: number;
+  year: number;
+  grossPay: number;
+  netPay: number;
+  compensationAmount: number;
+  earnings: Record<string, number>;
+  deductions: Record<string, number>;
+  paymentMode: PaymentMode;
+  transactionReference: string | null;
+  generatedBy: string;
+  generatedAt: string;
+  pdfUrl: string | null;
+  pdfData: string | null;
+  snapshotPersonData: SlipEmployeeInfo;
+  snapshotSettingsData: Settings;
+  createdAt: string;
+  snapshot: SlipSnapshot;
 }
 
 export interface SlipSnapshot {
@@ -125,4 +257,30 @@ export interface SlipSnapshot {
   generatedAt: string;
   /** Denormalised so history renders even if the employee is later deleted. */
   employee: SlipEmployeeInfo;
+}
+
+/** Signatory fields frozen into authorised_slip_log at bank-copy generation. */
+export interface SignatorySnapshot {
+  signatoryName: string;
+  signatoryDesignation: string;
+  signatureAssetPath: string | null;
+  sealAssetPath: string | null;
+  entityLegalName: string;
+  cin: string;
+  registeredAddress: string;
+  phone: string;
+  payrollEmail: string;
+}
+
+/** Per-line YTD totals for an Indian financial year, derived from FINAL snapshots only. */
+export interface AuthorisedSlipYtd {
+  basic: number;
+  fixedAllowance: number;
+  variablePaid: number;
+  grossEarnings: number;
+  lopDeduction: number;
+  professionalTax: number;
+  tds: number;
+  otherDeductions: number;
+  totalDeductions: number;
 }

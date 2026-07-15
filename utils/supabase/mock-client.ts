@@ -46,6 +46,17 @@ function createQueryBuilder(): PromiseLike<{
 export function createMockSupabaseClient(): SupabaseClient {
   return {
     from: () => createQueryBuilder(),
+    storage: {
+      from: () => ({
+        upload: async () => ({
+          data: null,
+          error: missingCredentialsError,
+        }),
+        getPublicUrl: () => ({
+          data: { publicUrl: '' },
+        }),
+      }),
+    },
     auth: {
       getUser: async () => ({
         data: { user: null },

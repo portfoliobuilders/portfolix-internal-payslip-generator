@@ -1,4 +1,4 @@
-'use client';
+import { redirect } from 'next/navigation';
 
 import { useEffect, useState } from 'react';
 import { Cloud, FileClock, FilePlus2, Settings, Users } from 'lucide-react';
@@ -13,7 +13,7 @@ import { useHRStore } from '@/store/useHRStore';
 type Tab = 'roster' | 'generator' | 'history' | 'settings';
 
 const TABS: { id: Tab; label: string; icon: typeof Users }[] = [
-  { id: 'roster', label: 'Employee Roster', icon: Users },
+  { id: 'roster', label: 'Workforce Roster', icon: Users },
   { id: 'generator', label: 'Generator', icon: FilePlus2 },
   { id: 'history', label: 'History', icon: FileClock },
   { id: 'settings', label: 'Settings', icon: Settings },
@@ -45,7 +45,7 @@ export default function Home() {
             </div>
             <div className="leading-tight">
               <p className="text-sm font-semibold tracking-tight">Portfolix SlipGen</p>
-              <p className="text-[11px] text-muted">Internal Salary Slip Generator</p>
+              <p className="text-[11px] text-muted">Internal Workforce Payment Statement Generator</p>
             </div>
           </div>
 
