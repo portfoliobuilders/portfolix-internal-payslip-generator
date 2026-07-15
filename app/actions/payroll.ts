@@ -317,7 +317,21 @@ export async function finalizePayrollSlip(
     supersedeConfirmed?: boolean;
     enforceStrictGates?: boolean;
     attendanceLocked?: boolean;
-    paymentStatus?: 'UNPAID' | 'PROCESSING' | 'PAID';
+    paymentStatus?:
+      | 'NOT_SCHEDULED'
+      | 'SCHEDULED'
+      | 'PROCESSING'
+      | 'PARTIALLY_PAID'
+      | 'PAID'
+      | 'FAILED'
+      | 'REJECTED_BY_BANK'
+      | 'ON_HOLD'
+      | 'PAYMENT_DEFERRED'
+      | 'OVERDUE'
+      | 'REVERSED'
+      | 'CANCELLED'
+      | 'UNDER_RECONCILIATION'
+      | 'UNPAID';
     salaryCreditDate?: string | null;
     expectedPaymentDate?: string | null;
   },
@@ -400,7 +414,7 @@ export async function finalizePayrollSlip(
       supersedeConfirmed: options?.supersedeConfirmed ?? false,
       history: historyResult.data,
       workflowStatus: 'APPROVED',
-      paymentStatus: options?.paymentStatus ?? 'UNPAID',
+      paymentStatus: options?.paymentStatus ?? 'NOT_SCHEDULED',
       salaryCreditDate: options?.salaryCreditDate ?? null,
       expectedPaymentDate: options?.expectedPaymentDate ?? null,
       integrityStatus: 'OK',
@@ -466,7 +480,9 @@ export async function finalizePayrollSlip(
       .update({
         workflow_status: 'FINAL',
         integrity_status: 'OK',
-        payment_status: options?.paymentStatus ?? 'UNPAID',
+        payment_status: options?.paymentStatus === 'UNPAID'
+          ? 'NOT_SCHEDULED'
+          : (options?.paymentStatus ?? 'NOT_SCHEDULED'),
         salary_credit_date: options?.salaryCreditDate ?? null,
         expected_payment_date: options?.expectedPaymentDate ?? null,
         lop_days: built.snapshot.computed.lopDays,
@@ -513,6 +529,26 @@ export async function finalizePayrollSlip(
       flexLog,
     });
     if (!employeeResult.ok) return employeeResult;
+
+    // Parent salary-payment obligation — FINAL ≠ PAID.
+    try {
+      const { ensureSalaryPaymentObligation } = await import('@/app/actions/salary-payment');
+      const dueCommitted =
+        options?.expectedPaymentDate ??
+        options?.salaryCreditDate ??
+        null;
+      await ensureSalaryPaymentObligation({
+        payrollRecordId: built.snapshot.id,
+        employeeId: built.snapshot.employeeId,
+        monthYear: built.snapshot.monthYear,
+        netSalaryPayable: built.snapshot.computed.netPay,
+        paydayDayOfMonth: settings.paydayDayOfMonth,
+        companyCommittedDate: dueCommitted,
+        actorUserId: 'system',
+      });
+    } catch {
+      // Payment tables may not exist until migration 011 is applied.
+    }
 
     return {
       ok: true,
