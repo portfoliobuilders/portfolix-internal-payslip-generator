@@ -29,6 +29,8 @@ import Toast from './Toast';
 import { Field, Modal, btnPrimary, btnSecondary, inputAmountCls, inputCls } from './ui';
 import { statementMetaFor } from '@/lib/workforce';
 
+type PreviewMode = 'draft' | 'final' | 'authorised';
+
 interface FormState {
   monthYear: string;
   absentDays: string;
