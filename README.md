@@ -1,6 +1,6 @@
 # Portfolix SlipGen — Internal Payslip Generator
 
-Internal workforce payment statement generator for **Portfolix Enterprise Pvt Ltd** and its brands
+Internal workforce payment statement generator for **Portfolix Entreprise Pvt Ltd** and its brands
 (Portfolio Builders, Portfolix.tech, Portfolix Hub). A stopgap for the HR team until the official
 Portfolix EMS ships.
 
@@ -28,7 +28,7 @@ cloud. Bank-copy signatory assets (signature + seal) live in a private Storage b
 - **Generator** — inputs on the left, live A4 preview on the right; Draft/Final toggle; dynamic document titles (Salary Slip / Stipend Statement / Payment Statement); print-identical `@media print` CSS; PDF export (`PX_PaySlip_YYYY-MM_<EMPID>[_DRAFT].pdf`).
 - **Payment History** — immutable snapshots of every generated statement; filterable; re-download from the stored snapshot (**never recomputed**).
 - **Authorised Slip (bank copy)** — from History/Generator, only against a **FINAL** snapshot; embeds authorised signature and company seal via short-lived signed Storage URLs; YTD from prior FINAL slips only. Needs `SUPABASE_SECRET_KEY` plus signatory name, designation, signature, and seal.
-- **Settings** — edit payroll calendar, payroll contact, and per-entity branding (name, legal line, address) with **logo upload**. Click **Save Settings** to persist. The app header uses the Portfolix Enterprise (PX) logo.
+- **Settings** — edit payroll calendar, payroll contact, and per-entity branding (name, legal line, address) with **logo upload**. Click **Save Settings** to persist. The app header uses the Portfolix Entreprise (PX) logo.
 
 ## Stack
 

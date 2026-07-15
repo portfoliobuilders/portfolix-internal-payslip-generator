@@ -171,7 +171,7 @@ export default function GeneratorView({
   useEffect(() => {
     if (!employee) return;
     const defaultEntityIdByCode: Record<string, string> = {
-      PX: 'portfolix-enterprise',
+      PX: 'portfolix-entreprise',
       PT: 'portfolix-tech',
       PB: 'portfolio-builders',
       PH: 'portfolix-hub',

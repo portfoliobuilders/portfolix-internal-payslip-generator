@@ -12,7 +12,7 @@ import { createClient } from '@/utils/supabase/client';
 
 /** Bundled fallback logos when no custom upload is saved in settings. */
 export const DEFAULT_ENTITY_LOGOS: Record<EntityCode, string> = {
-  PX: '/logos/portfolix-enterprise.png',
+  PX: '/logos/portfolix-entreprise.png',
   PB: '/logos/portfolio-builders.png',
   PT: '/logos/portfolix-tech.png',
   PH: '/logos/portfolix-hub.png',

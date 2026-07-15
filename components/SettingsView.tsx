@@ -164,12 +164,12 @@ export default function SettingsView({
           </Field>
           <Field
             label="Legal line"
-            hint='Optional; for sub-brands use "A unit of Portfolix Enterprise Pvt Ltd".'
+            hint='Optional; for sub-brands use "A unit of Portfolix Entreprise Pvt Ltd".'
           >
             <Input
               value={primaryEntity.legalLine}
               onChange={(e) => updateEntity(PRIMARY_ENTITY, { legalLine: e.target.value })}
-              placeholder="A unit of Portfolix Enterprise Pvt Ltd"
+              placeholder="A unit of Portfolix Entreprise Pvt Ltd"
             />
           </Field>
           <Field label="Address (one line per row)">
