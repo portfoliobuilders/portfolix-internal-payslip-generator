@@ -1,12 +1,25 @@
 'use server';
 
+/**
+ * Settings server actions.
+ *
+ * - company_settings: legacy singleton branding row used by Settings UI
+ * - app_settings (id=1, data jsonb): full Settings object including signatory fields
+ *
+ * TODO(auth session): wrap mutating exports with requirePayrollAdmin().
+ */
+
 import { revalidatePath } from 'next/cache';
 import { randomUUID } from 'node:crypto';
+import { mergeSettings, SEED_SETTINGS } from '@/lib/settings-defaults';
+import type { Settings } from '@/lib/types';
 import { createClient } from '@/utils/supabase/server';
 
 export type SettingsActionResult<T> =
   | { ok: true; data: T }
   | { ok: false; error: string };
+
+export type ActionResult<T> = SettingsActionResult<T>;
 
 export interface CompanySettingsRecord {
   payday_day: number;
@@ -18,11 +31,92 @@ export interface CompanySettingsRecord {
 }
 
 const SETTINGS_ROW_ID = 1;
+const APP_SETTINGS_ID = 1;
 const BRANDING_BUCKET = 'branding';
 const BRANDING_PATH = 'company-logo';
 
+interface AppSettingsRow {
+  id: number;
+  data: Partial<Settings> | null;
+  updated_at: string;
+}
+
 function revalidateSettingsViews() {
   revalidatePath('/');
+  revalidatePath('/settings');
+}
+
+function clampPaydayDay(day: number): number {
+  return Math.min(28, Math.max(3, Math.round(day)));
+}
+
+function normalizeSettings(settings: Settings): Settings {
+  const months = (settings.ptDeductionMonths ?? [])
+    .map((m) => Math.round(Number(m)))
+    .filter((m) => Number.isInteger(m) && m >= 1 && m <= 12);
+  return {
+    ...settings,
+    paydayDayOfMonth: clampPaydayDay(settings.paydayDayOfMonth),
+    payrollContact: settings.payrollContact.trim() || 'SET-IN-SETTINGS',
+    reviewDeadlineTime: settings.reviewDeadlineTime.trim() || '6:00 PM',
+    ptDeductionMonths:
+      months.length > 0 ? [...new Set(months)].sort((a, b) => a - b) : [8, 2],
+  };
+}
+
+/** Full app settings (jsonb singleton). */
+export async function fetchSettings(): Promise<ActionResult<Settings>> {
+  try {
+    const supabase = await createClient();
+    const { data, error } = await supabase
+      .from('app_settings')
+      .select('id,data,updated_at')
+      .eq('id', APP_SETTINGS_ID)
+      .maybeSingle();
+
+    if (error) return { ok: false, error: error.message };
+
+    if (!data) {
+      return saveSettings(SEED_SETTINGS);
+    }
+
+    const row = data as AppSettingsRow;
+    return { ok: true, data: mergeSettings(row.data) };
+  } catch (err) {
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : 'Failed to fetch settings.',
+    };
+  }
+}
+
+export async function saveSettings(settings: Settings): Promise<ActionResult<Settings>> {
+  try {
+    const supabase = await createClient();
+    const normalized = normalizeSettings(settings);
+    const payload = {
+      id: APP_SETTINGS_ID,
+      data: normalized,
+      updated_at: new Date().toISOString(),
+    };
+
+    const { data, error } = await supabase
+      .from('app_settings')
+      .upsert(payload, { onConflict: 'id' })
+      .select('data')
+      .single();
+
+    if (error) return { ok: false, error: error.message };
+
+    const row = data as Pick<AppSettingsRow, 'data'>;
+    revalidateSettingsViews();
+    return { ok: true, data: mergeSettings(row.data) };
+  } catch (err) {
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : 'Failed to save settings.',
+    };
+  }
 }
 
 export async function fetchCompanySettings(): Promise<SettingsActionResult<CompanySettingsRecord | null>> {
@@ -51,7 +145,7 @@ export async function updateCompanySettings(
     const supabase = await createClient();
     const payload = {
       id: SETTINGS_ROW_ID,
-      payday_day: Math.min(28, Math.max(3, Math.round(Number(data.payday_day) || 5))),
+      payday_day: clampPaydayDay(Number(data.payday_day) || 5),
       payroll_contact: data.payroll_contact?.trim() ?? '',
       display_name: data.display_name?.trim() ?? '',
       legal_line: data.legal_line?.trim() ?? '',

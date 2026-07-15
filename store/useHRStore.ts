@@ -1,64 +1,28 @@
 'use client';
 
 /**
- * Client-side settings store. Draft edits live here until the user clicks
- * Save Settings; the saved baseline is synced from Supabase.
- * Client-side settings store. Edits autosave to Supabase after a short debounce.
+ * Client-side settings store. Draft edits live here until Save; the baseline
+ * is hydrated from Supabase via hooks/useAppSettings.
  */
 
 import { create } from 'zustand';
-import { saveSettings } from '@/app/actions/settings';
 import { SEED_SETTINGS } from '@/lib/settings-defaults';
 import type { EntityCode, EntityInfo, Settings } from '@/lib/types';
-import { COMPANY_ENTITIES, PAYROLL_CONTACT } from '@/lib/constants/company';
-
-const ENTITY_BY_ID = {
-  'portfolix-entreprise': COMPANY_ENTITIES[0],
-  'portfolio-builders': COMPANY_ENTITIES[2],
-  'portfolix-tech': COMPANY_ENTITIES[1],
-  'portfolix-hub': COMPANY_ENTITIES[3],
-} as const;
-
-export const SEED_SETTINGS: Settings = {
-  paydayDayOfMonth: 5,
-  payrollContact: PAYROLL_CONTACT,
-  entities: {
-    PX: {
-      name: ENTITY_BY_ID['portfolix-entreprise'].displayName,
-      legalLine: ENTITY_BY_ID['portfolix-entreprise'].legalLine,
-      addressLines: ENTITY_BY_ID['portfolix-entreprise'].address.split('\n'),
-      contact: PAYROLL_CONTACT,
-      logoDataUrl: ENTITY_BY_ID['portfolix-entreprise'].logoPath,
-    },
-    PB: {
-      name: ENTITY_BY_ID['portfolio-builders'].displayName,
-      legalLine: ENTITY_BY_ID['portfolio-builders'].legalLine,
-      addressLines: ENTITY_BY_ID['portfolio-builders'].address.split('\n'),
-      contact: PAYROLL_CONTACT,
-      logoDataUrl: ENTITY_BY_ID['portfolio-builders'].logoPath,
-    },
-    PT: {
-      name: ENTITY_BY_ID['portfolix-tech'].displayName,
-      legalLine: ENTITY_BY_ID['portfolix-tech'].legalLine,
-      addressLines: ENTITY_BY_ID['portfolix-tech'].address.split('\n'),
-      contact: PAYROLL_CONTACT,
-      logoDataUrl: ENTITY_BY_ID['portfolix-tech'].logoPath,
-    },
-    PH: {
-      name: ENTITY_BY_ID['portfolix-hub'].displayName,
-      legalLine: ENTITY_BY_ID['portfolix-hub'].legalLine,
-      addressLines: ENTITY_BY_ID['portfolix-hub'].address.split('\n'),
-      contact: PAYROLL_CONTACT,
-      logoDataUrl: ENTITY_BY_ID['portfolix-hub'].logoPath,
-    },
-  },
-};
 
 interface HRState {
   settings: Settings;
+  savedSettings: Settings;
+  settingsLoading: boolean;
+  settingsError: string | null;
+  settingsSaving: boolean;
+  settingsSaveError: string | null;
+  settingsSavedAt: string | null;
+  hydrateSettings: (settings: Settings) => void;
   setSettings: (settings: Settings) => void;
   updateSettings: (patch: Partial<Settings>) => void;
   updateEntity: (code: EntityCode, patch: Partial<EntityInfo>) => void;
+  setSettingsLoading: (loading: boolean) => void;
+  setSettingsError: (error: string | null) => void;
   markSettingsSaved: (settings: Settings) => void;
   setSettingsSaving: (saving: boolean) => void;
   setSettingsSaveError: (error: string | null) => void;
@@ -68,28 +32,27 @@ interface HRState {
 
 function settingsEqual(a: Settings, b: Settings): boolean {
   return JSON.stringify(a) === JSON.stringify(b);
-function scheduleAutosave(get: () => HRState, set: (partial: Partial<HRState>) => void) {
-  if (suppressAutosave) return;
-
-  if (autosaveTimer) clearTimeout(autosaveTimer);
-
-  set({ saveState: 'saving', saveError: null });
-
-  autosaveTimer = setTimeout(() => {
-    autosaveTimer = null;
-    void (async () => {
-      const result = await saveSettings(get().settings);
-      if (result.ok) {
-        set({ settings: result.data, saveState: 'saved', saveError: null });
-      } else {
-        set({ saveState: 'error', saveError: result.error });
-      }
-    })();
-  }, AUTOSAVE_MS);
 }
 
 export const useHRStore = create<HRState>((set, get) => ({
   settings: SEED_SETTINGS,
+  savedSettings: SEED_SETTINGS,
+  settingsLoading: true,
+  settingsError: null,
+  settingsSaving: false,
+  settingsSaveError: null,
+  settingsSavedAt: null,
+
+  hydrateSettings: (settings) =>
+    set({
+      settings,
+      savedSettings: settings,
+      settingsLoading: false,
+      settingsError: null,
+      settingsSaveError: null,
+      settingsSavedAt: null,
+    }),
+
   setSettings: (settings) => set({ settings }),
 
   updateSettings: (patch) =>
@@ -98,25 +61,8 @@ export const useHRStore = create<HRState>((set, get) => ({
       settingsSaveError: null,
       settingsSavedAt: null,
     })),
-  saveState: 'idle',
-  saveError: null,
 
-  setSettings: (settings) => {
-    suppressAutosave = true;
-    if (autosaveTimer) {
-      clearTimeout(autosaveTimer);
-      autosaveTimer = null;
-    }
-    set({ settings, saveState: 'idle', saveError: null });
-    suppressAutosave = false;
-  },
-
-  updateSettings: (patch) => {
-    set((state) => ({ settings: { ...state.settings, ...patch } }));
-    scheduleAutosave(get, set);
-  },
-
-  updateEntity: (code, patch) => {
+  updateEntity: (code, patch) =>
     set((state) => ({
       settings: {
         ...state.settings,
@@ -129,6 +75,10 @@ export const useHRStore = create<HRState>((set, get) => ({
       settingsSavedAt: null,
     })),
 
+  setSettingsLoading: (loading) => set({ settingsLoading: loading }),
+
+  setSettingsError: (error) => set({ settingsError: error, settingsLoading: false }),
+
   markSettingsSaved: (settings) =>
     set({
       settings,
@@ -138,7 +88,8 @@ export const useHRStore = create<HRState>((set, get) => ({
       settingsSavedAt: new Date().toISOString(),
     }),
 
-  setSettingsSaving: (saving) => set({ settingsSaving: saving, settingsSaveError: saving ? null : get().settingsSaveError }),
+  setSettingsSaving: (saving) =>
+    set({ settingsSaving: saving, settingsSaveError: saving ? null : get().settingsSaveError }),
 
   setSettingsSaveError: (error) => set({ settingsSaveError: error, settingsSaving: false }),
 
@@ -150,7 +101,4 @@ export const useHRStore = create<HRState>((set, get) => ({
       settingsSaveError: null,
       settingsSavedAt: null,
     })),
-    }));
-    scheduleAutosave(get, set);
-  },
 }));

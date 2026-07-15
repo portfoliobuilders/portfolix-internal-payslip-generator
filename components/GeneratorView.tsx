@@ -13,13 +13,17 @@ import {
   slipFilename,
 } from '@/lib/format';
 import { exportElementToPdf } from '@/lib/pdf-export';
-import { finalizePayrollSlip, savePayrollSlip } from '@/app/actions/payroll';
-import type { Employee, EntityInfo, SlipSnapshot, SlipStatus } from '@/lib/types';
+import { finalizePayrollSlip, savePayrollSlip, fetchAuthorisedSlipYtd, logAuthorisedSlipGeneration } from '@/app/actions/payroll';
+import { createSignatorySignedUrls, getSignatoryStorageStatus } from '@/app/actions/signatory-assets';
+import { computeAuthorisedYtd } from '@/lib/authorised-slip';
+import type { AuthorisedSlipYtd, Employee, EntityInfo, SlipSnapshot, SlipStatus } from '@/lib/types';
 import { generateId } from '@/lib/payroll-db';
 import { findFinalSlipForMonth, findPreviousFinalSlip } from '@/lib/payroll-helpers';
 import { useHRStore } from '@/store/useHRStore';
 import { useUIStore } from '@/store/useUIStore';
+import { signatoryIncompleteReason } from '@/lib/settings-defaults';
 import { COMPANY_ENTITIES, PAYROLL_CONTACT } from '@/lib/constants/company';
+import AuthorisedSlip from './AuthorisedSlip';
 import SalarySlip from './SalarySlip';
 import Toast from './Toast';
 import { Field, Modal, btnPrimary, btnSecondary, inputAmountCls, inputCls } from './ui';
@@ -182,19 +186,21 @@ export default function GeneratorView({
     () => COMPANY_ENTITIES.find((entity) => entity.id === selectedEntityId) ?? COMPANY_ENTITIES[0],
     [selectedEntityId],
   );
-  const entity: EntityInfo | null = useMemo(
-    () =>
-      employee
-        ? {
-            name: selectedCompanyEntity.displayName,
-            legalLine: selectedCompanyEntity.legalLine,
-            addressLines: selectedCompanyEntity.address.split('\n'),
-            contact: PAYROLL_CONTACT,
-            logoDataUrl: selectedCompanyEntity.logoPath,
-          }
-        : null,
-    [employee, selectedCompanyEntity],
-  );
+  const entity: EntityInfo | null = useMemo(() => {
+    if (!employee) return null;
+    const fromSettings = settings.entities[employee.entityCode];
+    // Prefer persisted settings. Overlay logo path from static catalog only when missing.
+    return {
+      ...fromSettings,
+      name: fromSettings.name?.trim() || selectedCompanyEntity.displayName,
+      legalLine: fromSettings.legalLine,
+      addressLines:
+        fromSettings.addressLines?.length > 0
+          ? fromSettings.addressLines
+          : selectedCompanyEntity.address.split('\n'),
+      logoDataUrl: fromSettings.logoDataUrl ?? selectedCompanyEntity.logoPath,
+    };
+  }, [employee, selectedCompanyEntity, settings.entities]);
 
   // Rule 7: deferred opening auto-fills from the most recent FINAL slip.
   const previousFinal = useMemo(
@@ -458,12 +464,22 @@ export default function GeneratorView({
         ),
       );
       if (status === 'final') {
-        const saveResult = await finalizePayrollSlip(finalSnapshot, result.newFlexBalance, settings);
+        const saveResult = await finalizePayrollSlip(finalSnapshot, result.newFlexBalance, settings, {
+          supersedeConfirmed: confirmedSupersede,
+          // Phase 2: period/attendance warnings only until gates are turned on in Phase 5+.
+          enforceStrictGates: false,
+          attendanceLocked: false,
+          paymentStatus: 'UNPAID',
+        });
         if (!saveResult.ok) {
           setSaveError(saveResult.error);
           return;
         }
-        setToastMessage('Final slip saved to Supabase history.');
+        const warningSuffix =
+          saveResult.data.warnings.length > 0
+            ? ` Warnings: ${saveResult.data.warnings.join(' ')}`
+            : '';
+        setToastMessage(`Final slip saved (server-recomputed).${warningSuffix}`);
       } else {
         const saveResult = await savePayrollSlip({ ...finalSnapshot, status: 'draft' }, settings);
         if (!saveResult.ok) {
