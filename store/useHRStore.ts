@@ -13,7 +13,7 @@ import type { EntityCode, EntityInfo, Settings } from '@/lib/types';
 import { COMPANY_ENTITIES, PAYROLL_CONTACT } from '@/lib/constants/company';
 
 const ENTITY_BY_ID = {
-  'portfolix-enterprise': COMPANY_ENTITIES[0],
+  'portfolix-entreprise': COMPANY_ENTITIES[0],
   'portfolio-builders': COMPANY_ENTITIES[2],
   'portfolix-tech': COMPANY_ENTITIES[1],
   'portfolix-hub': COMPANY_ENTITIES[3],
@@ -24,11 +24,11 @@ export const SEED_SETTINGS: Settings = {
   payrollContact: PAYROLL_CONTACT,
   entities: {
     PX: {
-      name: ENTITY_BY_ID['portfolix-enterprise'].displayName,
-      legalLine: ENTITY_BY_ID['portfolix-enterprise'].legalLine,
-      addressLines: ENTITY_BY_ID['portfolix-enterprise'].address.split('\n'),
+      name: ENTITY_BY_ID['portfolix-entreprise'].displayName,
+      legalLine: ENTITY_BY_ID['portfolix-entreprise'].legalLine,
+      addressLines: ENTITY_BY_ID['portfolix-entreprise'].address.split('\n'),
       contact: PAYROLL_CONTACT,
-      logoDataUrl: ENTITY_BY_ID['portfolix-enterprise'].logoPath,
+      logoDataUrl: ENTITY_BY_ID['portfolix-entreprise'].logoPath,
     },
     PB: {
       name: ENTITY_BY_ID['portfolio-builders'].displayName,

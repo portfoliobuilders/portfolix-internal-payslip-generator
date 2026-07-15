@@ -34,7 +34,7 @@ export const SEED_SETTINGS: Settings = {
   ptDeductionMonths: [8, 2],
   entities: {
     PX: {
-      name: 'Portfolix Enterprise Pvt Ltd',
+      name: 'Portfolix Entreprise Pvt Ltd',
       legalLine: '',
       addressLines: ['SET-IN-SETTINGS'],
       contact: SETTINGS_PLACEHOLDER,
@@ -43,7 +43,7 @@ export const SEED_SETTINGS: Settings = {
     },
     PB: {
       name: 'Portfolio Builders',
-      legalLine: 'A unit of Portfolix Enterprise Pvt Ltd',
+      legalLine: 'A unit of Portfolix Entreprise Pvt Ltd',
       addressLines: ['SET-IN-SETTINGS'],
       contact: SETTINGS_PLACEHOLDER,
       logoDataUrl: null,
@@ -51,7 +51,7 @@ export const SEED_SETTINGS: Settings = {
     },
     PT: {
       name: 'Portfolix.tech',
-      legalLine: 'A unit of Portfolix Enterprise Pvt Ltd',
+      legalLine: 'A unit of Portfolix Entreprise Pvt Ltd',
       addressLines: ['SET-IN-SETTINGS'],
       contact: SETTINGS_PLACEHOLDER,
       logoDataUrl: null,
@@ -59,7 +59,7 @@ export const SEED_SETTINGS: Settings = {
     },
     PH: {
       name: 'Portfolix Hub',
-      legalLine: 'A unit of Portfolix Enterprise Pvt Ltd',
+      legalLine: 'A unit of Portfolix Entreprise Pvt Ltd',
       addressLines: ['SET-IN-SETTINGS'],
       contact: SETTINGS_PLACEHOLDER,
       logoDataUrl: null,
