@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect } from 'react';
-import { getAppSettings, upsertAppSettings } from '@/app/actions/payroll';
+import { fetchSettings, saveSettings } from '@/app/actions/settings';
 import { useHRStore } from '@/store/useHRStore';
 
 export function useAppSettings() {
@@ -22,7 +22,7 @@ export function useAppSettings() {
   const load = useCallback(async () => {
     setSettingsLoading(true);
     setSettingsError(null);
-    const result = await getAppSettings();
+    const result = await fetchSettings();
     if (!result.ok) {
       setSettingsError(result.error);
       return;
@@ -36,7 +36,7 @@ export function useAppSettings() {
 
   const save = useCallback(async () => {
     setSettingsSaving(true);
-    const result = await upsertAppSettings(settings);
+    const result = await saveSettings(settings);
     if (!result.ok) {
       setSettingsSaveError(result.error);
       return false;

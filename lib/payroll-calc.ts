@@ -52,6 +52,13 @@ export interface PayrollInput {
   variablePaid: number;
   deferredOpening: number;
   committedPayoutDate: string | null;
+  /**
+   * Payroll day-count divisor used for per-day rate.
+   * Defaults to FIXED_DIVISOR (25) for back-compat. Must be provided by the
+   * server integrity layer from the approved calculation method — never trust
+   * a client-submitted final daily rate.
+   */
+  payrollDivisor?: number;
 }
 
 export interface PayrollResult extends SlipComputed {
@@ -171,7 +178,11 @@ export function computePayroll(input: PayrollInput): PayrollResult {
   const tds = input.tdsMonthly ?? 0;
   const pt = input.ptThisMonth ?? 0;
 
-  const perDayRateExact = input.baseSalary / FIXED_DIVISOR;
+  const divisor = input.payrollDivisor ?? FIXED_DIVISOR;
+  if (!(divisor > 0) || !Number.isFinite(divisor)) {
+    throw new Error(`Invalid payroll divisor: ${divisor}`);
+  }
+  const perDayRateExact = input.baseSalary / divisor;
 
   const flex = computeFlexBank({
     flexBankBalance: input.flexBankBalance,

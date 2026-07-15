@@ -1,9 +1,18 @@
 'use client';
 
+import { createPortal } from 'react-dom';
+import { useEffect, useMemo, useState } from 'react';
+import { Download, Eye, FileBadge2, Printer, Trash2, X } from 'lucide-react';
+import {
+  fetchAuthorisedSlipYtd,
+  logAuthorisedSlipGeneration,
+  deletePayrollSlip,
+} from '@/app/actions/payroll';
 import { createSignatorySignedUrls, getSignatoryStorageStatus } from '@/app/actions/signatory-assets';
 import { computeAuthorisedYtd } from '@/lib/authorised-slip';
 import {
   authorisedSlipFilename,
+  formatDate,
   formatDateTime,
   formatINR,
   formatMonthYear,
@@ -15,7 +24,8 @@ import type { AuthorisedSlipYtd, SlipSnapshot } from '@/lib/types';
 import { useHRStore } from '@/store/useHRStore';
 import AuthorisedSlip from './AuthorisedSlip';
 import SalarySlip from './SalarySlip';
-import { btnSecondary, inputCls } from './ui';
+import Toast from './Toast';
+import { btnPrimary, btnSecondary, inputCls, Modal } from './ui';
 import { statementMetaFor } from '@/lib/workforce';
 
 interface HistoryViewProps {
@@ -122,7 +132,7 @@ export default function HistoryView({ slipHistory, loading, error, onRefresh }: 
     if (viewing?.id === deleteTarget.id) setViewing(null);
     setDeleteTarget(null);
     setToastMessage('Slip removed from history.');
-    await onRefresh();
+    await onRefresh?.();
   }
 
   async function generateBankCopy(snapshot: SlipSnapshot) {
@@ -363,53 +373,23 @@ export default function HistoryView({ slipHistory, loading, error, onRefresh }: 
                       >
                         <Download size={15} />
                       </button>
+                      <BankCopyButton snapshot={s} compact />
+                      <button
+                        title="Delete slip"
+                        className="rounded p-1.5 text-muted hover:bg-surface hover:text-amber-brand"
+                        onClick={() => {
+                          setDeleteError(null);
+                          setDeleteTarget(s);
+                        }}
+                      >
+                        <Trash2 size={15} />
+                      </button>
                     </div>
-                    <div>
-                      <dt className={dtCls}>Net pay</dt>
-                      <dd className="amount font-medium">{formatINR(s.computed.netPay)}</dd>
-                    </div>
-                    <div>
-                      <dt className={dtCls}>Generated</dt>
-                      <dd className="text-muted">{formatDateTime(s.generatedAt)}</dd>
-                    </div>
-                  </dl>
-                  {renderActions(s)}
-                </div>
+                  </td>
+                </tr>
               ))}
-            </div>
-
-            <div className="hidden overflow-x-auto md:block">
-              <table className="w-full min-w-[700px] text-sm">
-                <thead>
-                  <tr className="border-b border-hairline text-left text-[11px] uppercase tracking-wide text-muted">
-                    <th className="px-4 py-2.5 font-semibold">Employee</th>
-                    <th className="px-4 py-2.5 font-semibold">Pay month</th>
-                    <th className="px-4 py-2.5 font-semibold">Status</th>
-                    <th className="px-4 py-2.5 text-right font-semibold">Net pay</th>
-                    <th className="px-4 py-2.5 font-semibold">Generated</th>
-                    <th className="px-4 py-2.5 text-right font-semibold">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-hairline">
-                  {filtered.map((s) => (
-                    <tr key={s.id} className="transition-colors duration-150 hover:bg-surface/60">
-                      <td className="px-4 py-2.5">
-                        <p className="font-medium">{s.employee.fullName}</p>
-                        <p className="text-[12px] text-muted">{s.employee.empId}</p>
-                      </td>
-                      <td className="px-4 py-2.5">{formatMonthYear(s.monthYear)}</td>
-                      <td className="px-4 py-2.5"><StatusBadge status={s.status} /></td>
-                      <td className="amount px-4 py-2.5 text-right font-medium">{formatINR(s.computed.netPay)}</td>
-                      <td className="px-4 py-2.5 text-[12px] text-muted whitespace-nowrap">
-                        {formatDateTime(s.generatedAt)}
-                      </td>
-                      <td className="px-4 py-2.5">{renderActions(s)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </>
+            </tbody>
+          </table>
         )}
       </div>
 

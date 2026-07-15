@@ -113,10 +113,8 @@ export default function SalarySlip({
             </p>
           </div>
         </div>
-        <div className="text-right">
-          <p className="text-[15px] font-bold uppercase tracking-[0.12em]">{statementMeta.statementTitle}</p>
         <div className="shrink-0 text-right">
-          <p className="text-[15px] font-bold uppercase tracking-[0.12em]">Salary Slip</p>
+          <p className="text-[15px] font-bold uppercase tracking-[0.12em]">{statementMeta.statementTitle}</p>
           <p className="text-[11px] font-medium text-muted">{formatMonthYear(snapshot.monthYear)}</p>
           {statementMeta.statusBadge && (
             <p className="mt-1 text-[10px] font-semibold text-amber-brand">{statementMeta.statusBadge}</p>
@@ -264,11 +262,8 @@ export default function SalarySlip({
       <section className="mt-4 grid grid-cols-2 gap-5">
         <div className="flex h-full flex-col">
           <SectionTitle tag="A">Fixed Earnings</SectionTitle>
-          <Row label={statementMeta.mainEarningLabel} value={formatINR(inputs.compensationAmount)} />
-          <Row label="Fixed allowance" value={formatINR(inputs.fixedAllowance)} />
-          <div className="border-t border-ink/60">
           <div className="flex-1">
-            <Row label="Basic salary" value={formatINR(inputs.baseSalary)} />
+            <Row label={statementMeta.mainEarningLabel} value={formatINR(inputs.compensationAmount)} />
             <Row label="Fixed allowance" value={formatINR(inputs.fixedAllowance)} />
           </div>
           <div className="mt-auto border-t border-ink/60">

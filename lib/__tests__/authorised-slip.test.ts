@@ -20,6 +20,7 @@ const BASE_INPUTS: SlipInputs = {
   remarks: '',
   flexBankBalanceBefore: 0,
   baseSalary: 20000,
+  compensationAmount: 20000,
 };
 
 const BASE_COMPUTED: SlipComputed = {
@@ -72,6 +73,10 @@ function makeFinal(opts: {
       joiningDate: '2024-01-01',
       employeeAddress: '',
       paymentMode: 'Bank Transfer',
+      engagementType: 'regular_employee',
+      employmentStatus: 'active',
+      paymentType: 'salary',
+      compensationAmount: 20000,
       bankLast4: '1234',
       panMasked: 'ABXXXXXX1F',
     },
