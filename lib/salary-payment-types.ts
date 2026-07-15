@@ -13,11 +13,11 @@ export type SalaryPaymentStatus =
   | 'PROCESSING'
   | 'PARTIALLY_PAID'
   | 'PAID'
+  | 'PAYMENT_DEFERRED'
+  | 'ON_HOLD'
+  | 'OVERDUE'
   | 'FAILED'
   | 'REJECTED_BY_BANK'
-  | 'ON_HOLD'
-  | 'PAYMENT_DEFERRED'
-  | 'OVERDUE'
   | 'REVERSED'
   | 'CANCELLED'
   | 'UNDER_RECONCILIATION'
@@ -35,7 +35,13 @@ export type DocumentLifecycleStatus =
   | 'OUTSTANDING_STATEMENT_ALLOWED'
   | 'AUTHORISED_BLOCKED'
   | 'AUTHORISED_ELIGIBLE'
-  | 'AUTHORISED_ISSUED';
+  | 'AUTHORISED_ISSUED'
+  | 'DRAFT'
+  | 'ISSUED'
+  | 'SUPERSEDED'
+  | 'REVOKED'
+  | 'CANCELLED'
+  | 'LEGACY_UNVERIFIED';
 
 /** Issued-document status for internal / authorised copies. */
 export type IssuedDocumentStatus =
@@ -74,6 +80,13 @@ export type PaymentHoldReasonCategory =
   | 'STATUTORY_OR_COURT_DIRECTION'
   | 'OTHER';
 
+export type SalaryExceptionKind =
+  | 'NO_SALARY_DUE'
+  | 'SALARY_WAIVED'
+  | 'SALARY_DEFERRED'
+  | 'PAYMENT_ON_HOLD'
+  | 'PARTIALLY_PAID';
+
 export type TimelinessIndicator = 'NOT_YET_PAID' | 'PAID_ON_TIME' | 'PAID_LATE' | 'N/A';
 
 export type DocumentKind =
@@ -96,18 +109,31 @@ export interface SalaryPaymentObligation {
   documentStatus: DocumentLifecycleStatus;
   /** Statutory payday / credit due date — never overwritten by reschedule. */
   originalStatutoryDueDate: string;
-  /** Company-committed credit date at finalisation. */
+  /** Alias preserved separately from statutory for schedule clarity. */
+  originalDueDate?: string;
+  /** Company-committed / scheduled credit date at finalisation. */
   companyCommittedDate: string | null;
+  scheduledPaymentDate?: string | null;
   /** Latest revised expected date (reschedule writes here only). */
   revisedExpectedDate: string | null;
   /** Actual final credit date once fully settled. */
   actualFinalCreditDate: string | null;
+  transferInitiatedAt?: string | null;
+  processedAt?: string | null;
+  finalSettlementDate?: string | null;
   /** Set when first overdue; never cleared by reschedule. */
   overdueEventAt: string | null;
   confirmedPaidAmount: number;
   outstandingAmount: number;
   lastPaymentDate: string | null;
   timeliness: TimelinessIndicator;
+  exceptionKind?: SalaryExceptionKind | null;
+  exceptionReason?: string | null;
+  exceptionApprovalReference?: string | null;
+  exceptionApprovedBy?: string | null;
+  exceptionApprovedAt?: string | null;
+  exceptionEvidencePath?: string | null;
+  taxAccountingReviewStatus?: string | null;
   createdAt: string;
   updatedAt: string;
 }

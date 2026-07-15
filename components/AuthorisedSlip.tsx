@@ -13,6 +13,7 @@ import {
   formatMonthYear,
   formatSalaryAttendanceCycle,
 } from '@/lib/format';
+import { formatAttendanceCycleRange } from '@/lib/payroll-cycle';
 import { slipStatutoryDeductions } from '@/lib/payroll-calc';
 import type { AuthorisedSlipYtd, EntityInfo, SlipSnapshot } from '@/lib/types';
 import EntityLogo from '@/components/EntityLogo';
@@ -149,6 +150,45 @@ export default function AuthorisedSlip({
         <p className="mt-0.5 text-[10px] font-semibold text-ink">
           Actual salary-credit date: {formatDate(actualCreditDate)}
         </p>
+        {hasAttendanceCycle ? (
+          <p className="mt-0.5 text-[10px] text-muted">
+            Attendance cycle:{' '}
+            {formatAttendanceCycleRange(
+              snapshot.attendancePeriodStart!,
+              snapshot.attendancePeriodEnd!,
+            )}
+          </p>
+        ) : (
+          <p className="mt-0.5 text-[10px] font-medium text-amber-brand">
+            Attendance cycle unavailable
+          </p>
+        )}
+        <div className="mt-2 text-[10px] text-muted">
+          {isPaid && snapshot.actualCreditDate ? (
+            <>
+              <p className="font-medium text-ink">Payment status: Paid</p>
+              <p>
+                Actual salary-credit date:{' '}
+                <span className="font-medium text-ink">{formatDate(snapshot.actualCreditDate)}</span>
+              </p>
+            </>
+          ) : (
+            <>
+              {snapshot.paymentStatus && (
+                <p>
+                  Payment status:{' '}
+                  <span className="font-medium text-ink">
+                    {snapshot.paymentStatus.replace(/_/g, ' ')}
+                  </span>
+                </p>
+              )}
+              <p>
+                Expected Payment Date:{' '}
+                <span className="font-medium text-ink">{formatDate(expectedPaymentDate)}</span>
+              </p>
+            </>
+          )}
+        </div>
       </div>
 
       {/* ---------- Employee block (no residential address by default) ---------- */}
@@ -352,9 +392,23 @@ export default function AuthorisedSlip({
             </>
           )}
         </div>
+        <div className="flex flex-col items-center gap-1 text-center">
+          <div className="flex h-20 w-20 items-center justify-center rounded border border-hairline bg-surface text-[8px] text-muted">
+            {verificationUrl ? 'QR' : 'Verification QR'}
+          </div>
+          {verificationId && (
+            <p className="text-[8.5px] text-muted">
+              ID: <span className="amount text-ink">{verificationId}</span>
+            </p>
+          )}
+          {verificationUrl && (
+            <p className="max-w-[120px] break-all text-[7.5px] text-muted">{verificationUrl}</p>
+          )}
+        </div>
       </section>
 
       <footer className="mt-auto border-t border-hairline pt-3 text-[8.5px] leading-relaxed text-muted">
+        <p>Authorised and issued by the employer.</p>
         <p>
           Authorised and issued by the employer. This computer-generated authorised salary slip may
           be verified through the QR code and verification ID

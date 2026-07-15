@@ -91,6 +91,8 @@ function emptyDetails(): EmployeeDetailsJson {
     agreementType: 'offer_letter',
     documentsStatus: 'pending',
     notes: '',
+    tdsMonthly: 0,
+    ptHalfYearly: 0,
   };
 }
 
@@ -176,6 +178,8 @@ export function employeeToRow(
       agreementType: employee.agreementType,
       documentsStatus: employee.documentsStatus,
       notes: employee.notes,
+      tdsMonthly: employee.tdsMonthly ?? 0,
+      ptHalfYearly: employee.ptHalfYearly ?? 0,
     },
   };
 }
@@ -210,11 +214,10 @@ export function rowToSlip(row: PayrollSlipRow): SlipSnapshot {
 }
 
 export function slipToRow(snapshot: SlipSnapshot): Omit<PayrollSlipRow, 'id'> & { id?: string } {
-  const { id, employeeId: _employeeId, monthYear, status, ...details } = snapshot;
+  const { id, employeeId, monthYear, status, ...details } = snapshot;
   return {
     ...(id ? { id } : {}),
-    // FK targets employees.employee_id (e.g. PB-TEST-001), not the internal UUID.
-    employee_id: snapshot.employee.empId,
+    employee_id: employeeId,
     month_year: monthYear,
     status,
     details_json: {

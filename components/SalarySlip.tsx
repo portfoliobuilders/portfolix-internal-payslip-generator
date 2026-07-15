@@ -10,6 +10,7 @@
  */
 
 import { CheckCircle2 } from 'lucide-react';
+import { lopCalculationBasisLabel } from '@/lib/calculation-method';
 import { FIXED_DIVISOR, slipStatutoryDeductions } from '@/lib/payroll-calc';
 import { lopCalculationBasisLabel } from '@/lib/calculation-method';
 import {
@@ -276,6 +277,7 @@ export default function SalarySlip({
             {lopCalculationBasisLabel('FIXED_25')} — this is the salary-calculation divisor, not the
             attendance-cycle length ({attendanceCycle}).
           </p>
+          <p className="mt-0.5 text-[9px] text-muted">{lopBasisLabel}</p>
         </div>
         <div className="mt-1.5 grid grid-cols-2 gap-x-6">
           <Row
@@ -447,6 +449,12 @@ export default function SalarySlip({
             : `Expected payment date: ${typeof expectedDate === 'string' && expectedDate.includes(' ') ? expectedDate : formatDate(String(expectedDate))}.`}
         </p>
         {statementMeta.disclaimer && <p>{statementMeta.disclaimer}</p>}
+        {isDraft && (
+          <p>
+            Draft slips are superseded by the final slip issued on payday; only the slip marked FINAL
+            is valid for records.
+          </p>
+        )}
         <p>
           Confidential internal payroll record. This document is intended for the named employee and
           authorised company personnel only. It is not an authorised income certificate and must not

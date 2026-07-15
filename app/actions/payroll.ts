@@ -541,16 +541,26 @@ export async function finalizePayrollSlip(
     // Parent salary-payment obligation — FINAL ≠ PAID.
     try {
       const { ensureSalaryPaymentObligation } = await import('@/app/actions/salary-payment');
+      const { resolvePaymentSchedule } = await import('@/lib/payment-schedule');
+      const schedule = resolvePaymentSchedule({
+        salaryMonth: built.snapshot.monthYear,
+        companyDefaultPaymentDay: settings.paydayDayOfMonth,
+        employeePreferredPaymentDay:
+          (employee as { preferredPaymentDay?: number | null }).preferredPaymentDay ??
+          null,
+        employeeDefaultPaymentDay:
+          (employee as { defaultPaymentDay?: number | null }).defaultPaymentDay ?? null,
+      });
       const dueCommitted =
-        options?.expectedPaymentDate ??
-        options?.salaryCreditDate ??
-        null;
+        options?.expectedPaymentDate ?? schedule.scheduledPaymentDate;
       await ensureSalaryPaymentObligation({
         payrollRecordId: built.snapshot.id,
         employeeId: built.snapshot.employeeId,
         monthYear: built.snapshot.monthYear,
         netSalaryPayable: built.snapshot.computed.netPay,
         paydayDayOfMonth: settings.paydayDayOfMonth,
+        originalDueDate: schedule.originalDueDate,
+        scheduledPaymentDate: dueCommitted,
         companyCommittedDate: dueCommitted,
         actorUserId: 'system',
       });

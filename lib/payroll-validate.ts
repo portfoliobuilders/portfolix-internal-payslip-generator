@@ -59,6 +59,12 @@ export interface AttendanceTotals {
 
 export interface FinalizationContext {
   monthYear: string;
+  /**
+   * Server-computed attendance period end (yyyy-MM-dd).
+   * Preferred over calendar-month inference.
+   */
+  attendancePeriodEnd?: string | null;
+  attendancePeriodStart?: string | null;
   /** Wall-clock "now" (injectable for tests). */
   now?: Date;
   workflowStatus: PayrollWorkflowStatus;
@@ -340,7 +346,8 @@ export function validateFinalization(ctx: FinalizationContext): ValidationIssue[
       issues.push({
         severity: 'error',
         code: 'CREDIT_DATE_WITHOUT_PAID',
-        message: 'Salary credit date requires payment status PAID. Use expected payment date until then.',
+        message:
+          'Actual salary credit date requires payment status PAID. Use Expected Payment Date until then.',
       });
     }
   }

@@ -326,26 +326,27 @@ export default function PaymentLedgerDrawer({
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <aside className="flex h-full w-full max-w-xl flex-col border-l border-hairline bg-paper shadow-pop">
-        <div className="flex items-start justify-between gap-3 border-b border-hairline px-4 py-3.5">
-          <div>
+      {/* Full-width on phones; capped drawer on sm+. Body scrolls independently. */}
+      <aside className="flex h-full max-h-[100dvh] w-full max-w-none flex-col border-l border-hairline bg-paper shadow-pop sm:max-w-xl">
+        <div className="flex shrink-0 items-start justify-between gap-3 border-b border-hairline px-4 py-3.5">
+          <div className="min-w-0">
             <h2 className="text-sm font-semibold tracking-tight">Payment Ledger</h2>
-            <p className="mt-0.5 text-[12px] text-muted">
+            <p className="mt-0.5 break-words text-[12px] text-muted">
               {employeeLabel} · {monthYearLabel}
             </p>
           </div>
-          <button className={btnSecondary} onClick={onClose}>
+          <button className={`${btnSecondary} shrink-0`} onClick={onClose}>
             Close
           </button>
         </div>
 
-        <div className="border-b border-hairline px-4 py-3">
+        <div className="shrink-0 border-b border-hairline px-4 py-3">
           <label className="block text-[11px] font-semibold uppercase tracking-wide text-muted">
             Acting as user id (maker-checker)
           </label>
           <div className="mt-1 flex flex-wrap items-center gap-2">
             <input
-              className={`${inputCls} max-w-xs`}
+              className={`${inputCls} w-full max-w-xs`}
               value={actorId}
               onChange={(e) => {
                 setActorId(e.target.value);
@@ -365,7 +366,7 @@ export default function PaymentLedgerDrawer({
           </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto px-4 py-4">
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4 [-webkit-overflow-scrolling:touch]">
           {loading && <p className="text-sm text-muted">Loading payment ledger…</p>}
           {error && (
             <p className="rounded-md border border-amber-edge bg-amber-tint px-3 py-2 text-[12px] text-amber-brand">

@@ -1,5 +1,11 @@
 'use client';
 
+/**
+ * Legacy payroll context + AppShell wrapper. No current route/layout imports
+ * this module (pages use AppHeader + local usePayrollData hooks). Kept as
+ * unused scaffolding; prefer AppHeader/layout over re-wiring this provider.
+ */
+
 import AppShell from '@/components/AppShell';
 import { useAppSettings } from '@/hooks/useAppSettings';
 import { usePayrollData } from '@/hooks/usePayrollData';
