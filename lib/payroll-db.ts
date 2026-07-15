@@ -23,6 +23,8 @@ export interface EmployeeRow {
   designation: string;
   base_salary: number;
   flex_bank_balance: number;
+  tds_monthly: number | null;
+  pt_half_yearly: number | null;
   details_json: EmployeeDetailsJson | null;
 }
 
@@ -35,6 +37,11 @@ export interface PayrollSlipRow {
 }
 
 const ENTITY_CODES: EntityCode[] = ['PX', 'PB', 'PT', 'PH'];
+
+/** Trim and strip all internal whitespace from a business employee ID. */
+export function normalizeEmployeeId(raw: string): string {
+  return raw.trim().replace(/\s+/g, '').toUpperCase();
+}
 
 function emptyDetails(): EmployeeDetailsJson {
   return {
@@ -56,7 +63,7 @@ export function rowToEmployee(row: EmployeeRow): Employee {
   return {
     id: row.id,
     fullName: row.full_name,
-    empId: row.employee_id,
+    empId: normalizeEmployeeId(row.employee_id),
     entityCode,
     department: details.department,
     designation: row.designation,
@@ -68,6 +75,8 @@ export function rowToEmployee(row: EmployeeRow): Employee {
     panMasked: details.panMasked,
     flexBankBalance: row.flex_bank_balance,
     flexLog: details.flexLog ?? [],
+    tdsMonthly: Number(row.tds_monthly ?? 0) || 0,
+    ptHalfYearly: Number(row.pt_half_yearly ?? 0) || 0,
   };
 }
 
@@ -78,11 +87,13 @@ export function employeeToRow(
     ...(employee.id ? { id: employee.id } : {}),
     full_name: employee.fullName,
     entity_id: employee.entityCode,
-    employee_id: employee.empId,
+    employee_id: normalizeEmployeeId(employee.empId),
     joining_date: employee.joiningDate,
     designation: employee.designation,
     base_salary: employee.baseSalary,
     flex_bank_balance: employee.flexBankBalance,
+    tds_monthly: employee.tdsMonthly ?? 0,
+    pt_half_yearly: employee.ptHalfYearly ?? 0,
     details_json: {
       department: employee.department,
       employeeAddress: employee.employeeAddress,
@@ -94,13 +105,31 @@ export function employeeToRow(
   };
 }
 
+/** Back-compat: older frozen snapshots may omit tdsMonthly / ptThisMonth. */
 export function rowToSlip(row: PayrollSlipRow): SlipSnapshot {
+  const details = row.details_json;
+  const inputs = {
+    ...details.inputs,
+    tdsMonthly: details.inputs.tdsMonthly ?? 0,
+    ptThisMonth: details.inputs.ptThisMonth ?? 0,
+  };
+  const computed = {
+    ...details.computed,
+    tdsMonthly: details.computed.tdsMonthly ?? inputs.tdsMonthly,
+    ptThisMonth: details.computed.ptThisMonth ?? inputs.ptThisMonth,
+  };
   return {
     id: row.id,
     employeeId: row.employee_id,
     monthYear: row.month_year,
     status: row.status,
-    ...row.details_json,
+    ...details,
+    inputs,
+    computed,
+    employee: {
+      ...details.employee,
+      empId: normalizeEmployeeId(details.employee.empId),
+    },
   };
 }
 
@@ -111,7 +140,13 @@ export function slipToRow(snapshot: SlipSnapshot): Omit<PayrollSlipRow, 'id'> & 
     employee_id: employeeId,
     month_year: monthYear,
     status,
-    details_json: details,
+    details_json: {
+      ...details,
+      employee: {
+        ...details.employee,
+        empId: normalizeEmployeeId(details.employee.empId),
+      },
+    },
   };
 }
 

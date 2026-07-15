@@ -10,14 +10,32 @@ export interface EntityInfo {
   /** e.g. "A unit of Portfolix Enterprise Pvt Ltd" — empty for the parent. */
   legalLine: string;
   addressLines: string[];
+  /** Legacy display contact; prefer payrollEmail for payroll documents. */
   contact: string;
   /** Custom logo as a data URL; null uses the bundled default for this entity. */
   logoDataUrl: string | null;
+  /** Company Identification Number — from Settings, never hardcoded on documents. */
+  cin: string;
+  /** Full registered office address printed on the Authorised Slip letterhead. */
+  registeredAddress: string;
+  contactPhone: string;
+  payrollEmail: string;
+  signatoryName: string;
+  signatoryDesignation: string;
+  /** Private storage path in the signatory-assets bucket (never a public URL). */
+  signatureAssetPath: string | null;
+  /** Private storage path in the signatory-assets bucket (never a public URL). */
+  sealAssetPath: string | null;
 }
 
 export interface Settings {
   paydayDayOfMonth: number;
   payrollContact: string;
+  /**
+   * Calendar months (1–12) in which Kerala Professional Tax is deducted.
+   * Default Aug + Feb: [8, 2].
+   */
+  ptDeductionMonths: number[];
   entities: Record<EntityCode, EntityInfo>;
 }
 
@@ -51,6 +69,10 @@ export interface Employee {
   /** Flex-bank balance in minutes. */
   flexBankBalance: number;
   flexLog: FlexLogEntry[];
+  /** Monthly TDS deduction (₹). Default 0. */
+  tdsMonthly: number;
+  /** Kerala Professional Tax half-yearly amount (₹). Deducted only in PT months. */
+  ptHalfYearly: number;
 }
 
 export type SlipStatus = 'draft' | 'final';
@@ -63,6 +85,10 @@ export interface SlipInputs {
   flexMinutesEarned: number;
   fixedAllowance: number;
   otherDeductions: number;
+  /** Monthly TDS amount applied for this slip (frozen at generation). */
+  tdsMonthly: number;
+  /** PT amount applied for this slip month (0 when month ∉ pt_deduction_months). */
+  ptThisMonth: number;
   variableLabel: string;
   variableEarned: number;
   variablePaid: number;
@@ -85,6 +111,8 @@ export interface SlipComputed {
   lopDays: number;
   lopDeduction: number;
   otherDeductions: number;
+  tdsMonthly: number;
+  ptThisMonth: number;
   totalDeductions: number;
   grossFixed: number;
   variableEarned: number;
@@ -125,4 +153,30 @@ export interface SlipSnapshot {
   generatedAt: string;
   /** Denormalised so history renders even if the employee is later deleted. */
   employee: SlipEmployeeInfo;
+}
+
+/** Signatory fields frozen into authorised_slip_log at bank-copy generation. */
+export interface SignatorySnapshot {
+  signatoryName: string;
+  signatoryDesignation: string;
+  signatureAssetPath: string | null;
+  sealAssetPath: string | null;
+  entityLegalName: string;
+  cin: string;
+  registeredAddress: string;
+  contactPhone: string;
+  payrollEmail: string;
+}
+
+/** Per-line YTD totals for an Indian financial year, derived from FINAL snapshots only. */
+export interface AuthorisedSlipYtd {
+  basic: number;
+  fixedAllowance: number;
+  variablePaid: number;
+  grossEarnings: number;
+  lopDeduction: number;
+  professionalTax: number;
+  tds: number;
+  otherDeductions: number;
+  totalDeductions: number;
 }

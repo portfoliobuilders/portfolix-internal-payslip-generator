@@ -127,7 +127,7 @@ function mapRow(row: Record<string, unknown>, rowNumber: number): BulkEmployeeIn
   const employee: BulkEmployeeInput = {
     fullName: cellString(row['Full Name']),
     entityCode,
-    empId: cellString(row['Employee ID']).toUpperCase(),
+    empId: cellString(row['Employee ID']).toUpperCase().replace(/\s+/g, ''),
     joiningDate: normalizeJoiningDate(row['Joining Date']),
     department: cellString(row['Department']),
     designation: cellString(row['Designation']),
@@ -137,6 +137,8 @@ function mapRow(row: Record<string, unknown>, rowNumber: number): BulkEmployeeIn
     bankLast4: normalizeBankLast4(row['Bank A/C']),
     panMasked: cellString(row['PAN']).toUpperCase(),
     flexBankBalance: cellNumber(row['Opening Flex-Bank Balance']) || 0,
+    tdsMonthly: 0,
+    ptHalfYearly: 0,
   };
 
   const error = validateRow(employee, rowNumber);

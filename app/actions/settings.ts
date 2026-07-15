@@ -31,10 +31,15 @@ function clampPaydayDay(day: number): number {
 }
 
 function normalizeSettings(settings: Settings): Settings {
+  const months = (settings.ptDeductionMonths ?? [])
+    .map((m) => Math.round(Number(m)))
+    .filter((m) => Number.isInteger(m) && m >= 1 && m <= 12);
   return {
     ...settings,
     paydayDayOfMonth: clampPaydayDay(settings.paydayDayOfMonth),
-    payrollContact: settings.payrollContact.trim(),
+    payrollContact: settings.payrollContact.trim() || 'SET-IN-SETTINGS',
+    ptDeductionMonths:
+      months.length > 0 ? [...new Set(months)].sort((a, b) => a - b) : [8, 2],
   };
 }
 

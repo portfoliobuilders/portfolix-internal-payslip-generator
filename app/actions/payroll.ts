@@ -1,10 +1,12 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import type { Employee, SlipSnapshot } from '@/lib/types';
+import { computeAuthorisedYtd } from '@/lib/authorised-slip';
+import type { AuthorisedSlipYtd, Employee, SignatorySnapshot, SlipSnapshot } from '@/lib/types';
 import {
   employeeToRow,
   generateId,
+  normalizeEmployeeId,
   rowToEmployee,
   rowToSlip,
   slipToRow,
@@ -56,8 +58,11 @@ export async function upsertEmployee(
     const id = employeeData.id || generateId();
     const row = employeeToRow({
       ...employeeData,
+      empId: normalizeEmployeeId(employeeData.empId),
       id,
       flexLog: employeeData.flexLog ?? [],
+      tdsMonthly: employeeData.tdsMonthly ?? 0,
+      ptHalfYearly: employeeData.ptHalfYearly ?? 0,
     });
 
     const { data, error } = await supabase
@@ -90,16 +95,23 @@ export async function bulkUpsertEmployees(
     if (existingResult.error) return { ok: false, error: existingResult.error.message };
 
     const existingByEmpId = new Map(
-      (existingResult.data as EmployeeRow[]).map((row) => [row.employee_id, row]),
+      (existingResult.data as EmployeeRow[]).map((row) => [
+        normalizeEmployeeId(row.employee_id),
+        row,
+      ]),
     );
 
     const rows = employees.map((employee) => {
-      const existing = existingByEmpId.get(employee.empId);
+      const empId = normalizeEmployeeId(employee.empId);
+      const existing = existingByEmpId.get(empId);
       const flexLog = existing ? rowToEmployee(existing).flexLog : [];
       return employeeToRow({
         ...employee,
+        empId,
         id: existing?.id ?? generateId(),
         flexLog,
+        tdsMonthly: employee.tdsMonthly ?? (Number(existing?.tds_monthly ?? 0) || 0),
+        ptHalfYearly: employee.ptHalfYearly ?? (Number(existing?.pt_half_yearly ?? 0) || 0),
       });
     });
 
@@ -219,4 +231,48 @@ export async function finalizePayrollSlip(
   if (!employeeResult.ok) return employeeResult;
 
   return { ok: true, data: { slip: slipResult.data, employee: employeeResult.data } };
+}
+
+/**
+ * YTD line items for the Authorised Slip — Indian FY, FINAL snapshots only,
+ * up to and including the given slip month.
+ */
+export async function fetchAuthorisedSlipYtd(
+  employeeId: string,
+  throughMonthYear: string,
+): Promise<ActionResult<AuthorisedSlipYtd>> {
+  const history = await fetchPayrollHistory();
+  if (!history.ok) return history;
+  return {
+    ok: true,
+    data: computeAuthorisedYtd(history.data, employeeId, throughMonthYear),
+  };
+}
+
+/**
+ * Logs one Authorised Slip (bank copy) generation. Reprints are logged, never blocked.
+ */
+export async function logAuthorisedSlipGeneration(
+  payrollRunId: string,
+  signatorySnapshot: SignatorySnapshot,
+): Promise<ActionResult<{ id: string }>> {
+  try {
+    const supabase = await getSupabase();
+    const { data, error } = await supabase
+      .from('authorised_slip_log')
+      .insert({
+        payroll_run_id: payrollRunId,
+        signatory_snapshot: signatorySnapshot,
+      })
+      .select('id')
+      .single();
+
+    if (error) return { ok: false, error: error.message };
+    return { ok: true, data: { id: (data as { id: string }).id } };
+  } catch (err) {
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : 'Failed to log authorised slip generation.',
+    };
+  }
 }
