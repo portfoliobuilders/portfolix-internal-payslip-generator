@@ -1,30 +1,12 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { Cloud, FileClock, FilePlus2, Settings, Users } from 'lucide-react';
+import { useRouter } from 'next/navigation';
 import RosterView from '@/components/RosterView';
-import GeneratorView from '@/components/GeneratorView';
-import HistoryView from '@/components/HistoryView';
-import SettingsView from '@/components/SettingsView';
-import EntityLogo from '@/components/EntityLogo';
-import { usePayrollData } from '@/hooks/usePayrollData';
-import { useHRStore } from '@/store/useHRStore';
+import { usePayrollContext } from '@/components/PayrollDataProvider';
 
-type Tab = 'roster' | 'generator' | 'history' | 'settings';
-
-const TABS: { id: Tab; label: string; icon: typeof Users }[] = [
-  { id: 'roster', label: 'Employee Roster', icon: Users },
-  { id: 'generator', label: 'Generator', icon: FilePlus2 },
-  { id: 'history', label: 'History', icon: FileClock },
-  { id: 'settings', label: 'Settings', icon: Settings },
-];
-
-export default function Home() {
-  const [tab, setTab] = useState<Tab>('roster');
-  const pxEntity = useHRStore((s) => s.settings.entities.PX);
-  const { employees, slipHistory, loading, error, refresh } = usePayrollData();
-  const [mounted, setMounted] = useState(false);
-  useEffect(() => setMounted(true), []);
+export default function RosterPage() {
+  const router = useRouter();
+  const { employees, loading, refresh } = usePayrollContext();
 
   return (
     <div className="min-h-screen">

@@ -4,8 +4,14 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { format } from 'date-fns';
 import { AlertTriangle, Download, Printer } from 'lucide-react';
-import { computePayroll, validateVariablePaid } from '@/lib/payroll-calc';
-import { formatINR, slipFilename } from '@/lib/format';
+import { computePayroll, derivePtThisMonth, validateVariablePaid } from '@/lib/payroll-calc';
+import {
+  authorisedSlipFilename,
+  formatINR,
+  formatMinutes,
+  formatMonthYear,
+  slipFilename,
+} from '@/lib/format';
 import { exportElementToPdf } from '@/lib/pdf-export';
 import { finalizePayrollSlip, savePayrollSlip } from '@/app/actions/payroll';
 import type { Employee, EntityInfo, SlipSnapshot, SlipStatus } from '@/lib/types';
@@ -15,7 +21,11 @@ import { useHRStore } from '@/store/useHRStore';
 import { useUIStore } from '@/store/useUIStore';
 import { COMPANY_ENTITIES, PAYROLL_CONTACT } from '@/lib/constants/company';
 import SalarySlip from './SalarySlip';
+import Toast from './Toast';
 import { Field, Modal, btnPrimary, btnSecondary, inputAmountCls, inputCls } from './ui';
+import { statementMetaFor } from '@/lib/workforce';
+
+type PreviewMode = 'draft' | 'final' | 'authorised';
 
 interface FormState {
   monthYear: string;
@@ -113,15 +123,41 @@ export default function GeneratorView({
   const preselectedId = useUIStore((s) => s.generatorEmployeeId);
   const setGeneratorEmployeeId = useUIStore((s) => s.setGeneratorEmployeeId);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   const currentMonth = format(new Date(), 'yyyy-MM');
   const [employeeId, setEmployeeId] = useState<string>(preselectedId ?? '');
   const [selectedEntityId, setSelectedEntityId] = useState<string>(COMPANY_ENTITIES[0].id);
   const [form, setForm] = useState<FormState>(() => emptyForm(currentMonth));
-  const [status, setStatus] = useState<SlipStatus>('draft');
+  const [mode, setMode] = useState<PreviewMode>('draft');
+  const status: SlipStatus = mode === 'final' ? 'final' : 'draft';
   const [supersedePending, setSupersedePending] = useState(false);
   const [exporting, setExporting] = useState(false);
   const exportRef = useRef<HTMLDivElement>(null);
+
+  const [signatoryStorageConfigured, setSignatoryStorageConfigured] = useState(true);
+  const [signatoryStorageMessage, setSignatoryStorageMessage] = useState<string | null>(null);
+  const [authorisedBundle, setAuthorisedBundle] = useState<{
+    snapshot: SlipSnapshot;
+    ytd: AuthorisedSlipYtd;
+    signatureUrl: string | null;
+    sealUrl: string | null;
+  } | null>(null);
+  const [authorisedLoading, setAuthorisedLoading] = useState(false);
+  const [authorisedError, setAuthorisedError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const storage = await getSignatoryStorageStatus();
+      if (cancelled) return;
+      setSignatoryStorageConfigured(storage.configured);
+      setSignatoryStorageMessage(storage.message);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     if (preselectedId) {
@@ -181,6 +217,69 @@ export default function GeneratorView({
     ? existingFinal.inputs.flexBankBalanceBefore
     : employee?.flexBankBalance ?? 0;
 
+  // Authorised preview NEVER uses live form inputs — only a stored FINAL snapshot.
+  useEffect(() => {
+    if (mode !== 'authorised' || !existingFinal || !employee) {
+      setAuthorisedBundle(null);
+      setAuthorisedError(null);
+      setAuthorisedLoading(false);
+      return;
+    }
+
+    const entityInfo = settings.entities[existingFinal.employee.entityCode];
+    let cancelled = false;
+    setAuthorisedLoading(true);
+    setAuthorisedError(null);
+
+    void (async () => {
+      try {
+        const [ytdResult, urlsResult] = await Promise.all([
+          fetchAuthorisedSlipYtd(existingFinal.employeeId, existingFinal.monthYear),
+          createSignatorySignedUrls({
+            signatureAssetPath: entityInfo.signatureAssetPath,
+            sealAssetPath: entityInfo.sealAssetPath,
+          }),
+        ]);
+
+        if (cancelled) return;
+
+        if (!ytdResult.ok) {
+          setAuthorisedError(ytdResult.error);
+          setAuthorisedBundle(null);
+          return;
+        }
+
+        const ytd =
+          ytdResult.data ??
+          computeAuthorisedYtd(slipHistory, existingFinal.employeeId, existingFinal.monthYear);
+
+        // Signed URLs may fail when the secret key is missing — still show the
+        // slip preview; download stays disabled with the specific reason.
+        const signatureUrl = urlsResult.ok ? urlsResult.data.signatureUrl : null;
+        const sealUrl = urlsResult.ok ? urlsResult.data.sealUrl : null;
+
+        setAuthorisedBundle({
+          snapshot: existingFinal,
+          ytd,
+          signatureUrl,
+          sealUrl,
+        });
+      } catch (err) {
+        if (cancelled) return;
+        setAuthorisedError(
+          err instanceof Error ? err.message : 'Failed to load authorised bank copy.',
+        );
+        setAuthorisedBundle(null);
+      } finally {
+        if (!cancelled) setAuthorisedLoading(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [mode, existingFinal, employee, settings.entities, slipHistory]);
+
   useEffect(() => {
     // Re-seed the chained opening whenever employee or month changes.
     setForm((f) => ({ ...f, deferredOpening: String(expectedOpening) }));
@@ -194,10 +293,19 @@ export default function GeneratorView({
     setForm((f) => ({ ...f, [key]: value }));
 
   // ---------- Live computation via the pure engine ----------
+  const ptThisMonth = useMemo(() => {
+    if (!employee) return 0;
+    return derivePtThisMonth(
+      employee.ptHalfYearly,
+      form.monthYear,
+      settings.ptDeductionMonths,
+    );
+  }, [employee, form.monthYear, settings.ptDeductionMonths]);
+
   const result = useMemo(() => {
     if (!employee) return null;
     return computePayroll({
-      baseSalary: employee.baseSalary,
+      baseSalary: employee.compensationAmount,
       flexBankBalance: flexBankBase,
       flexMinutesEarned: num(form.flexMinutesEarned),
       totalLateMinutes: num(form.lateMinutes),
@@ -205,12 +313,14 @@ export default function GeneratorView({
       halfDays: num(form.halfDays),
       fixedAllowance: num(form.fixedAllowance),
       otherDeductions: num(form.otherDeductions),
+      tdsMonthly: employee.tdsMonthly,
+      ptThisMonth,
       variableEarned: num(form.variableEarned),
       variablePaid: num(form.variablePaid),
       deferredOpening: num(form.deferredOpening),
       committedPayoutDate: form.committedPayoutDate || null,
     });
-  }, [employee, form, flexBankBase]);
+  }, [employee, form, flexBankBase, ptThisMonth]);
 
   const needsPayoutDate = (result?.deferredClosing ?? 0) > 0;
 
@@ -261,6 +371,8 @@ export default function GeneratorView({
         flexMinutesEarned: num(form.flexMinutesEarned),
         fixedAllowance: num(form.fixedAllowance),
         otherDeductions: num(form.otherDeductions),
+        tdsMonthly: employee.tdsMonthly,
+        ptThisMonth,
         variableLabel: form.variableLabel,
         variableEarned: num(form.variableEarned),
         variablePaid: num(form.variablePaid),
@@ -268,7 +380,8 @@ export default function GeneratorView({
         committedPayoutDate: form.committedPayoutDate || null,
         remarks: form.remarks,
         flexBankBalanceBefore: flexBankBase,
-        baseSalary: employee.baseSalary,
+        baseSalary: employee.compensationAmount,
+        compensationAmount: employee.compensationAmount,
       },
       computed: {
         perDayRate: result.perDayRate,
@@ -279,6 +392,8 @@ export default function GeneratorView({
         lopDays: result.lopDays,
         lopDeduction: result.lopDeduction,
         otherDeductions: result.otherDeductions,
+        tds: result.tds,
+        pt: result.pt,
         totalDeductions: result.totalDeductions,
         grossFixed: result.grossFixed,
         variableEarned: result.variableEarned,
@@ -301,6 +416,10 @@ export default function GeneratorView({
         joiningDate: employee.joiningDate,
         employeeAddress: employee.employeeAddress,
         paymentMode: employee.paymentMode,
+        engagementType: employee.engagementType,
+        employmentStatus: employee.employmentStatus,
+        paymentType: employee.paymentType,
+        compensationAmount: employee.compensationAmount,
         bankLast4: employee.bankLast4,
         panMasked: employee.panMasked,
       },
@@ -310,7 +429,7 @@ export default function GeneratorView({
 
   // ---------- Export / finalize flow ----------
   async function doExport(confirmedSupersede: boolean) {
-    if (!employee || !snapshot || !result || hasErrors) return;
+    if (!employee || !snapshot || !result || hasErrors || mode === 'authorised') return;
 
     if (status === 'final' && !confirmedSupersede) {
       const existing = findFinalSlipForMonth(slipHistory, employee.id, form.monthYear);
@@ -332,26 +451,119 @@ export default function GeneratorView({
       if (!el) throw new Error('Slip element not ready');
       await exportElementToPdf(
         el,
-        slipFilename(form.monthYear, employee.empId, status === 'draft'),
+        slipFilename(
+          form.monthYear,
+          employee.empId,
+          status === 'draft',
+          statementMetaFor(employee.paymentType, employee.engagementType, employee.employmentStatus)
+            .statementTitle.replace(/\s+/g, ''),
+        ),
       );
       if (status === 'final') {
-        const saveResult = await finalizePayrollSlip(finalSnapshot, result.newFlexBalance);
+        const saveResult = await finalizePayrollSlip(finalSnapshot, result.newFlexBalance, settings);
         if (!saveResult.ok) {
           setSaveError(saveResult.error);
           return;
         }
+        setToastMessage('Final slip saved to Supabase history.');
       } else {
-        const saveResult = await savePayrollSlip({ ...finalSnapshot, status: 'draft' });
+        const saveResult = await savePayrollSlip({ ...finalSnapshot, status: 'draft' }, settings);
         if (!saveResult.ok) {
           setSaveError(saveResult.error);
           return;
         }
+        setToastMessage('Draft slip saved to Supabase history.');
       }
       setSaveError(null);
       await onRefresh();
     } finally {
       setExporting(false);
       setSupersedePending(false);
+    }
+  }
+
+  const authorisedDisableReason = useMemo(() => {
+    if (!employee || !entity) return 'Select an employee.';
+    if (!existingFinal) {
+      return 'Finalize this month first — the bank copy is generated from the finalized record.';
+    }
+    if (!signatoryStorageConfigured) {
+      return (
+        signatoryStorageMessage ??
+        'SUPABASE_SECRET_KEY is not configured. Bank copy cannot embed signature/seal.'
+      );
+    }
+    return signatoryIncompleteReason(entity);
+  }, [
+    employee,
+    entity,
+    existingFinal,
+    signatoryStorageConfigured,
+    signatoryStorageMessage,
+  ]);
+
+  async function doAuthorisedExport() {
+    if (!employee || !entity || !existingFinal || authorisedDisableReason) return;
+
+    setExporting(true);
+    setAuthorisedError(null);
+    try {
+      let bundle = authorisedBundle;
+      if (!bundle || bundle.snapshot.id !== existingFinal.id) {
+        const [ytdResult, urlsResult] = await Promise.all([
+          fetchAuthorisedSlipYtd(existingFinal.employeeId, existingFinal.monthYear),
+          createSignatorySignedUrls({
+            signatureAssetPath: entity.signatureAssetPath,
+            sealAssetPath: entity.sealAssetPath,
+          }),
+        ]);
+        if (!ytdResult.ok) {
+          setAuthorisedError(ytdResult.error);
+          return;
+        }
+        if (!urlsResult.ok) {
+          setAuthorisedError(urlsResult.error);
+          return;
+        }
+        bundle = {
+          snapshot: existingFinal,
+          ytd:
+            ytdResult.data ??
+            computeAuthorisedYtd(slipHistory, existingFinal.employeeId, existingFinal.monthYear),
+          signatureUrl: urlsResult.data.signatureUrl,
+          sealUrl: urlsResult.data.sealUrl,
+        };
+        setAuthorisedBundle(bundle);
+        await new Promise((resolve) => setTimeout(resolve, 80));
+      }
+
+      const el = document.getElementById('slip-print-root');
+      if (!el) throw new Error('Authorised slip element not ready');
+
+      await exportElementToPdf(
+        el,
+        authorisedSlipFilename(
+          existingFinal.employee.entityCode,
+          existingFinal.monthYear,
+          existingFinal.employee.empId,
+        ),
+      );
+
+      await logAuthorisedSlipGeneration(existingFinal.id, {
+        signatoryName: entity.signatoryName,
+        signatoryDesignation: entity.signatoryDesignation,
+        signatureAssetPath: entity.signatureAssetPath,
+        sealAssetPath: entity.sealAssetPath,
+        entityLegalName: entity.name,
+        cin: entity.cin,
+        registeredAddress: entity.registeredAddress,
+        phone: entity.phone,
+        payrollEmail: entity.payrollEmail,
+      });
+    } catch (err) {
+      setAuthorisedError(err instanceof Error ? err.message : 'Failed to generate bank copy.');
+    } finally {
+      setExporting(false);
     }
   }
 
@@ -364,16 +576,16 @@ export default function GeneratorView({
   }
 
   return (
-    <div className="grid grid-cols-1 gap-6 xl:grid-cols-[420px_minmax(0,1fr)]">
+    <div className="grid grid-cols-1 gap-6 lg:grid-cols-[420px_minmax(0,1fr)]">
       {/* ================= Left panel — inputs ================= */}
-      <div className="no-print space-y-4">
+      <div className="no-print min-w-0 space-y-4">
         {saveError && (
           <p className="rounded-md border border-amber-edge bg-amber-tint px-3 py-2 text-[12px] font-medium text-amber-brand">
             Saved PDF locally, but Supabase sync failed: {saveError}
           </p>
         )}
         <div className="rounded-lg border border-hairline bg-paper p-4">
-          <h1 className="mb-3 text-sm font-semibold">Slip Generator</h1>
+          <h1 className="mb-3 text-sm font-semibold">Payment Statement Generator</h1>
           <div className="grid grid-cols-2 gap-3">
             <div className="col-span-2">
               <Field label="Employee" error={errors.employee ?? null}>
@@ -430,21 +642,115 @@ export default function GeneratorView({
             >
               <input type="number" min={0} step={1} className={inputAmountCls} value={form.flexMinutesEarned} onChange={(e) => set('flexMinutesEarned', e.target.value)} />
             </Field>
-            <Field label="Fixed allowance (₹)" error={errors.fixedAllowance ?? null}>
+            <Field label={employee?.paymentType === 'stipend' ? 'Adjustments (₹)' : 'Allowances / Adjustments (₹)'} error={errors.fixedAllowance ?? null}>
               <input type="number" min={0} step="0.01" className={inputAmountCls} value={form.fixedAllowance} onChange={(e) => set('fixedAllowance', e.target.value)} />
             </Field>
-            <Field label="Other deductions (₹)" error={errors.otherDeductions ?? null}>
+            <Field label={employee?.paymentType === 'professional_fee' || employee?.paymentType === 'consultancy_fee' ? 'TDS / Deductions (₹)' : 'Other deductions (₹)'} error={errors.otherDeductions ?? null}>
               <input type="number" min={0} step="0.01" className={inputAmountCls} value={form.otherDeductions} onChange={(e) => set('otherDeductions', e.target.value)} />
+            </Field>
+            <Field
+              label="TDS this month (₹)"
+              hint="From employee roster — edit on the employee record."
+            >
+              <input
+                type="number"
+                className={inputAmountCls}
+                value={employee ? String(employee.tdsMonthly) : '0'}
+                readOnly
+                disabled
+              />
+            </Field>
+            <Field
+              label="Professional Tax this month (₹)"
+              hint={
+                employee
+                  ? `Half-yearly ₹${employee.ptHalfYearly.toFixed(2)} · deducted in months ${settings.ptDeductionMonths.join(', ')}`
+                  : undefined
+              }
+            >
+              <input
+                type="number"
+                className={inputAmountCls}
+                value={String(ptThisMonth)}
+                readOnly
+                disabled
+              />
             </Field>
           </div>
         </div>
 
-        <div className="rounded-lg border border-hairline bg-paper p-4">
+        {employee && result && (
+          <div className="rounded-lg border border-hairline bg-surface px-4 py-3">
+            <div className="mb-2 flex items-center justify-between">
+              <h2 className="text-[12px] font-semibold uppercase tracking-wide text-muted">
+                Flex bank
+              </h2>
+              <span className="amount text-[12px] font-semibold text-ink">
+                {formatMinutes(result.flexAvailable)} available
+              </span>
+            </div>
+            <div className="grid grid-cols-3 gap-2 text-[11px]">
+              <div>
+                <p className="text-muted">Carried in</p>
+                <p className="amount font-semibold text-ink">{formatMinutes(flexBankBase)}</p>
+              </div>
+              <div>
+                <p className="text-muted">+ Earned this month</p>
+                <p className="amount font-semibold text-ink">
+                  {formatMinutes(num(form.flexMinutesEarned))}
+                </p>
+              </div>
+              <div>
+                <p className="text-muted">= Available</p>
+                <p className="amount font-semibold text-ink">
+                  {formatMinutes(result.flexAvailable)}
+                </p>
+              </div>
+            </div>
+            <div className="mt-2 border-t border-hairline pt-2 text-[11px] leading-relaxed">
+              {num(form.lateMinutes) > 0 ? (
+                <p className="text-ink">
+                  Absorbs{' '}
+                  <span className="amount font-semibold text-emerald-deep">
+                    {formatMinutes(result.flexOffsetMinutes)}
+                  </span>{' '}
+                  of {formatMinutes(num(form.lateMinutes))} late this month
+                  {result.unpaidLateMinutes > 0 ? (
+                    <>
+                      {' · '}
+                      <span className="amount font-semibold text-amber-brand">
+                        {formatMinutes(result.unpaidLateMinutes)}
+                      </span>{' '}
+                      unpaid → {result.lopFromLateness.toFixed(1)} LOP day(s)
+                    </>
+                  ) : (
+                    <> · no loss of pay</>
+                  )}
+                  {' · '}balance after:{' '}
+                  <span className="amount font-semibold text-ink">
+                    {formatMinutes(result.newFlexBalance)}
+                  </span>
+                </p>
+              ) : (
+                <p className="text-muted">
+                  No late minutes this month — the flex bank is{' '}
+                  <span className="font-semibold text-ink">untouched</span> and{' '}
+                  <span className="amount font-semibold text-ink">
+                    {formatMinutes(result.newFlexBalance)}
+                  </span>{' '}
+                  carries forward. Flex only reduces pay when there are late minutes to absorb.
+                </p>
+              )}
+            </div>
+          </div>
+        )}
+
+        <div className="rounded-lg border border-hairline bg-paper p-4 shadow-card">
           <h2 className="mb-3 text-[12px] font-semibold uppercase tracking-wide text-muted">
             Variable component
           </h2>
-          <div className="grid grid-cols-2 gap-3">
-            <div className="col-span-2">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div className="sm:col-span-2">
               <Field label="Label">
                 <input className={inputCls} value={form.variableLabel} onChange={(e) => set('variableLabel', e.target.value)} placeholder="Performance incentive" />
               </Field>
@@ -490,7 +796,7 @@ export default function GeneratorView({
           )}
         </div>
 
-        <div className="rounded-lg border border-hairline bg-paper p-4">
+        <div className="rounded-lg border border-hairline bg-paper p-4 shadow-card">
           <Field label="Remarks / operations note">
             <textarea
               className={`${inputCls} resize-none`}
@@ -504,53 +810,166 @@ export default function GeneratorView({
       </div>
 
       {/* ================= Right panel — live preview ================= */}
-      <div className="no-print space-y-3">
-        <div className="flex flex-wrap items-center gap-3 rounded-lg border border-hairline bg-paper px-4 py-2.5">
+      <div className="no-print min-w-0 space-y-3">
+        <div className="flex flex-wrap items-center gap-3 rounded-lg border border-hairline bg-paper px-4 py-2.5 shadow-card">
           <div className="flex overflow-hidden rounded-md border border-hairline">
             <button
-              onClick={() => setStatus('draft')}
-              className={`px-3 py-1.5 text-sm font-medium ${
-                status === 'draft' ? 'bg-amber-tint text-amber-brand' : 'bg-paper text-muted hover:text-ink'
+              onClick={() => setMode('draft')}
+              className={`min-h-[44px] px-3 py-2 text-sm font-medium transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ink/20 sm:min-h-0 ${
+                mode === 'draft' ? 'bg-amber-tint text-amber-brand' : 'bg-paper text-muted hover:bg-surface hover:text-ink'
               }`}
             >
               Draft
             </button>
             <button
-              onClick={() => setStatus('final')}
-              className={`border-l border-hairline px-3 py-1.5 text-sm font-medium ${
-                status === 'final' ? 'bg-emerald-tint text-emerald-deep' : 'bg-paper text-muted hover:text-ink'
+              onClick={() => setMode('final')}
+              className={`min-h-[44px] border-l border-hairline px-3 py-2 text-sm font-medium transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ink/20 sm:min-h-0 ${
+                mode === 'final' ? 'bg-emerald-tint text-emerald-deep' : 'bg-paper text-muted hover:bg-surface hover:text-ink'
               }`}
             >
               ✓ Final
             </button>
-          </div>
-
-          <div className="ml-auto flex items-center gap-2">
-            <button className={btnSecondary} disabled={!snapshot || hasErrors} onClick={() => window.print()}>
-              <Printer size={14} /> Print
-            </button>
             <button
-              className={btnPrimary}
-              disabled={!snapshot || hasErrors || exporting}
-              onClick={() => void doExport(false)}
-              title={
-                errors.committedPayoutDate ??
-                (hasErrors ? 'Fix the highlighted inputs first.' : undefined)
-              }
+              onClick={() => setMode('authorised')}
+              className={`min-h-[44px] border-l border-hairline px-3 py-2 text-sm font-medium transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ink/20 sm:min-h-0 ${
+                mode === 'authorised' ? 'bg-surface text-ink' : 'bg-paper text-muted hover:bg-surface hover:text-ink'
+              }`}
             >
               <Download size={14} />
-              {exporting ? 'Exporting…' : status === 'final' ? 'Download PDF & finalize' : 'Download draft PDF'}
+              {exporting
+                ? 'Exporting…'
+                : status === 'final'
+                  ? employee?.paymentType === 'salary'
+                    ? 'Generate Salary Slip'
+                    : employee?.paymentType === 'stipend'
+                      ? 'Generate Stipend Statement'
+                      : 'Generate Payment Statement'
+                  : 'Download draft PDF'}
             </button>
+          </div>
+
+          <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
+            {mode === 'authorised' ? (
+              <>
+                <button
+                  className={btnSecondary}
+                  disabled={!authorisedBundle || !!authorisedDisableReason}
+                  onClick={() => window.print()}
+                >
+                  <Printer size={14} /> Print
+                </button>
+                <button
+                  className={btnPrimary}
+                  disabled={!!authorisedDisableReason || exporting || authorisedLoading}
+                  title={authorisedDisableReason ?? undefined}
+                  onClick={() => void doAuthorisedExport()}
+                >
+                  <Download size={14} />
+                  {exporting ? 'Exporting…' : 'Download bank copy PDF'}
+                </button>
+              </>
+            ) : (
+              <>
+                <button className={btnSecondary} disabled={!snapshot || hasErrors} onClick={() => window.print()}>
+                  <Printer size={14} /> Print
+                </button>
+                <button
+                  className={btnPrimary}
+                  disabled={!snapshot || hasErrors || exporting}
+                  onClick={() => void doExport(false)}
+                  title={
+                    errors.committedPayoutDate ??
+                    (hasErrors ? 'Fix the highlighted inputs first.' : undefined)
+                  }
+                >
+                  <Download size={14} />
+                  {exporting ? 'Exporting…' : status === 'final' ? 'Download PDF & finalize' : 'Download draft PDF'}
+                </button>
+              </>
+            )}
           </div>
         </div>
 
-        {snapshot && entity ? (
+        {mode === 'authorised' && existingFinal && authorisedDisableReason && (
+          <div className="flex items-start gap-2 rounded-lg border border-amber-edge bg-amber-tint px-4 py-2.5 text-[12px] font-medium text-amber-brand">
+            <AlertTriangle size={14} className="mt-0.5 shrink-0" />
+            <span>{authorisedDisableReason}</span>
+          </div>
+        )}
+
+        {mode !== 'authorised' && hasErrors && (
+          <div className="flex items-start gap-2 rounded-lg border border-amber-edge bg-amber-tint px-4 py-2.5 text-[12px] font-medium text-amber-brand">
+            <AlertTriangle size={14} className="mt-0.5 shrink-0" />
+            <span>
+              {needsPayoutDate && !form.committedPayoutDate ? (
+                <>
+                  Export blocked: {formatINR(result?.deferredClosing ?? 0)} is deferred (variable
+                  earned − paid). Set a <strong>Committed payout date</strong> in the Variable
+                  component below, or make paid ≥ earned so nothing is deferred.
+                </>
+              ) : (
+                <>
+                  Export blocked — fix the highlighted fields in the left panel to enable Print and
+                  Download.
+                </>
+              )}
+            </span>
+          </div>
+        )}
+
+        {authorisedError && mode === 'authorised' && (
+          <p className="rounded-md border border-amber-edge bg-amber-tint px-3 py-2 text-[12px] text-amber-brand">
+            {authorisedError}
+          </p>
+        )}
+
+        {mode === 'authorised' ? (
+          !employee ? (
+            <div className="flex h-96 items-center justify-center rounded-lg border border-dashed border-hairline bg-paper text-sm text-muted">
+              Select an employee to see the authorised bank copy.
+            </div>
+          ) : !existingFinal ? (
+            <div className="flex h-96 flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-hairline bg-paper px-6 text-center">
+              <p className="max-w-sm text-sm text-muted">
+                Finalize this month first — the bank copy is generated from the finalized record.
+              </p>
+              <button className={btnPrimary} onClick={() => setMode('final')}>
+                Go to Final tab
+              </button>
+            </div>
+          ) : authorisedLoading && !authorisedBundle ? (
+            <div className="flex h-96 items-center justify-center rounded-lg border border-dashed border-hairline bg-paper text-sm text-muted">
+              Loading authorised bank copy…
+            </div>
+          ) : authorisedBundle && entity ? (
+            <div className="space-y-2">
+              <p className="rounded-md border border-hairline bg-surface px-3 py-1.5 text-[11px] font-medium text-muted">
+                Rendered from the finalized slip for {formatMonthYear(existingFinal.monthYear)}.
+              </p>
+              <ScaledPreview>
+                <AuthorisedSlip
+                  snapshot={authorisedBundle.snapshot}
+                  entity={entity}
+                  ytd={authorisedBundle.ytd}
+                  paydayDayOfMonth={settings.paydayDayOfMonth}
+                  signatureUrl={authorisedBundle.signatureUrl}
+                  sealUrl={authorisedBundle.sealUrl}
+                />
+              </ScaledPreview>
+            </div>
+          ) : (
+            <div className="flex h-96 items-center justify-center rounded-lg border border-dashed border-hairline bg-paper text-sm text-muted">
+              Unable to load the authorised bank copy.
+            </div>
+          )
+        ) : snapshot && entity ? (
           <ScaledPreview>
             <SalarySlip
               snapshot={snapshot}
               entity={entity}
               payrollContact={PAYROLL_CONTACT}
               paydayDayOfMonth={settings.paydayDayOfMonth}
+              reviewDeadlineTime={settings.reviewDeadlineTime}
               ledgerMismatch={ledgerMismatch}
             />
           </ScaledPreview>
@@ -562,7 +981,9 @@ export default function GeneratorView({
       </div>
 
       {/* Unscaled off-screen copy — the capture source for PDF and window.print(). */}
-      {snapshot && entity &&
+      {mode !== 'authorised' &&
+        snapshot &&
+        entity &&
         typeof document !== 'undefined' &&
         createPortal(
           <div id="slip-print-root" ref={exportRef}>
@@ -571,7 +992,26 @@ export default function GeneratorView({
               entity={entity}
               payrollContact={PAYROLL_CONTACT}
               paydayDayOfMonth={settings.paydayDayOfMonth}
+              reviewDeadlineTime={settings.reviewDeadlineTime}
               ledgerMismatch={ledgerMismatch}
+            />
+          </div>,
+          document.body,
+        )}
+
+      {mode === 'authorised' &&
+        authorisedBundle &&
+        entity &&
+        typeof document !== 'undefined' &&
+        createPortal(
+          <div id="slip-print-root" ref={exportRef}>
+            <AuthorisedSlip
+              snapshot={authorisedBundle.snapshot}
+              entity={entity}
+              ytd={authorisedBundle.ytd}
+              paydayDayOfMonth={settings.paydayDayOfMonth}
+              signatureUrl={authorisedBundle.signatureUrl}
+              sealUrl={authorisedBundle.sealUrl}
             />
           </div>,
           document.body,
@@ -597,6 +1037,7 @@ export default function GeneratorView({
           </div>
         </Modal>
       )}
+      {toastMessage && <Toast message={toastMessage} onClose={() => setToastMessage(null)} />}
     </div>
   );
 }
