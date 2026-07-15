@@ -422,7 +422,7 @@ export default function HistoryView({ slipHistory, loading, error, onRefresh }: 
           </label>
           <label className="block">
             <span className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-muted">Type</span>
-            <select className={`${inputCls} w-56`} value={statementFilter} onChange={(e) => setStatementFilter(e.target.value)}>
+            <select className={`${inputCls} w-full sm:w-56`} value={statementFilter} onChange={(e) => setStatementFilter(e.target.value)}>
               <option value="">All statements</option>
               <option value="Salary Slip">Salary Slips</option>
               <option value="Stipend Statement">Stipend Statements</option>
@@ -432,12 +432,13 @@ export default function HistoryView({ slipHistory, loading, error, onRefresh }: 
           </label>
           <label className="block">
             <span className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-muted">Month</span>
-            <input type="month" className={`${inputCls} w-40`} value={monthFilter} onChange={(e) => setMonthFilter(e.target.value)} />
+            <input type="month" className={`${inputCls} w-full sm:w-40`} value={monthFilter} onChange={(e) => setMonthFilter(e.target.value)} />
           </label>
         </div>
       </div>
 
-      <div className="overflow-x-auto rounded-lg border border-hairline bg-paper shadow-card">
+      {/* Wide payment columns: horizontal scroll on small screens (no clipping). */}
+      <div className="min-w-0 overflow-x-auto overscroll-x-contain rounded-lg border border-hairline bg-paper shadow-card [-webkit-overflow-scrolling:touch]">
         {filtered.length === 0 ? (
           <p className="px-4 py-14 text-center text-sm text-muted">
             {slipHistory.length === 0
@@ -462,7 +463,7 @@ export default function HistoryView({ slipHistory, loading, error, onRefresh }: 
                 <th className="px-3 py-2 font-semibold">Revised expected</th>
                 <th className="px-3 py-2 font-semibold">Last paid</th>
                 <th className="px-3 py-2 font-semibold">Timeliness</th>
-                <th className="px-3 py-2 text-right font-semibold">Actions</th>
+                <th className="sticky right-0 bg-paper px-3 py-2 text-right font-semibold">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-hairline">
@@ -507,18 +508,20 @@ export default function HistoryView({ slipHistory, loading, error, onRefresh }: 
                   <td className="px-3 py-2.5 text-[11px] text-muted">
                     {obl ? obl.timeliness.replace(/_/g, ' ') : '—'}
                   </td>
-                  <td className="px-3 py-2.5">
-                    <div className="flex justify-end gap-1">
+                  <td className="sticky right-0 bg-paper px-3 py-2.5">
+                    <div className="flex max-w-[11rem] flex-wrap justify-end gap-0.5 sm:max-w-none">
                       <button
                         title="View slip"
-                        className="rounded p-1.5 text-muted hover:bg-surface hover:text-ink"
+                        aria-label="View slip"
+                        className="flex h-11 w-11 items-center justify-center rounded-md text-muted transition-colors duration-150 hover:bg-surface hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink/20 lg:h-9 lg:w-9"
                         onClick={() => setViewing(s)}
                       >
                         <Eye size={15} />
                       </button>
                       <button
                         title="Re-download PDF (from stored snapshot)"
-                        className="rounded p-1.5 text-muted hover:bg-surface hover:text-ink"
+                        aria-label="Re-download PDF (from stored snapshot)"
+                        className="flex h-11 w-11 items-center justify-center rounded-md text-muted transition-colors duration-150 hover:bg-surface hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink/20 disabled:cursor-not-allowed disabled:opacity-40 lg:h-9 lg:w-9"
                         disabled={exportTarget !== null}
                         onClick={() => void redownload(s)}
                       >
@@ -527,7 +530,8 @@ export default function HistoryView({ slipHistory, loading, error, onRefresh }: 
                       {s.status === 'final' && (
                         <button
                           title="Payment Ledger"
-                          className="rounded p-1.5 text-muted hover:bg-surface hover:text-ink"
+                          aria-label="Payment Ledger"
+                          className="flex h-11 w-11 items-center justify-center rounded-md text-muted transition-colors duration-150 hover:bg-surface hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink/20 lg:h-9 lg:w-9"
                           onClick={() => setLedgerTarget(s)}
                         >
                           <Wallet size={15} />
@@ -545,7 +549,7 @@ export default function HistoryView({ slipHistory, loading, error, onRefresh }: 
                             ? 'Final slips cannot be deleted — supersede or cancel/revoke instead'
                             : 'Delete draft slip'
                         }
-                        className="rounded p-1.5 text-muted hover:bg-surface hover:text-amber-brand"
+                        className="flex h-11 w-11 items-center justify-center rounded-md text-muted transition-colors duration-150 hover:bg-surface hover:text-amber-brand focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink/20 lg:h-9 lg:w-9"
                         onClick={() => {
                           setDeleteError(null);
                           setDeleteTarget(s);
@@ -565,12 +569,12 @@ export default function HistoryView({ slipHistory, loading, error, onRefresh }: 
 
       {viewing && (
         <div
-          className="no-print fixed inset-0 z-50 overflow-auto bg-ink/50 p-4 backdrop-blur-[2px] sm:p-6"
+          className="no-print fixed inset-0 z-50 overflow-auto bg-ink/50 p-3 backdrop-blur-[2px] sm:p-6"
           onMouseDown={(e) => {
             if (e.target === e.currentTarget) setViewing(null);
           }}
         >
-          <div className="mx-auto w-fit">
+          <div className="mx-auto w-full max-w-[210mm]">
             <div className="mb-2 flex flex-wrap justify-end gap-2">
               <button className={`${btnSecondary} bg-paper`} onClick={() => window.print()}>
                 <Printer size={14} /> Print
@@ -596,13 +600,16 @@ export default function HistoryView({ slipHistory, loading, error, onRefresh }: 
                 {bankCopyError}
               </p>
             )}
-            <SalarySlip
-              snapshot={viewing}
-              entity={settings.entities[viewing.employee.entityCode]}
-              payrollContact={settings.payrollContact}
-              paydayDayOfMonth={settings.paydayDayOfMonth}
-              reviewDeadlineTime={settings.reviewDeadlineTime}
-            />
+            {/* Keep A4 slip layout intact; scroll horizontally if viewport is narrower. */}
+            <div className="overflow-x-auto overscroll-x-contain [-webkit-overflow-scrolling:touch]">
+              <SalarySlip
+                snapshot={viewing}
+                entity={settings.entities[viewing.employee.entityCode]}
+                payrollContact={settings.payrollContact}
+                paydayDayOfMonth={settings.paydayDayOfMonth}
+                reviewDeadlineTime={settings.reviewDeadlineTime}
+              />
+            </div>
           </div>
         </div>
       )}

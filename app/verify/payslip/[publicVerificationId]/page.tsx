@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import { fetchPublicPayslipVerification } from '@/app/actions/verification';
 import { formatDate, formatINR, formatMonthYear } from '@/lib/format';
 
@@ -7,18 +8,27 @@ interface PageProps {
   params: { publicVerificationId: string };
 }
 
+function VerifyRow({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="flex flex-col gap-0.5 border-b border-hairline pb-2 sm:flex-row sm:items-baseline sm:justify-between sm:gap-4">
+      <dt className="shrink-0 text-muted">{label}</dt>
+      <dd className="min-w-0 break-words font-medium sm:text-right">{children}</dd>
+    </div>
+  );
+}
+
 export default async function VerifyPayslipPage({ params }: PageProps) {
   const result = await fetchPublicPayslipVerification(params.publicVerificationId);
 
   if (!result.ok) {
     return (
-      <main className="mx-auto max-w-xl px-4 py-16 text-ink">
-        <h1 className="text-xl font-semibold">Payslip verification</h1>
+      <div className="mx-auto w-full max-w-xl px-1 py-8 text-ink sm:px-0 sm:py-12">
+        <h1 className="text-lg font-semibold sm:text-xl">Payslip verification</h1>
         <p className="mt-3 text-sm text-muted">{result.error}</p>
         <p className="mt-6 rounded border border-hairline bg-surface px-3 py-2 text-xs">
           Status: <span className="font-semibold">{result.status}</span>
         </p>
-      </main>
+      </div>
     );
   }
 
@@ -31,58 +41,33 @@ export default async function VerifyPayslipPage({ params }: PageProps) {
         : 'text-rose-700';
 
   return (
-    <main className="mx-auto max-w-xl px-4 py-16 text-ink">
+    <div className="mx-auto w-full max-w-xl px-1 py-8 text-ink sm:px-0 sm:py-12">
       <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted">
         Official verification
       </p>
-      <h1 className="mt-1 text-xl font-semibold">{d.companyLegalName}</h1>
+      <h1 className="mt-1 break-words text-lg font-semibold sm:text-xl">{d.companyLegalName}</h1>
       <p className={`mt-3 text-sm font-bold ${statusColor}`}>Document status: {d.status}</p>
 
       <dl className="mt-8 space-y-3 text-sm">
-        <div className="flex justify-between gap-4 border-b border-hairline pb-2">
-          <dt className="text-muted">Payslip number</dt>
-          <dd className="font-medium">{d.payslipNumber}</dd>
-        </div>
-        <div className="flex justify-between gap-4 border-b border-hairline pb-2">
-          <dt className="text-muted">Employee</dt>
-          <dd className="font-medium">{d.employeeDisplayName}</dd>
-        </div>
-        <div className="flex justify-between gap-4 border-b border-hairline pb-2">
-          <dt className="text-muted">Employee ID</dt>
-          <dd className="font-medium">{d.maskedEmployeeId}</dd>
-        </div>
-        <div className="flex justify-between gap-4 border-b border-hairline pb-2">
-          <dt className="text-muted">Salary month</dt>
-          <dd className="font-medium">{formatMonthYear(d.salaryMonth)}</dd>
-        </div>
-        <div className="flex justify-between gap-4 border-b border-hairline pb-2">
-          <dt className="text-muted">Actual credit date</dt>
-          <dd className="font-medium">
-            {d.actualCreditDate ? formatDate(d.actualCreditDate) : '—'}
-          </dd>
-        </div>
-        <div className="flex justify-between gap-4 border-b border-hairline pb-2">
-          <dt className="text-muted">Net salary</dt>
-          <dd className="font-medium">
-            {d.netSalary != null ? formatINR(d.netSalary) : '—'}
-          </dd>
-        </div>
-        <div className="flex justify-between gap-4 border-b border-hairline pb-2">
-          <dt className="text-muted">Revision</dt>
-          <dd className="font-medium">{d.revisionNumber}</dd>
-        </div>
-        <div className="flex justify-between gap-4 border-b border-hairline pb-2">
-          <dt className="text-muted">Issue date</dt>
-          <dd className="font-medium">
-            {d.issueDate ? formatDate(d.issueDate) : '—'}
-          </dd>
-        </div>
-        <div className="flex justify-between gap-4 border-b border-hairline pb-2">
-          <dt className="text-muted">Verification fingerprint</dt>
-          <dd className="max-w-[55%] break-all text-right text-[11px] font-medium">
+        <VerifyRow label="Payslip number">{d.payslipNumber}</VerifyRow>
+        <VerifyRow label="Employee">{d.employeeDisplayName}</VerifyRow>
+        <VerifyRow label="Employee ID">{d.maskedEmployeeId}</VerifyRow>
+        <VerifyRow label="Salary month">{formatMonthYear(d.salaryMonth)}</VerifyRow>
+        <VerifyRow label="Actual credit date">
+          {d.actualCreditDate ? formatDate(d.actualCreditDate) : '—'}
+        </VerifyRow>
+        <VerifyRow label="Net salary">
+          {d.netSalary != null ? formatINR(d.netSalary) : '—'}
+        </VerifyRow>
+        <VerifyRow label="Revision">{d.revisionNumber}</VerifyRow>
+        <VerifyRow label="Issue date">
+          {d.issueDate ? formatDate(d.issueDate) : '—'}
+        </VerifyRow>
+        <VerifyRow label="Verification fingerprint">
+          <span className="break-all font-mono text-[11px]">
             {d.verificationFingerprint ?? '—'}
-          </dd>
-        </div>
+          </span>
+        </VerifyRow>
       </dl>
 
       <p className="mt-8 text-[11px] leading-relaxed text-muted">
@@ -90,6 +75,6 @@ export default async function VerifyPayslipPage({ params }: PageProps) {
         UTR, residential address, payment evidence, and internal audit logs are never disclosed
         here.
       </p>
-    </main>
+    </div>
   );
 }
