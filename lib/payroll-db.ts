@@ -1,6 +1,6 @@
 /**
  * Maps between Supabase row shapes and the app's domain types.
- * Extended employee fields (department, flex log, etc.) live in details_json.
+ * Extended employee fields (department, flex log, TDS/PT, etc.) live in details_json.
  */
 
 import type {
@@ -67,6 +67,11 @@ export interface PayrollSlipRow {
 
 const ENTITY_CODES: EntityCode[] = ['PX', 'PB', 'PT', 'PH'];
 
+/** Trim and strip all internal whitespace from a business employee ID. */
+export function normalizeEmployeeId(raw: string): string {
+  return raw.trim().replace(/\s+/g, '').toUpperCase();
+}
+
 function emptyDetails(): EmployeeDetailsJson {
   return {
     department: '',
@@ -92,7 +97,7 @@ export function rowToEmployee(row: EmployeeRow): Employee {
   return {
     id: row.id,
     fullName: row.full_name,
-    empId: row.employee_id,
+    empId: normalizeEmployeeId(row.employee_id),
     entityCode,
     department: details.department,
     designation: row.designation,
@@ -123,6 +128,8 @@ export function rowToEmployee(row: EmployeeRow): Employee {
     panMasked: details.panMasked,
     flexBankBalance: row.flex_bank_balance,
     flexLog: details.flexLog ?? [],
+    tdsMonthly: Number(details.tdsMonthly ?? 0) || 0,
+    ptHalfYearly: Number(details.ptHalfYearly ?? 0) || 0,
   };
 }
 
@@ -133,7 +140,7 @@ export function employeeToRow(
     ...(employee.id ? { id: employee.id } : {}),
     full_name: employee.fullName,
     entity_id: employee.entityCode,
-    employee_id: employee.empId,
+    employee_id: normalizeEmployeeId(employee.empId),
     joining_date: employee.joiningDate,
     designation: employee.designation,
     base_salary: employee.baseSalary,
@@ -167,28 +174,102 @@ export function employeeToRow(
   };
 }
 
+/** Back-compat: older frozen snapshots may omit tds / pt. */
 export function rowToSlip(row: PayrollSlipRow): SlipSnapshot {
+  const details = row.details_json;
+  const inputs = {
+    ...details.inputs,
+    tdsMonthly: details.inputs?.tdsMonthly ?? 0,
+    ptThisMonth: details.inputs?.ptThisMonth ?? 0,
+  };
+  const statutory = slipStatutoryDeductions(details.computed ?? {}, inputs);
+  const computed = {
+    ...details.computed,
+    tds: statutory.tds,
+    pt: statutory.pt,
+  };
   return {
     id: row.id,
     employeeId: row.employee_id,
     monthYear: row.month_year,
     status: row.status,
-    ...row.details_json,
+    ...details,
+    inputs,
+    computed,
+    employee: {
+      ...details.employee,
+      empId: normalizeEmployeeId(details.employee.empId),
+    },
   };
 }
 
 export function slipToRow(snapshot: SlipSnapshot): Omit<PayrollSlipRow, 'id'> & { id?: string } {
-  const { id, employeeId, monthYear, status, ...details } = snapshot;
+  const { id, employeeId: _employeeId, monthYear, status, ...details } = snapshot;
   return {
     ...(id ? { id } : {}),
-    employee_id: employeeId,
+    // FK targets employees.employee_id (e.g. PB-TEST-001), not the internal UUID.
+    employee_id: snapshot.employee.empId,
     month_year: monthYear,
     status,
-    details_json: details,
+    details_json: {
+      ...details,
+      employee: {
+        ...details.employee,
+        empId: normalizeEmployeeId(details.employee.empId),
+      },
+    },
   };
 }
 
 export function generateId(): string {
   if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) return crypto.randomUUID();
   return `id-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+export interface AppSettingsRow {
+  id: string;
+  payday_day_of_month: number;
+  payroll_contact: string;
+  entity_branding: Record<EntityCode, EntityInfo> | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export const APP_SETTINGS_ID = 'default';
+
+function mergeEntityBranding(
+  stored: Record<EntityCode, EntityInfo> | null | undefined,
+): Record<EntityCode, EntityInfo> {
+  const merged = { ...SEED_SETTINGS.entities };
+  if (!stored) return merged;
+  for (const code of ENTITY_CODES) {
+    if (stored[code]) {
+      merged[code] = { ...merged[code], ...stored[code] };
+    }
+  }
+  return merged;
+}
+
+/** Maps a Supabase app_settings row to the app's Settings type. */
+export function rowToSettings(row: AppSettingsRow): Settings {
+  return {
+    paydayDayOfMonth: row.payday_day_of_month,
+    payrollContact: row.payroll_contact,
+    entities: mergeEntityBranding(row.entity_branding),
+  };
+}
+
+/** Maps app Settings to a Supabase upsert row. */
+export function settingsToRow(settings: Settings): Omit<AppSettingsRow, 'created_at' | 'updated_at'> {
+  return {
+    id: APP_SETTINGS_ID,
+    payday_day_of_month: settings.paydayDayOfMonth,
+    payroll_contact: settings.payrollContact,
+    entity_branding: settings.entities,
+  };
+}
+
+/** Default settings used when seeding the app_settings row. */
+export function defaultSettingsRow(): Omit<AppSettingsRow, 'created_at' | 'updated_at'> {
+  return settingsToRow(SEED_SETTINGS);
 }

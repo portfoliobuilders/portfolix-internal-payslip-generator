@@ -49,6 +49,7 @@ export default function RosterView({
   const [archiving, setArchiving] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'failed'>('idle');
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [filter, setFilter] = useState('all');
 
@@ -66,40 +67,48 @@ export default function RosterView({
     if (!deleteTarget) return;
     setDeleting(true);
     setActionError(null);
+    setSaveStatus('saving');
     const result = await deleteEmployee(deleteTarget.id);
     setDeleting(false);
     if (!result.ok) {
       setActionError(result.error);
+      setSaveStatus('failed');
       return;
     }
     setDeleteTarget(null);
-    setToastMessage('Employee deleted.');
+    setSaveStatus('saved');
+    setToastMessage('Employee deleted from Supabase.');
     await onRefresh();
   }
 
   async function handleBulkUpload(file: File) {
     setUploading(true);
     setActionError(null);
+    setSaveStatus('saving');
 
     try {
       const { employees: parsedEmployees, errors } = await parseEmployeeSpreadsheet(file);
       if (errors.length > 0) {
         setActionError(errors.slice(0, 5).join(' ') + (errors.length > 5 ? ` (+${errors.length - 5} more)` : ''));
+        setSaveStatus('failed');
         return;
       }
 
       const result = await bulkUpsertEmployees(parsedEmployees);
       if (!result.ok) {
         setActionError(result.error);
+        setSaveStatus('failed');
         return;
       }
 
+      setSaveStatus('saved');
       setToastMessage(
-        `Successfully uploaded ${result.data.count} employee${result.data.count === 1 ? '' : 's'}.`,
+        `Successfully uploaded ${result.data.count} employee${result.data.count === 1 ? '' : 's'} to Supabase.`,
       );
       await onRefresh();
     } catch (err) {
       setActionError(err instanceof Error ? err.message : 'Failed to upload employees.');
+      setSaveStatus('failed');
     } finally {
       setUploading(false);
     }
@@ -122,7 +131,7 @@ export default function RosterView({
 
   return (
     <div className="space-y-4">
-      <div className="rounded-lg border border-hairline bg-paper">
+      <div className="overflow-hidden rounded-lg border border-hairline bg-paper shadow-card">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-hairline px-4 py-3">
           <div>
             <h1 className="text-sm font-semibold">Workforce Roster</h1>
@@ -132,16 +141,16 @@ export default function RosterView({
                 : `${filteredEmployees.length} of ${employees.length} people across Portfolix entities`}
             </p>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:flex-wrap sm:items-center">
             <button
-              className={btnPrimary}
+              className={`${btnPrimary} w-full sm:w-auto`}
               onClick={() => downloadEmployeeTemplate()}
               disabled={loading || uploading}
             >
               <Download size={14} /> Download Excel Template
             </button>
             <button
-              className={btnSecondary}
+              className={`${btnSecondary} w-full sm:w-auto`}
               onClick={() => fileInputRef.current?.click()}
               disabled={loading || uploading}
             >
@@ -166,7 +175,11 @@ export default function RosterView({
                 e.target.value = '';
               }}
             />
-            <button className={btnPrimary} onClick={() => setFormTarget('new')} disabled={loading || uploading}>
+            <button
+              className={`${btnPrimary} w-full sm:w-auto`}
+              onClick={() => setFormTarget('new')}
+              disabled={loading || uploading}
+            >
               <UserPlus size={14} /> Add employee
             </button>
           </div>
@@ -258,11 +271,63 @@ export default function RosterView({
                         <Trash2 size={15} />
                       </button>
                     </div>
-                  </td>
-                </tr>
+                    <div>
+                      <dt className={dtCls}>Base salary</dt>
+                      <dd className="amount font-medium">{formatINR(e.baseSalary)}</dd>
+                    </div>
+                    <div>
+                      <dt className={dtCls}>Flex bank</dt>
+                      <dd className="amount">{formatMinutes(e.flexBankBalance)}</dd>
+                    </div>
+                  </dl>
+                  {renderActions(e)}
+                </div>
               ))}
-            </tbody>
-          </table>
+            </div>
+
+            {/* md+ : full table. Scrolls horizontally if it ever exceeds the card. */}
+            <div className="hidden overflow-x-auto md:block">
+              <table className="w-full min-w-[860px] text-sm">
+                <thead>
+                  <tr className="border-b border-hairline text-left text-[11px] uppercase tracking-wide text-muted">
+                    <th className="px-4 py-2.5 font-semibold">Employee</th>
+                    <th className="px-4 py-2.5 font-semibold">Entity</th>
+                    <th className="px-4 py-2.5 font-semibold">Role</th>
+                    <th className="px-4 py-2.5 text-right font-semibold">Base salary</th>
+                    <th className="px-4 py-2.5 text-right font-semibold">Flex bank</th>
+                    <th className="px-4 py-2.5 text-right font-semibold">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-hairline">
+                  {employees.map((e) => (
+                    <tr key={e.id} className="transition-colors duration-150 hover:bg-surface/60">
+                      <td className="px-4 py-2.5">
+                        <p className="font-medium">{e.fullName}</p>
+                        <p className="text-[12px] text-muted">{e.empId}</p>
+                      </td>
+                      <td className="px-4 py-2.5">
+                        <span className="rounded bg-surface px-1.5 py-0.5 text-[11px] font-semibold">
+                          {e.entityCode}
+                        </span>{' '}
+                        <span className="text-[12px] text-muted">{entities[e.entityCode].name}</span>
+                      </td>
+                      <td className="px-4 py-2.5">
+                        <p>{e.designation || '—'}</p>
+                        <p className="text-[12px] text-muted">{e.department}</p>
+                      </td>
+                      <td className="amount px-4 py-2.5 text-right font-medium">
+                        {formatINR(e.baseSalary)}
+                      </td>
+                      <td className="amount px-4 py-2.5 text-right">
+                        {formatMinutes(e.flexBankBalance)}
+                      </td>
+                      <td className="px-4 py-2.5">{renderActions(e)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
         )}
       </div>
 
@@ -270,11 +335,30 @@ export default function RosterView({
         <EmployeeFormModal
           employee={formTarget === 'new' ? null : formTarget}
           onClose={() => setFormTarget(null)}
-          onSaved={onRefresh}
+          onSaved={async () => {
+            setSaveStatus('saved');
+            setToastMessage(
+              formTarget === 'new' ? 'Employee added to Supabase.' : 'Employee updated in Supabase.',
+            );
+            await onRefresh();
+          }}
+          onSaveStart={() => setSaveStatus('saving')}
+          onSaveFailed={(message) => {
+            setSaveStatus('failed');
+            setActionError(message);
+          }}
         />
       )}
       {flexTarget && (
-        <FlexAdjustModal employee={flexTarget} onClose={() => setFlexTarget(null)} onSaved={onRefresh} />
+        <FlexAdjustModal
+          employee={flexTarget}
+          onClose={() => setFlexTarget(null)}
+          onSaved={async () => {
+            setSaveStatus('saved');
+            setToastMessage('Flex bank updated in Supabase.');
+            await onRefresh();
+          }}
+        />
       )}
       {deleteTarget && (
         <Modal title="Delete employee?" onClose={() => setDeleteTarget(null)}>

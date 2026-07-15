@@ -134,6 +134,12 @@ function validateRow(
   if (!Number.isFinite(employee.flexBankBalance) || employee.flexBankBalance < 0) {
     return `Row ${rowNumber}: Opening Flex-Bank Balance must be 0 or more.`;
   }
+  if (!Number.isFinite(employee.tdsMonthly) || employee.tdsMonthly < 0) {
+    return `Row ${rowNumber}: TDS Monthly must be 0 or more.`;
+  }
+  if (!Number.isFinite(employee.ptHalfYearly) || employee.ptHalfYearly < 0) {
+    return `Row ${rowNumber}: PT Half-Yearly must be 0 or more.`;
+  }
   return null;
 }
 
@@ -151,7 +157,7 @@ function mapRow(row: Record<string, unknown>, rowNumber: number): BulkEmployeeIn
   const employee: BulkEmployeeInput = {
     fullName: cellString(row['Full Name']),
     entityCode,
-    empId: cellString(row['Employee ID']).toUpperCase(),
+    empId: cellString(row['Employee ID']).toUpperCase().replace(/\s+/g, ''),
     joiningDate: normalizeJoiningDate(row['Joining Date']),
     department: cellString(row['Department']),
     designation: cellString(row['Designation']),

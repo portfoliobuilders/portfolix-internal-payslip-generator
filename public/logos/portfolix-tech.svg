@@ -1,6 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 72" role="img" aria-label="Portfolix Tech">
-  <rect width="200" height="72" fill="#000000"/>
-  <text x="16" y="34" fill="#FFFFFF" font-family="Arial, Helvetica, sans-serif" font-size="22" font-weight="700">Portfolix</text>
-  <rect x="16" y="46" width="10" height="10" fill="#E30613"/>
-  <text x="32" y="58" fill="#FFFFFF" font-family="Arial, Helvetica, sans-serif" font-size="22" font-weight="700">Tech</text>
-</svg>

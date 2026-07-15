@@ -1,4 +1,4 @@
-'use client';
+import { redirect } from 'next/navigation';
 
 import { useEffect, useState } from 'react';
 import { Cloud, FileClock, FilePlus2, Settings, Users } from 'lucide-react';

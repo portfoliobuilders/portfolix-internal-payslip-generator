@@ -7,17 +7,40 @@ export type EntityCode = 'PX' | 'PB' | 'PT' | 'PH';
 
 export interface EntityInfo {
   name: string;
-  /** e.g. "A unit of Portfolix Enterprise Pvt Ltd" — empty for the parent. */
+  /** e.g. "A unit of Portfolix Entreprise Pvt Ltd" — empty for the parent. */
   legalLine: string;
   addressLines: string[];
+  /** Legacy display contact; prefer payrollEmail for payroll documents. */
   contact: string;
   /** Custom logo as a data URL; null uses the bundled default for this entity. */
   logoDataUrl: string | null;
+  /** Company Identification Number — from Settings, never hardcoded on documents. */
+  cin: string;
+  /** Full registered office address printed on the Authorised Slip letterhead. */
+  registeredAddress: string;
+  phone: string;
+  payrollEmail: string;
+  signatoryName: string;
+  signatoryDesignation: string;
+  /** Private storage path in the signatory-assets bucket (never a public URL). */
+  signatureAssetPath: string | null;
+  /** Private storage path in the signatory-assets bucket (never a public URL). */
+  sealAssetPath: string | null;
 }
 
 export interface Settings {
   paydayDayOfMonth: number;
   payrollContact: string;
+  /**
+   * Clock label printed with the draft review deadline (e.g. "6:00 PM").
+   * No longer hardcoded in slip components.
+   */
+  reviewDeadlineTime: string;
+  /**
+   * Calendar months (1–12) in which Kerala Professional Tax is deducted.
+   * Default Aug + Feb: [8, 2].
+   */
+  ptDeductionMonths: number[];
   entities: Record<EntityCode, EntityInfo>;
 }
 
@@ -104,6 +127,10 @@ export interface Employee {
   /** Flex-bank balance in minutes. */
   flexBankBalance: number;
   flexLog: FlexLogEntry[];
+  /** Monthly TDS deduction (₹). Stored in details_json. Default 0. */
+  tdsMonthly: number;
+  /** Kerala Professional Tax half-yearly amount (₹). details_json. Default 0. */
+  ptHalfYearly: number;
 }
 
 export type SlipStatus = 'draft' | 'final';
@@ -116,6 +143,10 @@ export interface SlipInputs {
   flexMinutesEarned: number;
   fixedAllowance: number;
   otherDeductions: number;
+  /** Monthly TDS amount applied for this slip (frozen at generation). */
+  tdsMonthly: number;
+  /** PT amount applied for this slip month (0 when month ∉ ptDeductionMonths). */
+  ptThisMonth: number;
   variableLabel: string;
   variableEarned: number;
   variablePaid: number;
@@ -129,7 +160,10 @@ export interface SlipInputs {
   compensationAmount: number;
 }
 
-/** Every derived number on a slip — produced only by lib/payroll-calc.ts. */
+/**
+ * Every derived number on a slip — produced only by lib/payroll-calc.ts.
+ * Older finalized snapshots may omit `tds` / `pt` — renderers must treat missing as 0.
+ */
 export interface SlipComputed {
   perDayRate: number;
   flexAvailable: number;
@@ -139,6 +173,10 @@ export interface SlipComputed {
   lopDays: number;
   lopDeduction: number;
   otherDeductions: number;
+  /** Statutory TDS for this slip. Missing on old finals → treat as 0. */
+  tds?: number;
+  /** Professional Tax for this slip month. Missing on old finals → treat as 0. */
+  pt?: number;
   totalDeductions: number;
   grossFixed: number;
   variableEarned: number;
@@ -219,4 +257,30 @@ export interface SlipSnapshot {
   generatedAt: string;
   /** Denormalised so history renders even if the employee is later deleted. */
   employee: SlipEmployeeInfo;
+}
+
+/** Signatory fields frozen into authorised_slip_log at bank-copy generation. */
+export interface SignatorySnapshot {
+  signatoryName: string;
+  signatoryDesignation: string;
+  signatureAssetPath: string | null;
+  sealAssetPath: string | null;
+  entityLegalName: string;
+  cin: string;
+  registeredAddress: string;
+  phone: string;
+  payrollEmail: string;
+}
+
+/** Per-line YTD totals for an Indian financial year, derived from FINAL snapshots only. */
+export interface AuthorisedSlipYtd {
+  basic: number;
+  fixedAllowance: number;
+  variablePaid: number;
+  grossEarnings: number;
+  lopDeduction: number;
+  professionalTax: number;
+  tds: number;
+  otherDeductions: number;
+  totalDeductions: number;
 }

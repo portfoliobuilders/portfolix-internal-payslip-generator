@@ -1,13 +1,27 @@
 'use server';
 
+/**
+ * Payroll server actions.
+ *
+ * TODO(auth session): wrap every mutating export with requirePayrollAdmin() —
+ * also add app/actions/settings.ts and lib/logos.ts to that same guard list
+ * (settings/logo writes without auth let anyone replace branding and signatory identity).
+ */
+
 import { revalidatePath } from 'next/cache';
 import type { Employee, Settings, SlipSnapshot } from '@/lib/types';
 import {
+  APP_SETTINGS_ID,
+  defaultSettingsRow,
   employeeToRow,
   generateId,
+  normalizeEmployeeId,
   rowToEmployee,
+  rowToSettings,
   rowToSlip,
+  settingsToRow,
   slipToRow,
+  type AppSettingsRow,
   type EmployeeRow,
   type PayrollSlipRow,
 } from '@/lib/payroll-db';
@@ -25,6 +39,10 @@ async function getSupabase() {
 
 function revalidatePayrollViews() {
   revalidatePath('/');
+  revalidatePath('/employee-roster');
+  revalidatePath('/generator');
+  revalidatePath('/history');
+  revalidatePath('/settings');
 }
 
 /** Returns all employee rows from Supabase, newest first by name. */
@@ -57,8 +75,11 @@ export async function upsertEmployee(
     const id = employeeData.id || generateId();
     const row = employeeToRow({
       ...employeeData,
+      empId: normalizeEmployeeId(employeeData.empId),
       id,
       flexLog: employeeData.flexLog ?? [],
+      tdsMonthly: employeeData.tdsMonthly ?? 0,
+      ptHalfYearly: employeeData.ptHalfYearly ?? 0,
     });
 
     const { data, error } = await supabase
@@ -91,16 +112,24 @@ export async function bulkUpsertEmployees(
     if (existingResult.error) return { ok: false, error: existingResult.error.message };
 
     const existingByEmpId = new Map(
-      (existingResult.data as EmployeeRow[]).map((row) => [row.employee_id, row]),
+      (existingResult.data as EmployeeRow[]).map((row) => [
+        normalizeEmployeeId(row.employee_id),
+        row,
+      ]),
     );
 
     const rows = employees.map((employee) => {
-      const existing = existingByEmpId.get(employee.empId);
-      const flexLog = existing ? rowToEmployee(existing).flexLog : [];
+      const empId = normalizeEmployeeId(employee.empId);
+      const existing = existingByEmpId.get(empId);
+      const existingEmployee = existing ? rowToEmployee(existing) : null;
+      const flexLog = existingEmployee?.flexLog ?? [];
       return employeeToRow({
         ...employee,
+        empId,
         id: existing?.id ?? generateId(),
         flexLog,
+        tdsMonthly: employee.tdsMonthly ?? existingEmployee?.tdsMonthly ?? 0,
+        ptHalfYearly: employee.ptHalfYearly ?? existingEmployee?.ptHalfYearly ?? 0,
       });
     });
 
@@ -275,7 +304,9 @@ export async function finalizePayrollSlip(
   const employeesResult = await fetchEmployees();
   if (!employeesResult.ok) return employeesResult;
 
-  const employee = employeesResult.data.find((e) => e.id === snapshot.employeeId);
+  const employee = employeesResult.data.find(
+    (e) => e.empId === snapshot.employeeId || e.id === snapshot.employeeId,
+  );
   if (!employee) {
     return { ok: false, error: 'Employee not found after saving slip.' };
   }
@@ -302,3 +333,108 @@ export async function finalizePayrollSlip(
 
   return { ok: true, data: { slip: slipResult.data, employee: employeeResult.data } };
 }
+
+/** Returns application settings from Supabase, seeding defaults if missing. */
+export async function getAppSettings(): Promise<ActionResult<Settings>> {
+  try {
+    const supabase = await getSupabase();
+    const { data, error } = await supabase
+      .from('app_settings')
+      .select('*')
+      .eq('id', APP_SETTINGS_ID)
+      .maybeSingle();
+
+    if (error) return { ok: false, error: error.message };
+
+    if (!data) {
+      const seedResult = await seedDefaultAppSettingsIfMissing();
+      if (!seedResult.ok) return seedResult;
+      return { ok: true, data: seedResult.data };
+    }
+
+    return { ok: true, data: rowToSettings(data as AppSettingsRow) };
+  } catch (err) {
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : 'Failed to fetch app settings.',
+    };
+  }
+}
+
+/** Inserts default settings when the singleton row does not exist. */
+export async function seedDefaultAppSettingsIfMissing(): Promise<ActionResult<Settings>> {
+  try {
+    const supabase = await getSupabase();
+    const row = {
+      ...defaultSettingsRow(),
+      updated_at: new Date().toISOString(),
+    };
+
+    const { data, error } = await supabase
+      .from('app_settings')
+      .upsert(row, { onConflict: 'id' })
+      .select('*')
+      .single();
+
+    if (error) return { ok: false, error: error.message };
+
+    revalidatePayrollViews();
+    return { ok: true, data: rowToSettings(data as AppSettingsRow) };
+  } catch (err) {
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : 'Failed to seed app settings.',
+    };
+  }
+}
+
+/** Saves application settings to Supabase. */
+export async function upsertAppSettings(settings: Settings): Promise<ActionResult<Settings>> {
+  try {
+    const supabase = await getSupabase();
+    const row = {
+      ...settingsToRow(settings),
+      updated_at: new Date().toISOString(),
+    };
+
+    const { data, error } = await supabase
+      .from('app_settings')
+      .upsert(row, { onConflict: 'id' })
+      .select('*')
+      .single();
+
+    if (error) return { ok: false, error: error.message };
+
+    revalidatePayrollViews();
+    return { ok: true, data: rowToSettings(data as AppSettingsRow) };
+  } catch (err) {
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : 'Failed to save app settings.',
+    };
+  }
+}
+
+/** Removes a payroll slip from history. */
+export async function deletePayrollSlip(id: string): Promise<ActionResult<{ id: string }>> {
+  try {
+    const supabase = await getSupabase();
+    const { error } = await supabase.from('payroll_slips').delete().eq('id', id);
+
+    if (error) return { ok: false, error: error.message };
+
+    revalidatePayrollViews();
+    return { ok: true, data: { id } };
+  } catch (err) {
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : 'Failed to delete payroll slip.',
+    };
+  }
+}
+
+// Aliases matching the requested helper names
+export const getEmployees = fetchEmployees;
+export const getSlipHistory = fetchPayrollHistory;
+export const saveSlipHistory = savePayrollSlip;
+export const deleteSlipHistory = deletePayrollSlip;
