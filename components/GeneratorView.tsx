@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { format } from 'date-fns';
 import { AlertTriangle, Download, Printer } from 'lucide-react';
-import { computePayroll, validateVariablePaid } from '@/lib/payroll-calc';
+import { computePayroll, derivePtThisMonth, validateVariablePaid } from '@/lib/payroll-calc';
 import { formatINR, slipFilename } from '@/lib/format';
 import { exportElementToPdf } from '@/lib/pdf-export';
 import { finalizePayrollSlip, savePayrollSlip } from '@/app/actions/payroll';
@@ -163,6 +163,15 @@ export default function GeneratorView({
     setForm((f) => ({ ...f, [key]: value }));
 
   // ---------- Live computation via the pure engine ----------
+  const ptThisMonth = useMemo(() => {
+    if (!employee) return 0;
+    return derivePtThisMonth(
+      employee.ptHalfYearly,
+      form.monthYear,
+      settings.ptDeductionMonths,
+    );
+  }, [employee, form.monthYear, settings.ptDeductionMonths]);
+
   const result = useMemo(() => {
     if (!employee) return null;
     return computePayroll({
@@ -174,12 +183,14 @@ export default function GeneratorView({
       halfDays: num(form.halfDays),
       fixedAllowance: num(form.fixedAllowance),
       otherDeductions: num(form.otherDeductions),
+      tdsMonthly: employee.tdsMonthly,
+      ptThisMonth,
       variableEarned: num(form.variableEarned),
       variablePaid: num(form.variablePaid),
       deferredOpening: num(form.deferredOpening),
       committedPayoutDate: form.committedPayoutDate || null,
     });
-  }, [employee, form, flexBankBase]);
+  }, [employee, form, flexBankBase, ptThisMonth]);
 
   const needsPayoutDate = (result?.deferredClosing ?? 0) > 0;
 
@@ -230,6 +241,8 @@ export default function GeneratorView({
         flexMinutesEarned: num(form.flexMinutesEarned),
         fixedAllowance: num(form.fixedAllowance),
         otherDeductions: num(form.otherDeductions),
+        tdsMonthly: employee.tdsMonthly,
+        ptThisMonth,
         variableLabel: form.variableLabel,
         variableEarned: num(form.variableEarned),
         variablePaid: num(form.variablePaid),
@@ -248,6 +261,8 @@ export default function GeneratorView({
         lopDays: result.lopDays,
         lopDeduction: result.lopDeduction,
         otherDeductions: result.otherDeductions,
+        tds: result.tds,
+        pt: result.pt,
         totalDeductions: result.totalDeductions,
         grossFixed: result.grossFixed,
         variableEarned: result.variableEarned,
@@ -390,6 +405,34 @@ export default function GeneratorView({
             <Field label="Other deductions (₹)" error={errors.otherDeductions ?? null}>
               <input type="number" min={0} step="0.01" className={inputAmountCls} value={form.otherDeductions} onChange={(e) => set('otherDeductions', e.target.value)} />
             </Field>
+            <Field
+              label="TDS this month (₹)"
+              hint="From employee roster — edit on the employee record."
+            >
+              <input
+                type="number"
+                className={inputAmountCls}
+                value={employee ? String(employee.tdsMonthly) : '0'}
+                readOnly
+                disabled
+              />
+            </Field>
+            <Field
+              label="Professional Tax this month (₹)"
+              hint={
+                employee
+                  ? `Half-yearly ₹${employee.ptHalfYearly.toFixed(2)} · deducted in months ${settings.ptDeductionMonths.join(', ')}`
+                  : undefined
+              }
+            >
+              <input
+                type="number"
+                className={inputAmountCls}
+                value={String(ptThisMonth)}
+                readOnly
+                disabled
+              />
+            </Field>
           </div>
         </div>
 
@@ -525,6 +568,7 @@ export default function GeneratorView({
               entity={entity}
               payrollContact={settings.payrollContact}
               paydayDayOfMonth={settings.paydayDayOfMonth}
+              reviewDeadlineTime={settings.reviewDeadlineTime}
               ledgerMismatch={ledgerMismatch}
             />
           </ScaledPreview>
@@ -545,6 +589,7 @@ export default function GeneratorView({
               entity={entity}
               payrollContact={settings.payrollContact}
               paydayDayOfMonth={settings.paydayDayOfMonth}
+              reviewDeadlineTime={settings.reviewDeadlineTime}
               ledgerMismatch={ledgerMismatch}
             />
           </div>,

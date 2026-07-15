@@ -1,3 +1,12 @@
+/**
+ * Entity logo uploads (PUBLIC branding bucket).
+ *
+ * TODO(auth session): guard uploadEntityLogo behind requirePayrollAdmin() —
+ * same guard list as app/actions/payroll.ts and app/actions/settings.ts.
+ * Do NOT copy this public-bucket pattern for signatory assets
+ * (see app/actions/signatory-assets.ts + SUPABASE_SECRET_KEY).
+ */
+
 import type { EntityCode, EntityInfo } from '@/lib/types';
 import { createClient } from '@/utils/supabase/client';
 

@@ -1,14 +1,28 @@
 'use client';
 
-import { useMemo, useState } from 'react';
-import { createPortal } from 'react-dom';
-import { Download, Eye, Printer, X } from 'lucide-react';
-import { formatDate, formatINR, formatMonthYear, slipFilename } from '@/lib/format';
+import { createSignatorySignedUrls, getSignatoryStorageStatus } from '@/app/actions/signatory-assets';
+import { computeAuthorisedYtd } from '@/lib/authorised-slip';
+import {
+  authorisedSlipFilename,
+  formatDate,
+  formatINR,
+  formatMonthYear,
+  slipFilename,
+} from '@/lib/format';
 import { exportElementToPdf } from '@/lib/pdf-export';
-import type { SlipSnapshot } from '@/lib/types';
+import { signatoryIncompleteReason } from '@/lib/settings-defaults';
+import type { AuthorisedSlipYtd, SlipSnapshot } from '@/lib/types';
 import { useHRStore } from '@/store/useHRStore';
+import AuthorisedSlip from './AuthorisedSlip';
 import SalarySlip from './SalarySlip';
-import { btnSecondary, inputCls } from './ui';
+import { Modal, btnPrimary, btnSecondary, inputCls } from './ui';
+import { useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
+import { Download, Eye, FileBadge2, Printer, X } from 'lucide-react';
+import {
+  fetchAuthorisedSlipYtd,
+  logAuthorisedSlipGeneration,
+} from '@/app/actions/payroll';
 
 interface HistoryViewProps {
   slipHistory: SlipSnapshot[];
@@ -22,6 +36,31 @@ export default function HistoryView({ slipHistory, loading }: HistoryViewProps) 
   const [monthFilter, setMonthFilter] = useState('');
   const [viewing, setViewing] = useState<SlipSnapshot | null>(null);
   const [exportTarget, setExportTarget] = useState<SlipSnapshot | null>(null);
+
+  const [bankCopyPending, setBankCopyPending] = useState<SlipSnapshot | null>(null);
+  const [bankCopyExport, setBankCopyExport] = useState<{
+    snapshot: SlipSnapshot;
+    ytd: AuthorisedSlipYtd;
+    signatureUrl: string | null;
+    sealUrl: string | null;
+  } | null>(null);
+  const [bankCopyBusy, setBankCopyBusy] = useState(false);
+  const [bankCopyError, setBankCopyError] = useState<string | null>(null);
+  const [signatoryStorageConfigured, setSignatoryStorageConfigured] = useState(true);
+  const [signatoryStorageMessage, setSignatoryStorageMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const status = await getSignatoryStorageStatus();
+      if (cancelled) return;
+      setSignatoryStorageConfigured(status.configured);
+      setSignatoryStorageMessage(status.message);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const employeeOptions = useMemo(() => {
     const map = new Map<string, string>();
@@ -44,7 +83,6 @@ export default function HistoryView({ slipHistory, loading }: HistoryViewProps) 
    */
   async function redownload(snapshot: SlipSnapshot) {
     setExportTarget(snapshot);
-    // Give React a frame to mount the off-screen slip before capturing.
     await new Promise((resolve) => setTimeout(resolve, 60));
     const el = document.getElementById('history-export-root');
     if (el) {
@@ -56,6 +94,80 @@ export default function HistoryView({ slipHistory, loading }: HistoryViewProps) 
     setExportTarget(null);
   }
 
+  async function generateBankCopy(snapshot: SlipSnapshot) {
+    const entity = settings.entities[snapshot.employee.entityCode];
+    const incomplete = signatoryIncompleteReason(entity);
+    if (incomplete) {
+      setBankCopyError(incomplete);
+      return;
+    }
+
+    setBankCopyBusy(true);
+    setBankCopyError(null);
+    try {
+      const [ytdResult, urlsResult] = await Promise.all([
+        fetchAuthorisedSlipYtd(snapshot.employeeId, snapshot.monthYear),
+        createSignatorySignedUrls({
+          signatureAssetPath: entity.signatureAssetPath,
+          sealAssetPath: entity.sealAssetPath,
+        }),
+      ]);
+
+      if (!ytdResult.ok) {
+        setBankCopyError(ytdResult.error);
+        return;
+      }
+      if (!urlsResult.ok) {
+        setBankCopyError(urlsResult.error);
+        return;
+      }
+
+      // Prefer server YTD; fall back to client-side from loaded history if needed.
+      const ytd =
+        ytdResult.data ??
+        computeAuthorisedYtd(slipHistory, snapshot.employeeId, snapshot.monthYear);
+
+      setBankCopyPending(null);
+      setBankCopyExport({
+        snapshot,
+        ytd,
+        signatureUrl: urlsResult.data.signatureUrl,
+        sealUrl: urlsResult.data.sealUrl,
+      });
+
+      await new Promise((resolve) => setTimeout(resolve, 80));
+      const el = document.getElementById('authorised-export-root');
+      if (!el) throw new Error('Authorised slip element not ready.');
+
+      await exportElementToPdf(
+        el,
+        authorisedSlipFilename(
+          snapshot.employee.entityCode,
+          snapshot.monthYear,
+          snapshot.employee.empId,
+        ),
+      );
+
+      // Reprints are logged, never blocked — log after successful PDF.
+      await logAuthorisedSlipGeneration(snapshot.id, {
+        signatoryName: entity.signatoryName,
+        signatoryDesignation: entity.signatoryDesignation,
+        signatureAssetPath: entity.signatureAssetPath,
+        sealAssetPath: entity.sealAssetPath,
+        entityLegalName: entity.name,
+        cin: entity.cin,
+        registeredAddress: entity.registeredAddress,
+        phone: entity.phone,
+        payrollEmail: entity.payrollEmail,
+      });
+    } catch (err) {
+      setBankCopyError(err instanceof Error ? err.message : 'Failed to generate bank copy.');
+    } finally {
+      setBankCopyBusy(false);
+      setBankCopyExport(null);
+    }
+  }
+
   function StatusBadge({ status }: { status: SlipSnapshot['status'] }) {
     return status === 'final' ? (
       <span className="rounded border border-emerald-brand bg-emerald-tint px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-emerald-deep">
@@ -65,6 +177,51 @@ export default function HistoryView({ slipHistory, loading }: HistoryViewProps) 
       <span className="rounded border border-amber-edge bg-amber-tint px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-amber-brand">
         Draft
       </span>
+    );
+  }
+
+  function BankCopyButton({ snapshot, compact = false }: { snapshot: SlipSnapshot; compact?: boolean }) {
+    if (snapshot.status !== 'final') return null;
+    const entity = settings.entities[snapshot.employee.entityCode];
+    const settingsReason = signatoryIncompleteReason(entity);
+    const reason = !signatoryStorageConfigured
+      ? signatoryStorageMessage ??
+        'Server key not configured (SUPABASE_SECRET_KEY). Bank copy cannot embed signature/seal.'
+      : settingsReason;
+    const disabled = !!reason || bankCopyBusy;
+
+    if (compact) {
+      return (
+        <button
+          title={reason ?? 'Bank Copy (PDF)'}
+          aria-label={reason ?? 'Bank Copy (PDF)'}
+          className="flex h-11 w-11 items-center justify-center rounded-md text-muted transition-colors duration-150 hover:bg-surface hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink/20 disabled:cursor-not-allowed disabled:opacity-40 lg:h-9 lg:w-9"
+          disabled={disabled}
+          onClick={() => {
+            setBankCopyError(null);
+            setBankCopyPending(snapshot);
+          }}
+        >
+          <FileBadge2 size={16} />
+        </button>
+      );
+    }
+
+    return (
+      <div className="flex flex-col items-end gap-1">
+        <button
+          className={btnSecondary}
+          disabled={disabled}
+          title={reason ?? undefined}
+          onClick={() => {
+            setBankCopyError(null);
+            setBankCopyPending(snapshot);
+          }}
+        >
+          <FileBadge2 size={14} /> Bank Copy (PDF)
+        </button>
+        {reason && <p className="max-w-[220px] text-right text-[10px] text-amber-brand">{reason}</p>}
+      </div>
     );
   }
 
@@ -85,11 +242,12 @@ export default function HistoryView({ slipHistory, loading }: HistoryViewProps) 
         title="Re-download PDF (from stored snapshot)"
         aria-label="Re-download PDF"
         className={iconAction}
-        disabled={exportTarget !== null}
+        disabled={exportTarget !== null || bankCopyBusy}
         onClick={() => void redownload(s)}
       >
         <Download size={16} />
       </button>
+      <BankCopyButton snapshot={s} compact />
     </div>
   );
 
@@ -127,7 +285,6 @@ export default function HistoryView({ slipHistory, loading }: HistoryViewProps) 
           </p>
         ) : (
           <>
-            {/* Mobile (< md): stacked cards. */}
             <div className="divide-y divide-hairline md:hidden">
               {filtered.map((s) => (
                 <div key={s.id} className="space-y-3 px-4 py-4">
@@ -157,7 +314,6 @@ export default function HistoryView({ slipHistory, loading }: HistoryViewProps) 
               ))}
             </div>
 
-            {/* md+ : full table. Scrolls horizontally if it ever exceeds the card. */}
             <div className="hidden overflow-x-auto md:block">
               <table className="w-full min-w-[700px] text-sm">
                 <thead>
@@ -191,7 +347,6 @@ export default function HistoryView({ slipHistory, loading }: HistoryViewProps) 
         )}
       </div>
 
-      {/* Full-size viewer */}
       {viewing && (
         <div
           className="no-print fixed inset-0 z-50 overflow-auto bg-ink/50 p-4 backdrop-blur-[2px] sm:p-6"
@@ -200,28 +355,34 @@ export default function HistoryView({ slipHistory, loading }: HistoryViewProps) 
           }}
         >
           <div className="mx-auto w-fit">
-            <div className="mb-2 flex justify-end gap-2">
+            <div className="mb-2 flex flex-wrap justify-end gap-2">
               <button className={`${btnSecondary} bg-paper`} onClick={() => window.print()}>
                 <Printer size={14} /> Print
               </button>
               <button className={`${btnSecondary} bg-paper`} onClick={() => void redownload(viewing)}>
                 <Download size={14} /> Re-download PDF
               </button>
+              <BankCopyButton snapshot={viewing} />
               <button className={`${btnSecondary} bg-paper`} onClick={() => setViewing(null)}>
                 <X size={14} /> Close
               </button>
             </div>
+            {bankCopyError && viewing.status === 'final' && (
+              <p className="mb-2 rounded-md border border-amber-edge bg-amber-tint px-3 py-2 text-[12px] text-amber-brand">
+                {bankCopyError}
+              </p>
+            )}
             <SalarySlip
               snapshot={viewing}
               entity={settings.entities[viewing.employee.entityCode]}
               payrollContact={settings.payrollContact}
               paydayDayOfMonth={settings.paydayDayOfMonth}
+              reviewDeadlineTime={settings.reviewDeadlineTime}
             />
           </div>
         </div>
       )}
 
-      {/* Print mount while viewing — window.print() captures the slip 1:1 */}
       {viewing &&
         typeof document !== 'undefined' &&
         createPortal(
@@ -231,12 +392,12 @@ export default function HistoryView({ slipHistory, loading }: HistoryViewProps) 
               entity={settings.entities[viewing.employee.entityCode]}
               payrollContact={settings.payrollContact}
               paydayDayOfMonth={settings.paydayDayOfMonth}
+              reviewDeadlineTime={settings.reviewDeadlineTime}
             />
           </div>,
           document.body,
         )}
 
-      {/* Off-screen export mount for re-downloads */}
       {exportTarget &&
         typeof document !== 'undefined' &&
         createPortal(
@@ -246,10 +407,65 @@ export default function HistoryView({ slipHistory, loading }: HistoryViewProps) 
               entity={settings.entities[exportTarget.employee.entityCode]}
               payrollContact={settings.payrollContact}
               paydayDayOfMonth={settings.paydayDayOfMonth}
+              reviewDeadlineTime={settings.reviewDeadlineTime}
             />
           </div>,
           document.body,
         )}
+
+      {bankCopyExport &&
+        typeof document !== 'undefined' &&
+        createPortal(
+          <div id="authorised-export-root" style={{ position: 'absolute', top: 0, left: -10000 }}>
+            <AuthorisedSlip
+              snapshot={bankCopyExport.snapshot}
+              entity={settings.entities[bankCopyExport.snapshot.employee.entityCode]}
+              ytd={bankCopyExport.ytd}
+              paydayDayOfMonth={settings.paydayDayOfMonth}
+              signatureUrl={bankCopyExport.signatureUrl}
+              sealUrl={bankCopyExport.sealUrl}
+            />
+          </div>,
+          document.body,
+        )}
+
+      {bankCopyPending && (
+        <Modal
+          title="Generate bank copy?"
+          onClose={() => {
+            if (!bankCopyBusy) setBankCopyPending(null);
+          }}
+        >
+          <p className="text-sm text-ink">
+            This embeds the authorised signature and company seal. Generate?
+          </p>
+          <p className="mt-2 text-[12px] text-muted">
+            {bankCopyPending.employee.fullName} · {bankCopyPending.employee.empId} ·{' '}
+            {formatMonthYear(bankCopyPending.monthYear)}
+          </p>
+          {bankCopyError && (
+            <p className="mt-3 rounded-md border border-amber-edge bg-amber-tint px-3 py-2 text-[12px] text-amber-brand">
+              {bankCopyError}
+            </p>
+          )}
+          <div className="mt-5 flex justify-end gap-2">
+            <button
+              className={btnSecondary}
+              disabled={bankCopyBusy}
+              onClick={() => setBankCopyPending(null)}
+            >
+              Cancel
+            </button>
+            <button
+              className={btnPrimary}
+              disabled={bankCopyBusy}
+              onClick={() => void generateBankCopy(bankCopyPending)}
+            >
+              {bankCopyBusy ? 'Generating…' : 'Generate bank copy'}
+            </button>
+          </div>
+        </Modal>
+      )}
     </div>
   );
 }
