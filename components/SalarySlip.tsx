@@ -12,8 +12,15 @@
 import { CheckCircle2 } from 'lucide-react';
 import { lopCalculationBasisLabel } from '@/lib/calculation-method';
 import { FIXED_DIVISOR, slipStatutoryDeductions } from '@/lib/payroll-calc';
-import { formatDate, formatINR, formatMinutes, formatMonthYear, payrollCycleDates } from '@/lib/format';
-import { formatAttendanceCycleRange } from '@/lib/payroll-cycle';
+import { lopCalculationBasisLabel } from '@/lib/calculation-method';
+import {
+  formatDate,
+  formatINR,
+  formatMinutes,
+  formatMonthYear,
+  formatSalaryAttendanceCycle,
+  payrollCycleDates,
+} from '@/lib/format';
 import type { EntityInfo, SlipSnapshot } from '@/lib/types';
 import EntityLogo from '@/components/EntityLogo';
 import { statementMetaFor } from '@/lib/workforce';
@@ -27,6 +34,15 @@ interface SalarySlipProps {
   reviewDeadlineTime?: string;
   /** Rule 7 — manual deferred-opening override broke the FINAL chain. */
   ledgerMismatch?: boolean;
+  /** Payment obligation summary — FINAL ≠ PAID. */
+  paymentStatus?: string | null;
+  expectedPaymentDate?: string | null;
+  actualCreditDate?: string | null;
+  confirmedPaidAmount?: number | null;
+  outstandingBalance?: number | null;
+  attendancePeriodStart?: string | null;
+  attendancePeriodEnd?: string | null;
+  showResidentialAddress?: boolean;
 }
 
 function Row({
@@ -69,33 +85,38 @@ export default function SalarySlip({
   paydayDayOfMonth,
   reviewDeadlineTime = '6:00 PM',
   ledgerMismatch = false,
+  paymentStatus = null,
+  expectedPaymentDate = null,
+  actualCreditDate = null,
+  confirmedPaidAmount = null,
+  outstandingBalance = null,
+  attendancePeriodStart = null,
+  attendancePeriodEnd = null,
+  showResidentialAddress = false,
 }: SalarySlipProps) {
   const { inputs, computed, employee } = snapshot;
   /** Review window and draft chrome key ONLY on the rendered variant. */
   const isDraft = snapshot.status === 'draft';
   const { creditDate, reviewDeadline } = payrollCycleDates(snapshot.monthYear, paydayDayOfMonth);
-  const { tds, pt } = slipStatutoryDeductions(computed, inputs);
-  const divisor = snapshot.payrollDivisor ?? FIXED_DIVISOR;
-  const lopBasisLabel =
-    snapshot.calculationMethodLabel?.trim() ||
-    (snapshot.calculationMethodCode
-      ? lopCalculationBasisLabel(snapshot.calculationMethodCode)
-      : `LOP Calculation Basis: Fixed ${FIXED_DIVISOR}-day divisor`);
-  const isPaid = snapshot.paymentStatus === 'PAID';
-  const showActualCredit = Boolean(snapshot.actualCreditDate && isPaid);
-  const expectedPaymentDate = snapshot.expectedPaymentDate ?? creditDate;
-  const hasAttendanceCycle =
-    Boolean(snapshot.attendancePeriodStart) && Boolean(snapshot.attendancePeriodEnd);
-  const periodStripCols =
-    (isDraft ? 2 : 1) + 1 + (snapshot.paymentStatus ? 1 : 0);
+  const expectedDate = expectedPaymentDate ?? formatDate(creditDate);
+  const isPaid = paymentStatus === 'PAID';
+  const attendanceCycle = formatSalaryAttendanceCycle(snapshot.monthYear, 'PREVIOUS_25_TO_CURRENT_24', {
+    start: attendancePeriodStart,
+    end: attendancePeriodEnd,
+  });
   const variableLabel = inputs.variableLabel.trim() || 'Variable / Incentive';
   const hasLateness = inputs.lateMinutes > 0 || inputs.flexMinutesEarned > 0;
+  const { tds, pt } = slipStatutoryDeductions(computed, inputs);
   const statementMeta = statementMetaFor(
     employee.paymentType,
     employee.engagementType,
     employee.employmentStatus,
   );
-  const { tds, pt } = slipStatutoryDeductions(computed, inputs);
+  const paymentLabel = paymentStatus
+    ? paymentStatus.replace(/_/g, ' ')
+    : isDraft
+      ? 'NOT SCHEDULED'
+      : 'SCHEDULED';
 
   return (
     <div
@@ -128,37 +149,31 @@ export default function SalarySlip({
           </div>
         </div>
         <div className="shrink-0 text-right">
-          <p className="text-[15px] font-bold uppercase tracking-[0.12em]">{statementMeta.statementTitle}</p>
-          <p className="text-[11px] font-medium text-muted">{formatMonthYear(snapshot.monthYear)}</p>
-          {hasAttendanceCycle && (
-            <p className="text-[10px] text-muted">
-              Attendance:{' '}
-              {formatAttendanceCycleRange(
-                snapshot.attendancePeriodStart!,
-                snapshot.attendancePeriodEnd!,
-              )}
-            </p>
-          )}
+          <p className="text-[15px] font-bold uppercase tracking-[0.12em]">Internal Pay Slip</p>
+          <p className="text-[11px] font-medium text-muted">
+            Salary month: {formatMonthYear(snapshot.monthYear)}
+          </p>
+          <p className="mt-0.5 text-[10px] text-muted">Attendance cycle: {attendanceCycle}</p>
           {statementMeta.statusBadge && (
             <p className="mt-1 text-[10px] font-semibold text-amber-brand">{statementMeta.statusBadge}</p>
           )}
           {isDraft ? (
             <span className="slip-badge-draft mt-1.5 inline-block rounded border px-2 py-0.5 text-[10px] font-bold uppercase tracking-widest">
-              Draft
+              Draft — Provisional
             </span>
           ) : (
             <span className="slip-badge-final mt-1.5 inline-flex items-center gap-1 rounded border px-2 py-0.5 text-[10px] font-bold uppercase tracking-widest">
-              <CheckCircle2 size={11} strokeWidth={3} /> Final
+              <CheckCircle2 size={11} strokeWidth={3} /> Finalised
             </span>
           )}
         </div>
       </header>
 
-      {/* ---------- Draft banner (exact required text) ---------- */}
+      {/* ---------- Draft banner ---------- */}
       {isDraft && (
         <div className="slip-banner-draft mt-3 rounded border px-3 py-2 text-[10px] font-semibold">
-          DRAFT — PROVISIONAL INTERNAL PAYROLL STATEMENT. INTERNAL DRAFT: Invalid for financial or
-          official use. Pending final HR approval.
+          DRAFT — PROVISIONAL INTERNAL PAYROLL STATEMENT. Invalid for financial or official use.
+          Pending attendance lock, LOP confirmation, review and approval.
         </div>
       )}
 
@@ -169,41 +184,40 @@ export default function SalarySlip({
         </div>
       )}
 
-      {/* ---------- Period strip ---------- */}
-      <div
-        className="mt-3 grid divide-x divide-hairline rounded border border-hairline bg-surface text-[10px]"
-        style={{ gridTemplateColumns: `repeat(${periodStripCols}, minmax(0, 1fr))` }}
-      >
+      {/* ---------- Period / payment strip ---------- */}
+      <div className="mt-3 grid grid-cols-2 divide-x divide-hairline rounded border border-hairline bg-surface text-[10px] sm:grid-cols-4">
         <div className="px-3 py-2">
-          <p className="text-[8.5px] font-semibold uppercase tracking-wider text-muted">Issue date</p>
-          <p className="font-semibold">{formatDate(snapshot.generatedAt)}</p>
+          <p className="text-[8.5px] font-semibold uppercase tracking-wider text-muted">Payroll status</p>
+          <p className="font-semibold">{isDraft ? 'Draft' : 'Finalised'}</p>
         </div>
-        {isDraft && (
-          <div className="px-3 py-2">
-            <p className="text-[8.5px] font-semibold uppercase tracking-wider text-muted">
-              Review window
-            </p>
-            <p className="font-semibold">
-              Review queries by {formatDate(reviewDeadline)} · {reviewDeadlineTime}
-            </p>
-          </div>
-        )}
+        <div className="px-3 py-2">
+          <p className="text-[8.5px] font-semibold uppercase tracking-wider text-muted">Payment status</p>
+          <p className="font-semibold">{paymentLabel}</p>
+        </div>
         <div className="px-3 py-2">
           <p className="text-[8.5px] font-semibold uppercase tracking-wider text-muted">
-            {showActualCredit ? 'Actual salary-credit date' : 'Expected Payment Date'}
+            {isPaid ? 'Actual salary credit date' : 'Expected payment date'}
           </p>
           <p className="font-semibold">
-            {formatDate(showActualCredit ? snapshot.actualCreditDate! : expectedPaymentDate)}
+            {isPaid && actualCreditDate
+              ? formatDate(actualCreditDate)
+              : typeof expectedDate === 'string' && expectedDate.includes('-')
+                ? formatDate(expectedDate)
+                : expectedDate}
           </p>
         </div>
-        {snapshot.paymentStatus && (
-          <div className="px-3 py-2">
-            <p className="text-[8.5px] font-semibold uppercase tracking-wider text-muted">
-              Payment status
-            </p>
-            <p className="font-semibold">{snapshot.paymentStatus.replace(/_/g, ' ')}</p>
-          </div>
-        )}
+        <div className="px-3 py-2">
+          <p className="text-[8.5px] font-semibold uppercase tracking-wider text-muted">
+            {isDraft ? 'Review window' : 'Outstanding / paid'}
+          </p>
+          <p className="font-semibold">
+            {isDraft
+              ? `By ${formatDate(reviewDeadline)} · ${reviewDeadlineTime}`
+              : isPaid
+                ? `Paid ${formatINR(confirmedPaidAmount ?? computed.netPay)} · ₹0 due`
+                : `Paid ${formatINR(confirmedPaidAmount ?? 0)} · Due ${formatINR(outstandingBalance ?? computed.netPay)}`}
+          </p>
+        </div>
       </div>
 
       {/* ---------- Employee details ---------- */}
@@ -243,15 +257,25 @@ export default function SalarySlip({
             <p className="text-[8.5px] font-semibold uppercase tracking-wider text-muted">PAN</p>
             <p className="amount">{employee.panMasked || '—'}</p>
           </div>
+          {showResidentialAddress && (
+            <div>
+              <p className="text-[8.5px] font-semibold uppercase tracking-wider text-muted">Address</p>
+              <p className="leading-snug">{employee.employeeAddress || '—'}</p>
+            </div>
+          )}
         </div>
       </section>
 
-      {/* ---------- Attendance & rate basis ---------- */}
+      {/* ---------- Attendance & LOP divisor (not the attendance cycle) ---------- */}
       <section className="mt-4">
-        <SectionTitle tag="02">Attendance &amp; Rate Basis</SectionTitle>
+        <SectionTitle tag="02">Attendance &amp; LOP Calculation</SectionTitle>
         <div className="rounded border border-hairline bg-surface px-3 py-2">
           <p className="amount text-[11px] font-semibold">
-            {formatINR(inputs.compensationAmount)} ÷ {divisor} = {formatINR(computed.perDayRate)}/day
+            {formatINR(inputs.compensationAmount)} ÷ {FIXED_DIVISOR} = {formatINR(computed.perDayRate)}/day
+          </p>
+          <p className="mt-0.5 text-[9px] text-muted">
+            {lopCalculationBasisLabel('FIXED_25')} — this is the salary-calculation divisor, not the
+            attendance-cycle length ({attendanceCycle}).
           </p>
           <p className="mt-0.5 text-[9px] text-muted">{lopBasisLabel}</p>
         </div>
@@ -413,11 +437,16 @@ export default function SalarySlip({
         </section>
       )}
 
-      {/* ---------- Footer — fixed margin (no flex-push dead gap) ---------- */}
+      {/* ---------- Footer ---------- */}
       <footer className="mt-6 border-t border-hairline pt-3 text-[8.5px] leading-relaxed text-muted">
         <p>
-          <span className="font-semibold text-ink">Queries:</span> {payrollContact} — reply before{' '}
-          {formatDate(reviewDeadline)}, {reviewDeadlineTime}.
+          <span className="font-semibold text-ink">Queries:</span> {payrollContact}
+          {isDraft
+            ? ` — reply before ${formatDate(reviewDeadline)}, ${reviewDeadlineTime}.`
+            : '.'}{' '}
+          {isPaid
+            ? `Actual salary credit date: ${actualCreditDate ? formatDate(actualCreditDate) : '—'}.`
+            : `Expected payment date: ${typeof expectedDate === 'string' && expectedDate.includes(' ') ? expectedDate : formatDate(String(expectedDate))}.`}
         </p>
         {statementMeta.disclaimer && <p>{statementMeta.disclaimer}</p>}
         {isDraft && (

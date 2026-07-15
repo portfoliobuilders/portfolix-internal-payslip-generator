@@ -1,12 +1,12 @@
 /**
  * Employee / compensation payment schedule resolution.
  *
- * Do not permanently derive payment day from designation alone.
- * Prefer configured schedule rows effective for the salary month.
+ * Do not permanently derive payment date from designation alone.
+ * Executive dates (CEO 1st, CTO 3rd, COO 5th) are configurable examples only.
  */
 
-import { format, parse } from 'date-fns';
-import { dateInMonth } from './format';
+import { format, isValid, parse } from 'date-fns';
+import { dateInMonth, payrollCycleDates } from './format';
 
 export type PaymentScheduleType =
   | 'FIXED_DAY_OF_SUCCEEDING_MONTH'
@@ -15,146 +15,164 @@ export type PaymentScheduleType =
   | 'CONTRACTUAL'
   | 'OTHER_APPROVED';
 
-export interface PaymentScheduleConfig {
-  paymentScheduleType: PaymentScheduleType;
-  preferredPaymentDay?: number | null;
-  defaultPaymentDay?: number | null;
-  paymentScheduleEffectiveFrom: string; // yyyy-MM-dd
-  paymentScheduleEffectiveTo?: string | null;
-  paymentScheduleNotes?: string | null;
-  active?: boolean;
+export interface EmployeePaymentSchedule {
+  preferredPaymentDay: number | null;
+  defaultPaymentDay: number | null;
+  paymentScheduleType: PaymentScheduleType | null;
+  paymentScheduleEffectiveFrom: string | null;
+  paymentScheduleEffectiveTo: string | null;
+  paymentScheduleNotes: string | null;
 }
 
-export interface ResolvedPaymentSchedule {
-  originalDueDate: string; // yyyy-MM-dd — immutable once stored on payroll
+export interface ResolvedPaymentDates {
+  /** Immutable original due date for this payroll. */
+  originalDueDate: string;
+  /** Scheduled / company-committed date at creation. */
   scheduledPaymentDate: string;
+  /** Latest revised expected date (null until rescheduled). */
+  revisedExpectedPaymentDate: string | null;
+  paydayDayOfMonthUsed: number;
   paymentScheduleType: PaymentScheduleType;
-  paymentDayUsed: number;
-  source: 'employee_schedule' | 'employee_defaults' | 'company_default' | 'manual_override';
-  notes: string | null;
 }
 
-function succeedingMonthKey(salaryMonth: string): string {
-  const base = parse(salaryMonth, 'yyyy-MM', new Date());
-  const next = new Date(base.getFullYear(), base.getMonth() + 1, 1);
-  return format(next, 'yyyy-MM');
-}
-
-function clampDay(day: number): number {
-  return Math.min(28, Math.max(1, Math.round(day)));
-}
-
-function scheduleCoversMonth(
-  schedule: PaymentScheduleConfig,
-  salaryMonth: string,
-): boolean {
-  if (schedule.active === false) return false;
-  const monthStart = `${salaryMonth}-01`;
-  const from = schedule.paymentScheduleEffectiveFrom;
-  const to = schedule.paymentScheduleEffectiveTo;
-  if (from && monthStart < from.slice(0, 10)) return false;
-  if (to && monthStart > to.slice(0, 10)) return false;
-  return true;
-}
+export const DEFAULT_PAYMENT_DAY = 5;
 
 /**
- * Resolve due / scheduled payment dates for a salary month.
- * Manual per-payroll override supplies `manualPaymentDay` without erasing
- * an already-persisted originalDueDate (call site preserves original).
+ * Resolve payday day-of-month from employee schedule, falling back to company default.
+ * Does NOT use designation heuristics.
  */
-export function resolvePaymentSchedule(input: {
-  salaryMonth: string;
-  companyDefaultPaymentDay: number;
-  employeePreferredPaymentDay?: number | null;
-  employeeDefaultPaymentDay?: number | null;
-  employeeScheduleType?: PaymentScheduleType | null;
-  schedules?: PaymentScheduleConfig[];
-  /** One-off day for MANUAL_PER_PAYROLL or board exception. */
-  manualPaymentDay?: number | null;
-}): ResolvedPaymentSchedule {
-  const schedules = (input.schedules ?? []).filter((s) =>
-    scheduleCoversMonth(s, input.salaryMonth),
-  );
-  // Prefer the latest effective_from
-  schedules.sort((a, b) =>
-    b.paymentScheduleEffectiveFrom.localeCompare(a.paymentScheduleEffectiveFrom),
-  );
+export function resolvePreferredPaymentDay(input: {
+  employeeSchedule?: Partial<EmployeePaymentSchedule> | null;
+  companyDefaultPayday?: number;
+  /** Explicit per-payroll override (MANUAL_PER_PAYROLL). */
+  manualPaydayDay?: number | null;
+  asOfDate?: string;
+}): { day: number; scheduleType: PaymentScheduleType; notes?: string } {
+  const companyDefault = input.companyDefaultPayday ?? DEFAULT_PAYMENT_DAY;
+  const schedule = input.employeeSchedule;
+  const asOf = input.asOfDate;
 
-  const active = schedules[0];
-  const succMonth = succeedingMonthKey(input.salaryMonth);
-
-  if (active) {
-    const day =
-      input.manualPaymentDay ??
-      active.preferredPaymentDay ??
-      active.defaultPaymentDay ??
-      input.employeePreferredPaymentDay ??
-      input.employeeDefaultPaymentDay ??
-      input.companyDefaultPaymentDay;
-    const paymentDayUsed = clampDay(day);
-    const due = format(dateInMonth(succMonth, paymentDayUsed), 'yyyy-MM-dd');
-    return {
-      originalDueDate: due,
-      scheduledPaymentDate: due,
-      paymentScheduleType: active.paymentScheduleType,
-      paymentDayUsed,
-      source: 'employee_schedule',
-      notes: active.paymentScheduleNotes ?? null,
-    };
+  if (asOf && schedule?.paymentScheduleEffectiveFrom) {
+    const from = schedule.paymentScheduleEffectiveFrom;
+    const to = schedule.paymentScheduleEffectiveTo;
+    if (asOf < from || (to && asOf > to)) {
+      return {
+        day: companyDefault,
+        scheduleType: 'FIXED_DAY_OF_SUCCEEDING_MONTH',
+        notes: 'Employee schedule outside effective window; company default used.',
+      };
+    }
   }
 
-  const type: PaymentScheduleType =
-    input.employeeScheduleType ?? 'FIXED_DAY_OF_SUCCEEDING_MONTH';
+  const type = schedule?.paymentScheduleType ?? 'FIXED_DAY_OF_SUCCEEDING_MONTH';
 
-  if (type === 'MANUAL_PER_PAYROLL' && input.manualPaymentDay == null) {
-    // Fall back to company default until a manual day is supplied for the payroll.
-    const paymentDayUsed = clampDay(input.companyDefaultPaymentDay);
-    const due = format(dateInMonth(succMonth, paymentDayUsed), 'yyyy-MM-dd');
-    return {
-      originalDueDate: due,
-      scheduledPaymentDate: due,
-      paymentScheduleType: type,
-      paymentDayUsed,
-      source: 'company_default',
-      notes: 'Manual schedule pending per-payroll payment day.',
-    };
+  if (type === 'MANUAL_PER_PAYROLL') {
+    if (input.manualPaydayDay != null && input.manualPaydayDay >= 1 && input.manualPaydayDay <= 31) {
+      return { day: input.manualPaydayDay, scheduleType: type };
+    }
+    // Fall through to preferred/default when no manual day supplied yet
   }
 
   const day =
-    input.manualPaymentDay ??
-    input.employeePreferredPaymentDay ??
-    input.employeeDefaultPaymentDay ??
-    input.companyDefaultPaymentDay;
-  const paymentDayUsed = clampDay(day);
-  const due = format(dateInMonth(succMonth, paymentDayUsed), 'yyyy-MM-dd');
-
-  const source =
-    input.manualPaymentDay != null
-      ? 'manual_override'
-      : input.employeePreferredPaymentDay != null ||
-          input.employeeDefaultPaymentDay != null
-        ? 'employee_defaults'
-        : 'company_default';
+    schedule?.preferredPaymentDay ??
+    schedule?.defaultPaymentDay ??
+    companyDefault;
 
   return {
-    originalDueDate: due,
-    scheduledPaymentDate: due,
-    paymentScheduleType: type,
-    paymentDayUsed,
-    source,
-    notes: null,
+    day: Math.min(31, Math.max(1, Math.round(day))),
+    scheduleType: type,
+    notes: schedule?.paymentScheduleNotes ?? undefined,
+  };
+}
+
+export function computePaymentDates(input: {
+  salaryMonth: string;
+  employeeSchedule?: Partial<EmployeePaymentSchedule> | null;
+  companyDefaultPayday?: number;
+  manualPaydayDay?: number | null;
+  /** Explicit scheduled date override (ISO date) — still preserves originalDueDate when provided separately. */
+  scheduledPaymentDateOverride?: string | null;
+  revisedExpectedPaymentDate?: string | null;
+}): ResolvedPaymentDates {
+  const resolved = resolvePreferredPaymentDay({
+    employeeSchedule: input.employeeSchedule,
+    companyDefaultPayday: input.companyDefaultPayday,
+    manualPaydayDay: input.manualPaydayDay,
+    asOfDate: `${input.salaryMonth}-01`,
+  });
+
+  const { creditDate } = payrollCycleDates(input.salaryMonth, resolved.day);
+  const statutory = format(creditDate, 'yyyy-MM-dd');
+
+  let scheduled = statutory;
+  if (input.scheduledPaymentDateOverride) {
+    const parsed = parse(input.scheduledPaymentDateOverride, 'yyyy-MM-dd', new Date());
+    if (isValid(parsed)) scheduled = format(parsed, 'yyyy-MM-dd');
+  }
+
+  return {
+    originalDueDate: statutory,
+    scheduledPaymentDate: scheduled,
+    revisedExpectedPaymentDate: input.revisedExpectedPaymentDate ?? null,
+    paydayDayOfMonthUsed: resolved.day,
+    paymentScheduleType: resolved.scheduleType,
   };
 }
 
 /**
- * When expected payment date is revised, preserve original due date.
+ * Reschedule: write revised expected only — never overwrite originalDueDate.
  */
 export function reviseExpectedPaymentDate(input: {
   originalDueDate: string;
   revisedExpectedPaymentDate: string;
-}): { originalDueDate: string; revisedExpectedPaymentDate: string } {
+  reason: string;
+}):
+  | { ok: true; originalDueDate: string; revisedExpectedPaymentDate: string }
+  | { ok: false; error: string; code: string } {
+  if (!input.reason.trim()) {
+    return { ok: false, error: 'Revised expected date requires a reason.', code: 'REASON_REQUIRED' };
+  }
+  const parsed = parse(input.revisedExpectedPaymentDate, 'yyyy-MM-dd', new Date());
+  if (!isValid(parsed)) {
+    return { ok: false, error: 'Revised expected date is invalid.', code: 'INVALID_DATE' };
+  }
   return {
+    ok: true,
     originalDueDate: input.originalDueDate,
-    revisedExpectedPaymentDate: input.revisedExpectedPaymentDate,
+    revisedExpectedPaymentDate: format(parsed, 'yyyy-MM-dd'),
   };
 }
+
+/** Seed helpers for common executive examples (configuration, not hardcoded permanent rules). */
+export const EXAMPLE_EXECUTIVE_SCHEDULE_SEEDS: Record<
+  string,
+  Pick<EmployeePaymentSchedule, 'preferredPaymentDay' | 'paymentScheduleType' | 'paymentScheduleNotes'>
+> = {
+  CEO: {
+    preferredPaymentDay: 1,
+    paymentScheduleType: 'BOARD_APPROVED_EXECUTIVE_SCHEDULE',
+    paymentScheduleNotes: 'Example board-approved CEO schedule (1st of succeeding month). Configurable.',
+  },
+  CTO: {
+    preferredPaymentDay: 3,
+    paymentScheduleType: 'BOARD_APPROVED_EXECUTIVE_SCHEDULE',
+    paymentScheduleNotes: 'Example board-approved CTO schedule (3rd of succeeding month). Configurable.',
+  },
+  COO: {
+    preferredPaymentDay: 5,
+    paymentScheduleType: 'BOARD_APPROVED_EXECUTIVE_SCHEDULE',
+    paymentScheduleNotes: 'Example board-approved COO schedule (5th of succeeding month). Configurable.',
+  },
+};
+
+export function succeedingMonthPaymentDate(salaryMonth: string, dayOfMonth: number): string {
+  const { creditDate } = payrollCycleDates(salaryMonth, dayOfMonth);
+  return format(creditDate, 'yyyy-MM-dd');
+}
+
+export function clampPaymentDay(day: number): number {
+  if (!Number.isFinite(day)) return DEFAULT_PAYMENT_DAY;
+  return Math.min(31, Math.max(1, Math.round(day)));
+}
+
+void dateInMonth;

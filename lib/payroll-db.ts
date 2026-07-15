@@ -15,7 +15,6 @@ import type {
   PaymentMode,
   PaymentType,
   Settings,
-  EntityInfo,
   SlipSnapshot,
   WorkMode,
 } from '@/lib/types';
@@ -35,9 +34,7 @@ export interface EmployeeDetailsJson {
   agreementType?: AgreementType;
   documentsStatus?: DocumentsStatus;
   notes?: string;
-  /** Monthly TDS (₹). Default 0 when absent (legacy rows). */
   tdsMonthly?: number;
-  /** Kerala PT half-yearly (₹). Default 0 when absent (legacy rows). */
   ptHalfYearly?: number;
 }
 

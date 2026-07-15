@@ -495,15 +495,12 @@ export async function finalizePayrollSlip(
         server_computed_at: new Date().toISOString(),
         active_final: true,
         supersedes: existingFinal && options?.supersedeConfirmed ? existingFinal.id : null,
-        salary_month: built.snapshot.salaryMonth ?? built.snapshot.monthYear,
-        attendance_period_start: built.snapshot.attendancePeriodStart ?? null,
-        attendance_period_end: built.snapshot.attendancePeriodEnd ?? null,
-        payroll_cycle_method: built.snapshot.payrollCycleMethod ?? null,
-        original_due_date: built.snapshot.originalDueDate ?? options?.expectedPaymentDate ?? null,
-        scheduled_payment_date: options?.expectedPaymentDate ?? null,
-        actual_credit_date: options?.salaryCreditDate ?? null,
-        legal_entity_id: built.snapshot.employee.entityCode,
-        revision_number: built.snapshot.revisionNumber ?? 1,
+        salary_month: built.snapshot.monthYear,
+        attendance_period_start: built.attendancePeriod?.attendancePeriodStart ?? null,
+        attendance_period_end: built.attendancePeriod?.attendancePeriodEnd ?? null,
+        payroll_cycle_method: built.attendancePeriod?.payrollCycleMethod ?? 'PREVIOUS_25_TO_CURRENT_24',
+        internal_document_status: 'ISSUED',
+        legal_entity_id: employee.entityCode,
       })
       .eq('id', built.snapshot.id);
 
@@ -709,15 +706,110 @@ export async function upsertAppSettings(settings: Settings): Promise<ActionResul
 }
 
 /** Removes a payroll slip from history. */
-export async function deletePayrollSlip(id: string): Promise<ActionResult<{ id: string }>> {
+/**
+ * Soft-cancels / blocks hard-delete of final, issued, or payment-linked slips.
+ * Draft records with no payment obligation or issued document may still be deleted.
+ */
+export async function deletePayrollSlip(
+  id: string,
+  opts?: { reason?: string; actorUserId?: string; forceCancel?: boolean },
+): Promise<ActionResult<{ id: string; action: 'deleted' | 'cancelled' | 'revoked' }>> {
   try {
     const supabase = await getSupabase();
-    const { error } = await supabase.from('payroll_slips').delete().eq('id', id);
+    const { data: row, error: fetchError } = await supabase
+      .from('payroll_slips')
+      .select('id, status, workflow_status, active_final, internal_document_status, authorised_document_status, details_json')
+      .eq('id', id)
+      .maybeSingle();
 
+    if (fetchError) return { ok: false, error: fetchError.message };
+    if (!row) return { ok: false, error: 'Payroll slip not found.' };
+
+    const status = String((row as { status?: string }).status ?? 'draft').toLowerCase();
+    const workflow = String((row as { workflow_status?: string }).workflow_status ?? '');
+    const activeFinal = Boolean((row as { active_final?: boolean }).active_final);
+    const authDoc = String((row as { authorised_document_status?: string }).authorised_document_status ?? '');
+    const isFinal =
+      status === 'final' ||
+      activeFinal ||
+      ['FINAL', 'FINALISED', 'PAID', 'PAYMENT_PENDING'].includes(workflow);
+    const isIssued = ['ISSUED', 'LEGACY_UNVERIFIED'].includes(authDoc);
+
+    let hasPayment = false;
+    try {
+      const { data: obl } = await supabase
+        .from('salary_payment_obligations')
+        .select('id, confirmed_paid_amount')
+        .eq('payroll_record_id', id)
+        .maybeSingle();
+      if (obl) {
+        hasPayment = true;
+        const paid = Number((obl as { confirmed_paid_amount?: number }).confirmed_paid_amount ?? 0);
+        if (paid > 0) {
+          return {
+            ok: false,
+            error:
+              'Cannot delete a payroll record with confirmed payment transactions. Use reverse / cancel / supersede with a reason.',
+          };
+        }
+      }
+    } catch {
+      // payment tables may be absent
+    }
+
+    if (isFinal || isIssued || hasPayment) {
+      if (!opts?.reason?.trim()) {
+        return {
+          ok: false,
+          error:
+            'Final or issued payroll records cannot be permanently deleted. Provide a reason to Cancel / Revoke, or supersede via a correction.',
+        };
+      }
+      const { error } = await supabase
+        .from('payroll_slips')
+        .update({
+          active_final: false,
+          workflow_status: 'CANCELLED',
+          payment_status: 'CANCELLED',
+          internal_document_status: 'CANCELLED',
+          authorised_document_status:
+            authDoc === 'ISSUED' || authDoc === 'LEGACY_UNVERIFIED' ? 'REVOKED' : 'CANCELLED',
+        })
+        .eq('id', id);
+      if (error) return { ok: false, error: error.message };
+
+      await supabase.from('payroll_audit_logs').insert({
+        action: authDoc === 'ISSUED' ? 'PAYROLL_DOCUMENT_REVOKED' : 'PAYROLL_CANCELLED',
+        entity_type: 'payroll_slip',
+        entity_id: id,
+        reason: opts.reason.trim(),
+        actor_user_id: opts.actorUserId ?? 'hr-user',
+        new_values: { workflow_status: 'CANCELLED' },
+      });
+
+      revalidatePayrollViews();
+      return {
+        ok: true,
+        data: {
+          id,
+          action: authDoc === 'ISSUED' || authDoc === 'LEGACY_UNVERIFIED' ? 'revoked' : 'cancelled',
+        },
+      };
+    }
+
+    const { error } = await supabase.from('payroll_slips').delete().eq('id', id);
     if (error) return { ok: false, error: error.message };
 
+    await supabase.from('payroll_audit_logs').insert({
+      action: 'PAYROLL_DRAFT_DELETED',
+      entity_type: 'payroll_slip',
+      entity_id: id,
+      reason: opts?.reason ?? 'Draft deleted',
+      actor_user_id: opts?.actorUserId ?? 'hr-user',
+    });
+
     revalidatePayrollViews();
-    return { ok: true, data: { id } };
+    return { ok: true, data: { id, action: 'deleted' } };
   } catch (err) {
     return {
       ok: false,

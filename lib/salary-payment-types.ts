@@ -24,7 +24,10 @@ export type SalaryPaymentStatus =
   | 'NO_SALARY_DUE'
   | 'SALARY_WAIVED';
 
-/** Document eligibility / lifecycle — independent of payroll FINAL and of payment PAID. */
+/**
+ * Document eligibility / readiness for slip issuance.
+ * Independent of payroll FINAL and of payment PAID.
+ */
 export type DocumentLifecycleStatus =
   | 'NOT_READY'
   | 'INTERNAL_AVAILABLE'
@@ -33,6 +36,15 @@ export type DocumentLifecycleStatus =
   | 'AUTHORISED_BLOCKED'
   | 'AUTHORISED_ELIGIBLE'
   | 'AUTHORISED_ISSUED'
+  | 'DRAFT'
+  | 'ISSUED'
+  | 'SUPERSEDED'
+  | 'REVOKED'
+  | 'CANCELLED'
+  | 'LEGACY_UNVERIFIED';
+
+/** Issued-document status for internal / authorised copies. */
+export type IssuedDocumentStatus =
   | 'DRAFT'
   | 'ISSUED'
   | 'SUPERSEDED'
@@ -82,9 +94,9 @@ export type DocumentKind =
   | 'AUTHORISED_SALARY_SLIP'
   | 'SALARY_PAYMENT_ADVICE_PARTIALLY_PAID'
   | 'OUTSTANDING_SALARY_STATEMENT'
-  | 'DEFERRED_SALARY_STATEMENT'
   | 'NO_SALARY_DRAWN_STATEMENT'
-  | 'SALARY_WAIVER_RECORD';
+  | 'SALARY_WAIVER_RECORD'
+  | 'DEFERRED_SALARY_STATEMENT';
 
 export interface SalaryPaymentObligation {
   id: string;

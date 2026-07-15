@@ -185,8 +185,8 @@ function mapRow(row: Record<string, unknown>, rowNumber: number): BulkEmployeeIn
     agreementType: 'offer_letter',
     documentsStatus: 'pending',
     notes: cellString(row['Notes']),
-    tdsMonthly: cellNumber(row['TDS Monthly']) || 0,
-    ptHalfYearly: cellNumber(row['PT Half-Yearly']) || 0,
+    tdsMonthly: 0,
+    ptHalfYearly: 0,
   };
 
   const error = validateRow(employee, rowNumber);

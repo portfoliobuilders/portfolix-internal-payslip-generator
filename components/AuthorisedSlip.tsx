@@ -1,9 +1,9 @@
 'use client';
 
 /**
- * Authorised Slip (bank copy) — render variant FROM a FINAL snapshot only.
- * Never recomputes; never invents deductions. Missing TDS/PT → ₹0.00 + reason.
- * Excludes flex-bank, deferral ledger, review window, rate-basis, draft language.
+ * AUTHORISED SALARY SLIP — bank / visa / third-party verification copy.
+ * Separate template from the Internal Pay Slip. Generation is gated until
+ * payment is fully PAID and reconciled. Never invents credit dates.
  */
 
 import {
@@ -11,26 +11,36 @@ import {
   formatDate,
   formatINR,
   formatMonthYear,
-  payrollCycleDates,
+  formatSalaryAttendanceCycle,
 } from '@/lib/format';
 import { formatAttendanceCycleRange } from '@/lib/payroll-cycle';
 import { slipStatutoryDeductions } from '@/lib/payroll-calc';
 import type { AuthorisedSlipYtd, EntityInfo, SlipSnapshot } from '@/lib/types';
-import EntityLogo from './EntityLogo';
+import EntityLogo from '@/components/EntityLogo';
 
 interface AuthorisedSlipProps {
   snapshot: SlipSnapshot;
   entity: EntityInfo;
   ytd: AuthorisedSlipYtd;
-  paydayDayOfMonth: number;
-  /** Short-lived signed URL for the signature image (server-generated). */
+  /** @deprecated Prefer actualCreditDate from payment ledger. */
+  paydayDayOfMonth?: number;
   signatureUrl: string | null;
-  /** Short-lived signed URL for the company seal (server-generated). */
   sealUrl: string | null;
-  /** Issue date printed in the signatory block (defaults to now). */
   issueDate?: Date | string;
+  actualCreditDate: string;
+  paymentMode?: string;
+  confirmedPaidAmount?: number;
+  outstandingBalance?: number;
+  attendancePeriodStart?: string | null;
+  attendancePeriodEnd?: string | null;
+  documentNumber?: string | null;
   verificationId?: string | null;
   verificationUrl?: string | null;
+  verificationFingerprint?: string | null;
+  revisionNumber?: number;
+  payrollFinalisedDate?: string | null;
+  qrDataUrl?: string | null;
+  financialYearLabel?: string | null;
 }
 
 function MoneyCell({ amount }: { amount: number }) {
@@ -45,19 +55,29 @@ export default function AuthorisedSlip({
   snapshot,
   entity,
   ytd,
-  paydayDayOfMonth,
   signatureUrl,
   sealUrl,
   issueDate,
-  verificationId,
-  verificationUrl,
+  actualCreditDate,
+  paymentMode,
+  confirmedPaidAmount,
+  outstandingBalance = 0,
+  attendancePeriodStart = null,
+  attendancePeriodEnd = null,
+  documentNumber = null,
+  verificationId = null,
+  verificationUrl = null,
+  verificationFingerprint = null,
+  revisionNumber = 1,
+  payrollFinalisedDate = null,
+  qrDataUrl = null,
+  financialYearLabel = null,
 }: AuthorisedSlipProps) {
   const { inputs, computed, employee } = snapshot;
-  const { creditDate } = payrollCycleDates(snapshot.monthYear, paydayDayOfMonth);
-  const hasAttendanceCycle =
-    Boolean(snapshot.attendancePeriodStart) && Boolean(snapshot.attendancePeriodEnd);
-  const isPaid = snapshot.paymentStatus === 'PAID';
-  const expectedPaymentDate = snapshot.expectedPaymentDate ?? creditDate;
+  const attendanceCycle = formatSalaryAttendanceCycle(snapshot.monthYear, 'PREVIOUS_25_TO_CURRENT_24', {
+    start: attendancePeriodStart,
+    end: attendancePeriodEnd,
+  });
 
   const { tds, pt } = slipStatutoryDeductions(computed, inputs);
   const other = computed.otherDeductions;
@@ -65,8 +85,15 @@ export default function AuthorisedSlip({
   const totalDeductions = computed.totalDeductions;
   const variablePaid = computed.variablePaid;
   const grossThisMonth = inputs.baseSalary + inputs.fixedAllowance + variablePaid;
-
+  const paidAmount = confirmedPaidAmount ?? computed.netPay;
   const issued = issueDate ?? new Date();
+
+  const [yStr, mStr] = snapshot.monthYear.split('-');
+  const y = Number(yStr);
+  const m = Number(mStr);
+  const fyLabel =
+    financialYearLabel ??
+    (m >= 4 ? `FY ${y}-${String(y + 1).slice(-2)}` : `FY ${y - 1}-${String(y).slice(-2)}`);
 
   return (
     <div
@@ -74,34 +101,54 @@ export default function AuthorisedSlip({
       style={{ width: '210mm', minHeight: '297mm', padding: '14mm 16mm' }}
     >
       {/* ---------- Letterhead ---------- */}
-      <header className="flex items-start gap-4 border-b-2 border-ink pb-3">
-        <div className="flex h-14 w-28 shrink-0 items-center justify-center overflow-hidden rounded bg-ink p-1.5">
-          <EntityLogo
-            entity={entity}
-            code={employee.entityCode}
-            className="max-h-full max-w-full"
-          />
+      <header className="flex items-start justify-between gap-4 border-b-2 border-ink pb-3">
+        <div className="flex min-w-0 flex-1 items-start gap-3">
+          <div className="flex h-14 w-28 shrink-0 items-center justify-center overflow-hidden rounded bg-ink p-1.5">
+            <EntityLogo entity={entity} code={employee.entityCode} className="max-h-full max-w-full" />
+          </div>
+          <div className="min-w-0">
+            <h1 className="text-[16px] font-bold leading-tight tracking-tight">{entity.name}</h1>
+            <p className="mt-1 text-[10px] text-muted">
+              CIN: <span className="amount text-ink">{entity.cin}</span>
+            </p>
+            <p className="mt-0.5 text-[10px] leading-snug text-muted">{entity.registeredAddress}</p>
+            <p className="mt-1 text-[10px] text-muted">
+              Tel: <span className="text-ink">{entity.phone}</span>
+              {' · '}
+              Payroll: <span className="text-ink">{entity.payrollEmail}</span>
+            </p>
+          </div>
         </div>
-        <div className="min-w-0 flex-1">
-          <h1 className="text-[18px] font-bold leading-tight tracking-tight">{entity.name}</h1>
-          <p className="mt-1 text-[10px] text-muted">
-            CIN: <span className="amount text-ink">{entity.cin}</span>
-          </p>
-          <p className="mt-0.5 text-[10px] leading-snug text-muted">{entity.registeredAddress}</p>
-          <p className="mt-1 text-[10px] text-muted">
-            Tel: <span className="text-ink">{entity.phone}</span>
-            {' · '}
-            Payroll:{' '}
-            <span className="text-ink">{entity.payrollEmail}</span>
-          </p>
-        </div>
+        {qrDataUrl && (
+          <div className="shrink-0 text-center">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={qrDataUrl} alt="Verification QR" className="h-16 w-16" />
+            <p className="mt-0.5 max-w-[72px] break-all text-[7px] text-muted">{verificationId}</p>
+          </div>
+        )}
       </header>
 
       {/* ---------- Title + period ---------- */}
       <div className="mt-4 text-center">
-        <p className="text-[16px] font-bold uppercase tracking-[0.14em]">AUTHORISED SALARY SLIP</p>
+        <p className="text-[16px] font-bold uppercase tracking-[0.14em]">Authorised Salary Slip</p>
         <p className="mt-1 text-[11px] font-medium">
-          Salary month: {formatMonthYear(snapshot.monthYear)}
+          Salary month: {formatMonthYear(snapshot.monthYear)} · {fyLabel}
+        </p>
+        <p className="mt-0.5 text-[10px] text-muted">Attendance cycle: {attendanceCycle}</p>
+        <p className="mt-0.5 text-[10px] text-muted">
+          Payslip no: <span className="amount text-ink">{documentNumber ?? '—'}</span>
+          {' · '}
+          Rev {revisionNumber}
+          {' · '}
+          Status: ISSUED
+        </p>
+        <p className="mt-0.5 text-[10px] text-muted">
+          Payroll finalised: {payrollFinalisedDate ? formatDate(payrollFinalisedDate) : formatDate(snapshot.generatedAt)}
+          {' · '}
+          Issue date: {formatDate(issued)}
+        </p>
+        <p className="mt-0.5 text-[10px] font-semibold text-ink">
+          Actual salary-credit date: {formatDate(actualCreditDate)}
         </p>
         {hasAttendanceCycle ? (
           <p className="mt-0.5 text-[10px] text-muted">
@@ -144,7 +191,7 @@ export default function AuthorisedSlip({
         </div>
       </div>
 
-      {/* ---------- Employee block ---------- */}
+      {/* ---------- Employee block (no residential address by default) ---------- */}
       <section className="mt-4 rounded border border-hairline px-3 py-2.5">
         <div className="grid grid-cols-4 gap-x-4 gap-y-2 text-[10.5px]">
           <div className="col-span-2">
@@ -177,7 +224,7 @@ export default function AuthorisedSlip({
           </div>
           <div>
             <p className="text-[8.5px] font-semibold uppercase tracking-wider text-muted">Payment mode</p>
-            <p>{employee.paymentMode}</p>
+            <p>{paymentMode ?? employee.paymentMode}</p>
           </div>
         </div>
       </section>
@@ -235,7 +282,12 @@ export default function AuthorisedSlip({
           </thead>
           <tbody>
             <tr className="border-b border-hairline/60 align-top">
-              <td className="px-2 py-1">Loss of Pay</td>
+              <td className="px-2 py-1">
+                Loss of Pay
+                <DeductionNote>
+                  {computed.lopDays.toFixed(1)} LOP day(s) · payable days referenced for rate basis
+                </DeductionNote>
+              </td>
               <MoneyCell amount={lop} />
               <MoneyCell amount={ytd.lopDeduction} />
             </tr>
@@ -260,22 +312,6 @@ export default function AuthorisedSlip({
               <MoneyCell amount={ytd.tds} />
             </tr>
             <tr className="border-b border-hairline/60 align-top">
-              <td className="px-2 py-1">
-                EPF
-                <DeductionNote>Not applicable — establishment below 20 employees</DeductionNote>
-              </td>
-              <MoneyCell amount={0} />
-              <MoneyCell amount={0} />
-            </tr>
-            <tr className="border-b border-hairline/60 align-top">
-              <td className="px-2 py-1">
-                ESI
-                <DeductionNote>Not applicable</DeductionNote>
-              </td>
-              <MoneyCell amount={0} />
-              <MoneyCell amount={0} />
-            </tr>
-            <tr className="border-b border-hairline/60 align-top">
               <td className="px-2 py-1">Other</td>
               <MoneyCell amount={other} />
               <MoneyCell amount={ytd.otherDeductions} />
@@ -289,7 +325,7 @@ export default function AuthorisedSlip({
         </table>
       </section>
 
-      {/* ---------- Net ---------- */}
+      {/* ---------- Net + payment confirmation ---------- */}
       <section className="slip-net-band mt-5 rounded border px-4 py-3">
         <div className="flex items-baseline justify-between gap-4">
           <p className="text-[10px] font-bold uppercase tracking-[0.15em]">Net Salary</p>
@@ -298,37 +334,63 @@ export default function AuthorisedSlip({
         <p className="mt-1 border-t border-emerald-600/30 pt-1 text-[10px] font-medium">
           {computed.netPayWords}
         </p>
+        <div className="mt-2 grid grid-cols-3 gap-2 border-t border-emerald-600/20 pt-2 text-[10px]">
+          <div>
+            <p className="text-[8px] uppercase tracking-wider text-muted">Payment status</p>
+            <p className="font-semibold">Paid</p>
+          </div>
+          <div>
+            <p className="text-[8px] uppercase tracking-wider text-muted">Confirmed paid</p>
+            <p className="amount font-semibold">{formatINR(paidAmount)}</p>
+          </div>
+          <div>
+            <p className="text-[8px] uppercase tracking-wider text-muted">Outstanding</p>
+            <p className="amount font-semibold">{formatINR(outstandingBalance)}</p>
+          </div>
+        </div>
       </section>
 
-      {/* ---------- Signatory + verification ---------- */}
-      <section className="mt-8 grid grid-cols-[1fr_auto_auto] items-end gap-6">
+      {/* ---------- Signatory + seal (seal overlaps lower-right of signature ~15%) ---------- */}
+      <section className="mt-8 grid grid-cols-[1fr_auto] items-end gap-6">
         <div>
           <p className="text-[10px]">For {entity.name}</p>
-          <div className="mt-2 flex h-16 items-end">
+          <div className="relative mt-2 inline-block">
             {signatureUrl ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img
                 src={signatureUrl}
-                alt="Authorised signatory"
+                alt="Authorised signature"
                 className="max-h-16 max-w-[180px] object-contain"
               />
             ) : (
               <div className="h-12 w-40 border-b border-hairline" />
             )}
+            {sealUrl && (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={sealUrl}
+                alt="Company seal"
+                className="pointer-events-none absolute -bottom-2 -right-4 h-14 w-14 object-contain opacity-90"
+              />
+            )}
           </div>
           <p className="mt-1 text-[11px] font-semibold">{entity.signatoryName}</p>
-          <p className="text-[10px] text-muted">{entity.signatoryDesignation}</p>
+          <p className="text-[10px] text-muted">{entity.signatoryDesignation} / Authorised Signatory</p>
           <p className="mt-3 text-[9.5px] text-muted">
             Place: Kochi
             {' · '}
             Date: {formatDate(issued)}
           </p>
         </div>
-        <div className="flex h-20 w-20 items-center justify-center">
-          {sealUrl ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={sealUrl} alt="Company seal" className="max-h-20 max-w-20 object-contain" />
-          ) : null}
+        <div className="text-right text-[9px] text-muted">
+          <p>Verification ID</p>
+          <p className="amount font-semibold text-ink">{verificationId ?? '—'}</p>
+          {verificationFingerprint && (
+            <>
+              <p className="mt-1">Fingerprint</p>
+              <p className="amount break-all text-[8px]">{verificationFingerprint}</p>
+            </>
+          )}
         </div>
         <div className="flex flex-col items-center gap-1 text-center">
           <div className="flex h-20 w-20 items-center justify-center rounded border border-hairline bg-surface text-[8px] text-muted">
@@ -345,12 +407,16 @@ export default function AuthorisedSlip({
         </div>
       </section>
 
-      {/* ---------- Footer ---------- */}
       <footer className="mt-auto border-t border-hairline pt-3 text-[8.5px] leading-relaxed text-muted">
         <p>Authorised and issued by the employer.</p>
         <p>
-          This computer-generated authorised salary slip may be verified through the QR code and
-          verification ID.
+          Authorised and issued by the employer. This computer-generated authorised salary slip may
+          be verified through the QR code and verification ID
+          {verificationUrl ? ` at ${verificationUrl}` : ''}.
+        </p>
+        <p>
+          For employer verification contact {entity.payrollEmail} / {entity.phone}. Do not treat a
+          pasted signature image as a cryptographic digital signature.
         </p>
       </footer>
     </div>

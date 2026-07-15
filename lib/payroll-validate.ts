@@ -1,10 +1,19 @@
 /**
  * Server-side payroll period / attendance / finalization validation.
+ * Attendance cycle is independent of the LOP divisor.
  * Does not invent missing data — returns structured issues for HR review.
  */
 
-import { endOfMonth, parse, isAfter, isBefore, isValid, startOfDay } from 'date-fns';
+import { isAfter, isBefore, isValid, parse, startOfDay } from 'date-fns';
 import { moneyEquals, reconcileNet, roundRupees } from './money';
+import {
+  assertFinalisationAllowed,
+  computeAttendancePeriod,
+  DEFAULT_PAYROLL_CYCLE_METHOD,
+  validateAttendancePeriod,
+  type AttendancePeriod,
+  type PayrollCycleMethod,
+} from './payroll-cycle';
 import type { SlipComputed, SlipInputs, SlipSnapshot } from './types';
 
 export type PayrollWorkflowStatus =
@@ -43,6 +52,9 @@ export interface AttendanceTotals {
   halfDays: number;
   lateMinutes: number;
   attendanceLocked: boolean;
+  attendancePeriodStart?: string | null;
+  attendancePeriodEnd?: string | null;
+  payrollCycleMethod?: PayrollCycleMethod | null;
 }
 
 export interface FinalizationContext {
@@ -83,31 +95,33 @@ export interface FinalizationContext {
   integrityStatus: IntegrityStatus;
   /** When true, period/attendance gates are enforced (new finals). Legacy path uses warnings. */
   enforceStrictGates: boolean;
+  /** Prior attendance period for overlap/gap checks. */
+  previousAttendancePeriod?: AttendancePeriod | null;
+  isManualCycleOverride?: boolean;
+  cycleOverrideReason?: string | null;
 }
 
 /**
- * @deprecated Calendar-month end — only for CALENDAR_MONTH cycle or legacy rows
- * lacking attendance_period_end. Prefer attendancePeriodEnd.
+ * @deprecated Prefer attendance period end from computeAttendancePeriod.
+ * Default now uses Portfolix 25→24 cycle end (not calendar month end).
  */
 export function payPeriodEnd(monthYear: string): Date {
-  const start = parse(monthYear, 'yyyy-MM', new Date());
-  if (!isValid(start)) throw new Error(`Invalid monthYear: ${monthYear}`);
-  return endOfMonth(start);
+  const period = computeAttendancePeriod({
+    salaryMonth: monthYear,
+    method: DEFAULT_PAYROLL_CYCLE_METHOD,
+  });
+  return parse(period.attendancePeriodEnd, 'yyyy-MM-dd', new Date());
 }
 
-/** True when attendance cycle (or calendar fallback) has ended. */
-export function isPayPeriodEnded(
-  monthYear: string,
-  now = new Date(),
-  attendancePeriodEnd?: string | null,
-): boolean {
-  if (attendancePeriodEnd) {
-    const end = parse(attendancePeriodEnd, 'yyyy-MM-dd', new Date());
-    if (isValid(end)) {
-      return !isBefore(startOfDay(now), startOfDay(end));
-    }
-  }
-  return !isBefore(startOfDay(now), startOfDay(payPeriodEnd(monthYear)));
+export function isPayPeriodEnded(monthYear: string, now = new Date()): boolean {
+  const period = computeAttendancePeriod({
+    salaryMonth: monthYear,
+    method: DEFAULT_PAYROLL_CYCLE_METHOD,
+  });
+  return !isBefore(
+    startOfDay(now),
+    startOfDay(parse(period.attendancePeriodEnd, 'yyyy-MM-dd', new Date())),
+  );
 }
 
 export function validateAttendance(attendance: AttendanceTotals): ValidationIssue[] {
@@ -161,7 +175,6 @@ export function validateMoneyReconciliation(input: {
   variablePaid: number;
 }): ValidationIssue[] {
   const issues: ValidationIssue[] = [];
-  // Portfolix net = (gross fixed − deductions) + variable paid
   const expectedNet = roundRupees(input.grossEarnings - input.totalDeductions + input.variablePaid);
   if (!moneyEquals(expectedNet, input.netSalary)) {
     issues.push({
@@ -241,19 +254,41 @@ export function validateClientComputedMatch(
 export function validateFinalization(ctx: FinalizationContext): ValidationIssue[] {
   const issues: ValidationIssue[] = [];
   const now = ctx.now ?? new Date();
-  const periodEnded = isPayPeriodEnded(
-    ctx.monthYear,
-    now,
-    ctx.attendancePeriodEnd,
-  );
 
-  if (!periodEnded) {
+  const cycleMethod =
+    ctx.attendance.payrollCycleMethod ?? DEFAULT_PAYROLL_CYCLE_METHOD;
+  const period: AttendancePeriod =
+    ctx.attendance.attendancePeriodStart && ctx.attendance.attendancePeriodEnd
+      ? {
+          salaryMonth: ctx.monthYear,
+          attendancePeriodStart: ctx.attendance.attendancePeriodStart,
+          attendancePeriodEnd: ctx.attendance.attendancePeriodEnd,
+          payrollCycleMethod: cycleMethod,
+          payrollCyclePolicyId: null,
+          attendanceDayCount: 0,
+        }
+      : computeAttendancePeriod({ salaryMonth: ctx.monthYear, method: cycleMethod });
+
+  const cycleIssues = validateAttendancePeriod({
+    period,
+    previousPeriod: ctx.previousAttendancePeriod,
+    now,
+    isManualOverride: ctx.isManualCycleOverride,
+    overrideReason: ctx.cycleOverrideReason,
+  });
+  for (const ci of cycleIssues) {
+    issues.push({ severity: ci.severity, code: ci.code, message: ci.message });
+  }
+
+  const finalGuard = assertFinalisationAllowed({
+    attendancePeriodEnd: period.attendancePeriodEnd,
+    now,
+  });
+  if (finalGuard) {
     issues.push({
       severity: ctx.enforceStrictGates ? 'error' : 'warning',
-      code: 'PERIOD_NOT_ENDED',
-      message: ctx.attendancePeriodEnd
-        ? `Attendance cycle ending ${ctx.attendancePeriodEnd} has not ended. Final payroll cannot be issued yet.`
-        : `Pay period ${ctx.monthYear} has not ended. Final payroll cannot be issued yet.`,
+      code: finalGuard.code,
+      message: finalGuard.message,
     });
   }
 
@@ -292,14 +327,12 @@ export function validateFinalization(ctx: FinalizationContext): ValidationIssue[
 
   if (ctx.salaryCreditDate) {
     const credit = parse(ctx.salaryCreditDate, 'yyyy-MM-dd', new Date());
-    const periodEnd = ctx.attendancePeriodEnd
-      ? parse(ctx.attendancePeriodEnd, 'yyyy-MM-dd', new Date())
-      : payPeriodEnd(ctx.monthYear);
-    if (isValid(credit) && isValid(periodEnd) && isBefore(credit, startOfDay(periodEnd))) {
+    const periodEnd = parse(period.attendancePeriodEnd, 'yyyy-MM-dd', new Date());
+    if (isValid(credit) && isBefore(credit, startOfDay(periodEnd))) {
       issues.push({
         severity: 'error',
         code: 'CREDIT_BEFORE_PERIOD_END',
-        message: 'Actual salary credit date cannot be before the attendance period ends.',
+        message: 'Salary credit date cannot be before the attendance cycle ends.',
       });
     }
     if (isValid(credit) && isAfter(startOfDay(credit), startOfDay(now))) {
@@ -357,6 +390,7 @@ export function buildAttendanceFromInputs(
   lopDays: number,
   calendarDays: number,
   attendanceLocked = false,
+  cycle?: Partial<AttendancePeriod> | null,
 ): AttendanceTotals {
   return {
     calendarDays,
@@ -372,5 +406,8 @@ export function buildAttendanceFromInputs(
     halfDays: inputs.halfDays,
     lateMinutes: inputs.lateMinutes,
     attendanceLocked,
+    attendancePeriodStart: cycle?.attendancePeriodStart ?? null,
+    attendancePeriodEnd: cycle?.attendancePeriodEnd ?? null,
+    payrollCycleMethod: cycle?.payrollCycleMethod ?? DEFAULT_PAYROLL_CYCLE_METHOD,
   };
 }

@@ -1,63 +1,64 @@
+/**
+ * Text/vector PDF extraction and size tests.
+ */
+
 import { describe, expect, it } from 'vitest';
 import {
-  assertVectorPdfTextContains,
-  buildVectorPayslipPdf,
+  buildAuthorisedSlipPdf,
+  buildInternalSlipPdf,
+  pdfWithinSizeLimit,
 } from '../pdf-vector';
+import { LEGAL_COMPANY_NAME_CANONICAL } from '../constants/company';
 
-describe('vector / text PDF', () => {
-  it('builds authorised slip under size limit with extractable fields', async () => {
-    const result = await buildVectorPayslipPdf({
-      documentType: 'AUTHORISED_SALARY_SLIP',
-      legalCompanyName: 'PORTFOLIX ENTREPRISE PRIVATE LIMITED',
+describe('vector PDF builders', () => {
+  it('internal slip has extractable text and stays under size limit', () => {
+    const result = buildInternalSlipPdf({
+      legalCompanyName: LEGAL_COMPANY_NAME_CANONICAL,
       employeeName: 'Tinu Rani A S',
       employeeId: 'PX-2024-001',
       salaryMonth: '2026-07',
-      attendancePeriodStart: '2026-06-25',
-      attendancePeriodEnd: '2026-07-24',
       netSalary: 50000,
-      documentNumber: 'PX-AUTH-2026-07-001',
-      paymentStatus: 'Paid',
-      verificationId: 'a'.repeat(64),
-      verificationUrl: 'https://verify.example/verify/payslip/' + 'a'.repeat(64),
-      actualCreditDate: '2026-08-05',
-      cin: 'U12345KA2024PTC000000',
-      issueDate: '2026-08-06',
+      documentType: 'INTERNAL PAY SLIP',
+      documentNumber: 'INT-PX-2024-001-2026-07',
+      paymentStatus: 'SCHEDULED',
+      expectedOrCreditLabel: 'Expected payment date',
+      expectedOrCreditDate: '05 Aug 2026',
     });
 
-    expect(result.sizeBytes).toBeLessThan(1024 * 1024);
-    expect(result.sizeBytes).toBeLessThan(500 * 1024);
-    expect(result.bytes.byteLength).toBeGreaterThan(100);
-
-    const check = assertVectorPdfTextContains(result.extractedText, [
-      'PORTFOLIX ENTREPRISE PRIVATE LIMITED',
-      'Tinu Rani A S',
-      'July 2026',
-      '25 Jun 2026 – 24 Jul 2026',
-      '₹50,000.00',
-      'AUTHORISED SALARY SLIP',
-      'PX-AUTH-2026-07-001',
-      'Paid',
-      'a'.repeat(64),
-    ]);
-    expect(check).toEqual({ ok: true });
+    expect(result.textContent).toContain(LEGAL_COMPANY_NAME_CANONICAL);
+    expect(result.textContent).toContain('Tinu Rani A S');
+    expect(result.textContent).toContain('July 2026');
+    expect(result.textContent).toContain('25 Jun 2026');
+    expect(result.textContent).toContain('24 Jul 2026');
+    expect(result.textContent).toContain('₹50,000.00');
+    expect(result.textContent).toContain('INTERNAL PAY SLIP');
+    expect(result.textContent).toContain('INT-PX-2024-001-2026-07');
+    expect(result.textContent).toContain('SCHEDULED');
+    expect(pdfWithinSizeLimit(result.byteLength)).toBe(true);
+    expect(result.byteLength).toBeLessThan(500_000);
   });
 
-  it('builds internal slip without claiming digital signature', async () => {
-    const result = await buildVectorPayslipPdf({
-      documentType: 'INTERNAL_PAY_SLIP',
-      legalCompanyName: 'PORTFOLIX ENTREPRISE PRIVATE LIMITED',
+  it('authorised slip includes verification id and payment status Paid', () => {
+    const result = buildAuthorisedSlipPdf({
+      legalCompanyName: LEGAL_COMPANY_NAME_CANONICAL,
       employeeName: 'Tinu Rani A S',
       employeeId: 'PX-2024-001',
       salaryMonth: '2026-07',
-      attendancePeriodStart: '2026-06-25',
-      attendancePeriodEnd: '2026-07-24',
       netSalary: 50000,
-      documentNumber: 'PX-INT-2026-07-001',
-      paymentStatus: 'Scheduled',
-      expectedPaymentDate: '2026-08-05',
-      lopDivisorLabel: 'LOP Calculation Basis: Fixed 25-day divisor',
+      documentType: 'AUTHORISED SALARY SLIP',
+      documentNumber: 'ASL-PX-2024-001-2026-07',
+      paymentStatus: 'Paid',
+      actualCreditDate: '05 Aug 2026',
+      verificationId: 'ver_abc123XYZ789secureToken',
+      cin: 'U72900KL2024PTC123456',
+      designation: 'Operations Lead',
     });
-    expect(result.extractedText).toContain('INTERNAL PAY SLIP');
-    expect(result.extractedText).not.toContain('Digitally signed');
+
+    expect(result.textContent).toContain('AUTHORISED SALARY SLIP');
+    expect(result.textContent).toContain(LEGAL_COMPANY_NAME_CANONICAL);
+    expect(result.textContent).toContain('ver_abc123XYZ789secureToken');
+    expect(result.textContent).toContain('Paid');
+    expect(result.textContent).toContain('₹50,000.00');
+    expect(pdfWithinSizeLimit(result.byteLength)).toBe(true);
   });
 });

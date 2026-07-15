@@ -2,24 +2,23 @@
  * Payroll attendance-cycle model.
  *
  * Salary month ≠ attendance cycle.
- * Default company convention: PREVIOUS_25_TO_CURRENT_24
- *   July 2026 salary → 25 Jun 2026 – 24 Jul 2026
- *
- * LOP / salary calculation divisors live in calculation-method.ts — never
- * confuse the attendance window length with the daily-rate divisor.
+ * Default Portfolix policy: 25th of previous month through 24th of salary month.
+ * Divisor / LOP basis is a SEPARATE concern (see calculation-method.ts).
  */
 
 import {
   addDays,
-  addMonths,
   differenceInCalendarDays,
   endOfMonth,
   format,
   isAfter,
   isBefore,
+  isEqual,
+  isValid,
   parse,
   startOfDay,
   startOfMonth,
+  subMonths,
 } from 'date-fns';
 
 export type PayrollCycleMethod =
@@ -28,27 +27,16 @@ export type PayrollCycleMethod =
   | 'PREVIOUS_24_TO_CURRENT_23'
   | 'CUSTOM_FIXED_CYCLE';
 
-export const DEFAULT_PAYROLL_CYCLE_METHOD: PayrollCycleMethod =
-  'PREVIOUS_25_TO_CURRENT_24';
-
-export interface PayrollCyclePolicy {
-  id?: string;
-  code?: string;
-  cycleMethod: PayrollCycleMethod;
-  customStartDay?: number | null;
-  customEndDay?: number | null;
-  /** Absolute max attendance days unless documented exception. */
-  maxDays?: number;
-  exceptionDocumented?: boolean;
-}
+export const DEFAULT_PAYROLL_CYCLE_METHOD: PayrollCycleMethod = 'PREVIOUS_25_TO_CURRENT_24';
 
 export interface AttendancePeriod {
-  salaryMonth: string;
-  attendancePeriodStart: string; // yyyy-MM-dd
-  attendancePeriodEnd: string; // yyyy-MM-dd
+  salaryMonth: string; // YYYY-MM
+  attendancePeriodStart: string; // YYYY-MM-DD
+  attendancePeriodEnd: string; // YYYY-MM-DD
   payrollCycleMethod: PayrollCycleMethod;
   payrollCyclePolicyId: string | null;
-  dayCount: number;
+  /** Inclusive day count of the attendance window. */
+  attendanceDayCount: number;
 }
 
 export interface CycleValidationIssue {
@@ -59,105 +47,89 @@ export interface CycleValidationIssue {
 
 function parseSalaryMonth(salaryMonth: string): Date {
   const d = parse(salaryMonth, 'yyyy-MM', new Date());
-  if (Number.isNaN(d.getTime())) {
-    throw new Error(`Invalid salary_month: ${salaryMonth}`);
-  }
+  if (!isValid(d)) throw new Error(`Invalid salary month: ${salaryMonth}`);
   return d;
 }
 
-function isoDate(d: Date): string {
+function ymd(d: Date): string {
   return format(d, 'yyyy-MM-dd');
 }
 
 /**
- * Compute attendance period for a salary month. Server-side only — do not
- * re-derive period bounds from salary month alone in UI render paths.
+ * Compute attendance period for a salary month. Server-side only —
+ * frontend must not invent these dates.
  */
 export function computeAttendancePeriod(input: {
   salaryMonth: string;
-  method: PayrollCycleMethod;
+  method?: PayrollCycleMethod;
   policyId?: string | null;
-  customStartDay?: number | null;
-  customEndDay?: number | null;
-  /** Explicit override dates (require reason + audit at call site). */
-  overrideStart?: string | null;
-  overrideEnd?: string | null;
+  /** Required when method is CUSTOM_FIXED_CYCLE. */
+  customStart?: string | null;
+  customEnd?: string | null;
 }): AttendancePeriod {
-  if (input.overrideStart && input.overrideEnd) {
-    const start = startOfDay(parse(input.overrideStart, 'yyyy-MM-dd', new Date()));
-    const end = startOfDay(parse(input.overrideEnd, 'yyyy-MM-dd', new Date()));
-    if (isAfter(start, end)) {
-      throw new Error('Attendance period start must be on or before end.');
-    }
-    return {
-      salaryMonth: input.salaryMonth,
-      attendancePeriodStart: isoDate(start),
-      attendancePeriodEnd: isoDate(end),
-      payrollCycleMethod: input.method,
-      payrollCyclePolicyId: input.policyId ?? null,
-      dayCount: differenceInCalendarDays(end, start) + 1,
-    };
-  }
+  const method = input.method ?? DEFAULT_PAYROLL_CYCLE_METHOD;
+  const base = parseSalaryMonth(input.salaryMonth);
 
-  const monthStart = startOfMonth(parseSalaryMonth(input.salaryMonth));
   let start: Date;
   let end: Date;
 
-  switch (input.method) {
+  switch (method) {
     case 'CALENDAR_MONTH':
-      start = monthStart;
-      end = endOfMonth(monthStart);
+      start = startOfMonth(base);
+      end = endOfMonth(base);
       break;
     case 'PREVIOUS_25_TO_CURRENT_24': {
-      const prev = addMonths(monthStart, -1);
+      const prev = subMonths(base, 1);
       start = new Date(prev.getFullYear(), prev.getMonth(), 25);
-      end = new Date(monthStart.getFullYear(), monthStart.getMonth(), 24);
+      end = new Date(base.getFullYear(), base.getMonth(), 24);
       break;
     }
     case 'PREVIOUS_24_TO_CURRENT_23': {
-      const prev = addMonths(monthStart, -1);
+      const prev = subMonths(base, 1);
       start = new Date(prev.getFullYear(), prev.getMonth(), 24);
-      end = new Date(monthStart.getFullYear(), monthStart.getMonth(), 23);
+      end = new Date(base.getFullYear(), base.getMonth(), 23);
       break;
     }
     case 'CUSTOM_FIXED_CYCLE': {
-      const startDay = input.customStartDay;
-      const endDay = input.customEndDay;
-      if (startDay == null || endDay == null) {
-        throw new Error('CUSTOM_FIXED_CYCLE requires customStartDay and customEndDay.');
+      if (!input.customStart || !input.customEnd) {
+        throw new Error('CUSTOM_FIXED_CYCLE requires explicit start and end dates.');
       }
-      const prev = addMonths(monthStart, -1);
-      start = new Date(prev.getFullYear(), prev.getMonth(), startDay);
-      end = new Date(monthStart.getFullYear(), monthStart.getMonth(), endDay);
+      start = startOfDay(parse(input.customStart, 'yyyy-MM-dd', new Date()));
+      end = startOfDay(parse(input.customEnd, 'yyyy-MM-dd', new Date()));
+      if (!isValid(start) || !isValid(end)) {
+        throw new Error('CUSTOM_FIXED_CYCLE dates are invalid.');
+      }
       break;
     }
-    default: {
-      const _exhaustive: never = input.method;
-      throw new Error(`Unhandled payroll cycle method: ${_exhaustive}`);
-    }
+    default:
+      throw new Error(`Unhandled payroll cycle method: ${method}`);
   }
 
-  start = startOfDay(start);
-  end = startOfDay(end);
+  if (isAfter(start, end)) {
+    throw new Error('Attendance period start cannot be after end.');
+  }
+
+  const attendanceDayCount = differenceInCalendarDays(end, start) + 1;
 
   return {
     salaryMonth: input.salaryMonth,
-    attendancePeriodStart: isoDate(start),
-    attendancePeriodEnd: isoDate(end),
-    payrollCycleMethod: input.method,
+    attendancePeriodStart: ymd(start),
+    attendancePeriodEnd: ymd(end),
+    payrollCycleMethod: method,
     payrollCyclePolicyId: input.policyId ?? null,
-    dayCount: differenceInCalendarDays(end, start) + 1,
+    attendanceDayCount,
   };
 }
 
-/** Format "25 Jun 2026 – 24 Jul 2026". */
-export function formatAttendanceCycleRange(
-  startIso: string,
-  endIso: string,
-): string {
-  const start = parse(startIso, 'yyyy-MM-dd', new Date());
-  const end = parse(endIso, 'yyyy-MM-dd', new Date());
-  return `${format(start, 'dd MMM yyyy')} – ${format(end, 'dd MMM yyyy')}`;
+/** Human-readable range, e.g. "25 Jun 2026 – 24 Jul 2026". */
+export function formatAttendanceCycle(period: Pick<
+  AttendancePeriod,
+  'attendancePeriodStart' | 'attendancePeriodEnd'
+>): string {
+  const s = parse(period.attendancePeriodStart, 'yyyy-MM-dd', new Date());
+  const e = parse(period.attendancePeriodEnd, 'yyyy-MM-dd', new Date());
+  if (!isValid(s) || !isValid(e)) return '—';
+  return `${format(s, 'dd MMM yyyy')} – ${format(e, 'dd MMM yyyy')}`;
 }
 
 export function isAttendanceCycleEnded(
@@ -165,30 +137,46 @@ export function isAttendanceCycleEnded(
   now = new Date(),
 ): boolean {
   const end = startOfDay(parse(attendancePeriodEnd, 'yyyy-MM-dd', new Date()));
+  if (!isValid(end)) return false;
   return !isBefore(startOfDay(now), end);
 }
 
 /**
- * Validate attendance period against prior period, finalisation time, and length.
+ * Validate a proposed attendance period against prior period and policy.
+ * Does not silently modify dates.
  */
 export function validateAttendancePeriod(input: {
   period: AttendancePeriod;
-  previousPeriodEnd?: string | null;
-  previousPeriodStart?: string | null;
+  /** Prior period for the same employee (most recent previous salary month). */
+  previousPeriod?: Pick<
+    AttendancePeriod,
+    'attendancePeriodStart' | 'attendancePeriodEnd' | 'salaryMonth'
+  > | null;
+  /** Next period if already drafted (gap check). */
+  nextPeriod?: Pick<
+    AttendancePeriod,
+    'attendancePeriodStart' | 'attendancePeriodEnd'
+  > | null;
   now?: Date;
-  finalising?: boolean;
+  /** Manual override of computed dates. */
+  isManualOverride?: boolean;
   overrideReason?: string | null;
-  maxDays?: number;
-  exceptionDocumented?: boolean;
+  allowMultiMonthException?: boolean;
+  payrollFinalisedAt?: Date | string | null;
 }): CycleValidationIssue[] {
   const issues: CycleValidationIssue[] = [];
-  const now = input.now ?? new Date();
-  const start = startOfDay(
-    parse(input.period.attendancePeriodStart, 'yyyy-MM-dd', new Date()),
-  );
-  const end = startOfDay(
-    parse(input.period.attendancePeriodEnd, 'yyyy-MM-dd', new Date()),
-  );
+  const period = input.period;
+  const start = startOfDay(parse(period.attendancePeriodStart, 'yyyy-MM-dd', new Date()));
+  const end = startOfDay(parse(period.attendancePeriodEnd, 'yyyy-MM-dd', new Date()));
+
+  if (!isValid(start) || !isValid(end)) {
+    issues.push({
+      severity: 'error',
+      code: 'INVALID_ATTENDANCE_DATES',
+      message: 'Attendance period dates are invalid.',
+    });
+    return issues;
+  }
 
   if (isAfter(start, end)) {
     issues.push({
@@ -198,98 +186,113 @@ export function validateAttendancePeriod(input: {
     });
   }
 
-  if (input.previousPeriodEnd) {
+  // Cycle length: normally ≤ ~31 days unless documented exception
+  const days = differenceInCalendarDays(end, start) + 1;
+  if (days > 31 && !input.allowMultiMonthException) {
+    issues.push({
+      severity: 'error',
+      code: 'CYCLE_EXCEEDS_ONE_MONTH',
+      message: `Attendance cycle is ${days} days which exceeds one month. Configure a documented multi-month exception.`,
+    });
+  }
+
+  if (input.previousPeriod) {
     const prevEnd = startOfDay(
-      parse(input.previousPeriodEnd, 'yyyy-MM-dd', new Date()),
+      parse(input.previousPeriod.attendancePeriodEnd, 'yyyy-MM-dd', new Date()),
     );
-    // No overlap: new start must be day after previous end
-    if (isBefore(start, addDays(prevEnd, 1))) {
-      issues.push({
-        severity: 'error',
-        code: 'ATTENDANCE_OVERLAP',
-        message:
-          'Attendance period overlaps the previous payroll period for this employee.',
-      });
-    }
-    // No unexplained gap
-    if (isAfter(start, addDays(prevEnd, 1))) {
-      issues.push({
-        severity: 'error',
-        code: 'ATTENDANCE_GAP',
-        message:
-          'Attendance period leaves an unexplained gap after the previous period.',
-      });
-    }
-  }
-
-  const maxDays = input.maxDays ?? 31;
-  if (input.period.dayCount > maxDays && !input.exceptionDocumented) {
-    issues.push({
-      severity: 'error',
-      code: 'ATTENDANCE_EXCEEDS_ONE_MONTH',
-      message: `Payroll cycle is ${input.period.dayCount} days; exceeds ${maxDays} without a documented exception.`,
-    });
-  }
-
-  if (input.finalising) {
-    if (isBefore(startOfDay(now), end)) {
-      issues.push({
-        severity: 'error',
-        code: 'FINALISE_BEFORE_CYCLE_END',
-        message:
-          'Final payroll cannot be issued before the attendance period ends.',
-      });
+    if (isValid(prevEnd)) {
+      const expectedNextStart = addDays(prevEnd, 1);
+      if (isBefore(start, expectedNextStart) && !isEqual(start, expectedNextStart)) {
+        // overlap if start <= prevEnd
+        if (!isAfter(start, prevEnd)) {
+          issues.push({
+            severity: 'error',
+            code: 'ATTENDANCE_OVERLAP',
+            message: `Attendance period overlaps the previous cycle ending ${input.previousPeriod.attendancePeriodEnd}.`,
+          });
+        }
+      }
+      if (isAfter(start, expectedNextStart)) {
+        issues.push({
+          severity: 'error',
+          code: 'ATTENDANCE_GAP',
+          message: `Unexplained gap after previous cycle ending ${input.previousPeriod.attendancePeriodEnd}. Expected start ${ymd(expectedNextStart)}.`,
+        });
+      }
     }
   }
 
-  // Period end must be on or before payroll finalisation wall-clock day
-  if (input.finalising && isAfter(end, startOfDay(now))) {
-    issues.push({
-      severity: 'error',
-      code: 'PERIOD_END_AFTER_FINALISATION',
-      message: 'Attendance period end must be on or before payroll finalisation.',
-    });
+  if (input.nextPeriod) {
+    const nextStart = startOfDay(
+      parse(input.nextPeriod.attendancePeriodStart, 'yyyy-MM-dd', new Date()),
+    );
+    if (isValid(nextStart)) {
+      const expectedNext = addDays(end, 1);
+      if (!isEqual(nextStart, expectedNext)) {
+        if (!isAfter(nextStart, end)) {
+          issues.push({
+            severity: 'error',
+            code: 'ATTENDANCE_OVERLAP_NEXT',
+            message: 'Attendance period overlaps the next payroll period.',
+          });
+        } else {
+          issues.push({
+            severity: 'error',
+            code: 'ATTENDANCE_GAP_NEXT',
+            message: 'Unexplained gap before the next payroll period.',
+          });
+        }
+      }
+    }
   }
 
-  if (
-    (input.period.payrollCycleMethod === 'CUSTOM_FIXED_CYCLE' ||
-      input.overrideReason != null) &&
-    input.overrideReason != null &&
-    input.overrideReason.trim() === ''
-  ) {
+  if (input.isManualOverride && !input.overrideReason?.trim()) {
     issues.push({
       severity: 'error',
       code: 'OVERRIDE_REASON_REQUIRED',
-      message: 'Manual attendance-cycle override requires a reason and audit event.',
+      message: 'Manual attendance-date overrides require a reason and audit event.',
     });
+  }
+
+  if (input.payrollFinalisedAt) {
+    const finalised =
+      typeof input.payrollFinalisedAt === 'string'
+        ? startOfDay(parse(input.payrollFinalisedAt.slice(0, 10), 'yyyy-MM-dd', new Date()))
+        : startOfDay(input.payrollFinalisedAt);
+    if (isValid(finalised) && isBefore(finalised, end)) {
+      issues.push({
+        severity: 'error',
+        code: 'FINALISED_BEFORE_CYCLE_END',
+        message: 'Attendance period end must be on or before payroll finalisation.',
+      });
+    }
   }
 
   return issues;
 }
 
-/** Contiguous next period start = prior end + 1 day. */
-export function expectNextPeriodStart(previousPeriodEnd: string): string {
-  const prevEnd = parse(previousPeriodEnd, 'yyyy-MM-dd', new Date());
-  return isoDate(addDays(prevEnd, 1));
+/**
+ * Block finalisation before attendance cycle ends.
+ */
+export function assertFinalisationAllowed(input: {
+  attendancePeriodEnd: string;
+  now?: Date;
+}): CycleValidationIssue | null {
+  const now = input.now ?? new Date();
+  if (!isAttendanceCycleEnded(input.attendancePeriodEnd, now)) {
+    return {
+      severity: 'error',
+      code: 'FINALISATION_BEFORE_CYCLE_END',
+      message: `Final payroll cannot be issued before the attendance period ends (${input.attendancePeriodEnd}).`,
+    };
+  }
+  return null;
 }
 
-export function periodsAreContiguous(
-  earlierEnd: string,
-  laterStart: string,
-): boolean {
-  return expectNextPeriodStart(earlierEnd) === laterStart;
-}
-
-export function periodsOverlap(
-  aStart: string,
-  aEnd: string,
-  bStart: string,
-  bEnd: string,
-): boolean {
-  const as = startOfDay(parse(aStart, 'yyyy-MM-dd', new Date()));
-  const ae = startOfDay(parse(aEnd, 'yyyy-MM-dd', new Date()));
-  const bs = startOfDay(parse(bStart, 'yyyy-MM-dd', new Date()));
-  const be = startOfDay(parse(bEnd, 'yyyy-MM-dd', new Date()));
-  // Overlap when each starts on or before the other's end.
-  return !isAfter(as, be) && !isAfter(bs, ae);
+/** Example fixture helper used by tests. */
+export function july2026DefaultCycle(): AttendancePeriod {
+  return computeAttendancePeriod({
+    salaryMonth: '2026-07',
+    method: 'PREVIOUS_25_TO_CURRENT_24',
+  });
 }

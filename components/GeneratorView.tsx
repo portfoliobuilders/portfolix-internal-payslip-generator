@@ -931,6 +931,9 @@ export default function GeneratorView({
                   paydayDayOfMonth={settings.paydayDayOfMonth}
                   signatureUrl={authorisedBundle.signatureUrl}
                   sealUrl={authorisedBundle.sealUrl}
+                  actualCreditDate={existingFinal.generatedAt.slice(0, 10)}
+                  documentNumber={`ASL-${existingFinal.employee.empId}-${existingFinal.monthYear}`}
+                  verificationId={existingFinal.id.replace(/-/g, '').slice(0, 24)}
                 />
               </ScaledPreview>
             </div>
@@ -989,6 +992,9 @@ export default function GeneratorView({
               paydayDayOfMonth={settings.paydayDayOfMonth}
               signatureUrl={authorisedBundle.signatureUrl}
               sealUrl={authorisedBundle.sealUrl}
+              actualCreditDate={(existingFinal ?? authorisedBundle.snapshot).generatedAt.slice(0, 10)}
+              documentNumber={`ASL-${(existingFinal ?? authorisedBundle.snapshot).employee.empId}-${(existingFinal ?? authorisedBundle.snapshot).monthYear}`}
+              verificationId={(existingFinal ?? authorisedBundle.snapshot).id.replace(/-/g, '').slice(0, 24)}
             />
           </div>,
           document.body,

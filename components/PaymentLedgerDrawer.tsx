@@ -756,12 +756,18 @@ export default function PaymentLedgerDrawer({
                 value={holdCategory}
                 onChange={(e) => setHoldCategory(e.target.value)}
               >
+                <option value="BANK_DETAILS_PENDING">BANK_DETAILS_PENDING</option>
+                <option value="BANK_TRANSFER_FAILED">BANK_TRANSFER_FAILED</option>
                 <option value="BANK_ISSUE">BANK_ISSUE</option>
-                <option value="COMPLIANCE_HOLD">COMPLIANCE_HOLD</option>
                 <option value="EMPLOYEE_REQUEST">EMPLOYEE_REQUEST</option>
-                <option value="FUNDING_DELAY">FUNDING_DELAY</option>
+                <option value="PAYROLL_DISPUTE">PAYROLL_DISPUTE</option>
                 <option value="DISPUTE">DISPUTE</option>
-                <option value="OTHER">OTHER</option>
+                <option value="EXIT_SETTLEMENT_REVIEW">EXIT_SETTLEMENT_REVIEW</option>
+                <option value="INTERNAL_FINANCIAL_DELAY">INTERNAL_FINANCIAL_DELAY</option>
+                <option value="FUNDING_DELAY">FUNDING_DELAY</option>
+                <option value="STATUTORY_OR_COURT_DIRECTION">STATUTORY_OR_COURT_DIRECTION</option>
+                <option value="COMPLIANCE_HOLD">COMPLIANCE_HOLD</option>
+                <option value="OTHER">OTHER (requires detailed explanation)</option>
               </select>
             </label>
             <label className="block text-[12px]">
