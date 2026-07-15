@@ -27,6 +27,13 @@ export function formatDate(isoDate: string | Date): string {
   return format(d, 'dd MMM yyyy');
 }
 
+/** Date + local time for generation stamps (e.g. 15 Jul 2026, 14:30). */
+export function formatDateTime(isoDate: string | Date): string {
+  const d = typeof isoDate === 'string' ? parseISO(isoDate) : isoDate;
+  if (!isValid(d)) return '—';
+  return format(d, 'dd MMM yyyy, HH:mm');
+}
+
 /** '2026-07' → 'July 2026'. */
 export function formatMonthYear(monthYear: string): string {
   const d = parse(monthYear, 'yyyy-MM', new Date());
@@ -76,12 +83,42 @@ export function currentMonthKey(): string {
 }
 
 /** "03 Jul 2026 · 6:00 PM" style string for the review deadline. */
-export function formatQueryDeadline(deadline: Date): string {
-  return `${formatDate(deadline)} · 6:00 PM`;
+export function formatQueryDeadline(
+  deadline: Date,
+  timeLabel: string = '6:00 PM',
+): string {
+  return `${formatDate(deadline)} · ${timeLabel}`;
 }
 
 /** PDF filename per spec: PX_PaySlip_YYYY-MM_<EMPID>[_DRAFT].pdf */
-export function slipFilename(monthYear: string, empId: string, isDraft: boolean): string {
+export function slipFilename(
+  monthYear: string,
+  empId: string,
+  isDraft: boolean,
+  prefix = 'PaymentStatement',
+): string {
   const safeEmpId = empId.replace(/[^A-Za-z0-9-]/g, '');
-  return `PX_PaySlip_${monthYear}_${safeEmpId}${isDraft ? '_DRAFT' : ''}.pdf`;
+  return `PX_${prefix}_${monthYear}_${safeEmpId}${isDraft ? '_DRAFT' : ''}.pdf`;
+}
+
+/** Inclusive calendar pay-period for a month: "01 Jul 2026 – 31 Jul 2026". */
+export function formatPayPeriodRange(monthYear: string): string {
+  const start = parse(monthYear, 'yyyy-MM', new Date());
+  if (!isValid(start)) return monthYear;
+  const end = new Date(start.getFullYear(), start.getMonth() + 1, 0);
+  return `${format(start, 'dd MMM yyyy')} – ${format(end, 'dd MMM yyyy')}`;
+}
+
+/**
+ * Authorised (bank copy) PDF filename:
+ * {ENTITY}_SalarySlip_{YYYY-MM}_{EMPID}.pdf
+ */
+export function authorisedSlipFilename(
+  entityCode: string,
+  monthYear: string,
+  empId: string,
+): string {
+  const safeEntity = entityCode.replace(/[^A-Za-z0-9]/g, '') || 'PX';
+  const safeEmpId = empId.replace(/[^A-Za-z0-9-]/g, '');
+  return `${safeEntity}_SalarySlip_${monthYear}_${safeEmpId}.pdf`;
 }

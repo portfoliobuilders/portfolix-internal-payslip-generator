@@ -17,7 +17,16 @@ import {
 
 const PRIMARY_ENTITY: EntityCode = 'PX';
 
-export default function SettingsView() {
+export default function SettingsView({
+  loading,
+  error,
+  saving,
+  saveError,
+  savedAt,
+  hasUnsavedChanges,
+  onRetry,
+  onSave,
+}: SettingsViewProps) {
   const settings = useHRStore((s) => s.settings);
   const setSettings = useHRStore((s) => s.setSettings);
   const updateSettings = useHRStore((s) => s.updateSettings);
@@ -113,38 +122,27 @@ export default function SettingsView() {
         <p className="mt-1 text-sm text-muted">These values print on every slip and are saved to Supabase.</p>
       </div>
 
-      <div className="rounded-lg border border-hairline bg-paper p-5">
-        <h3 className="mb-4 text-sm font-semibold text-ink">Payroll calendar &amp; contact</h3>
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <Field
-            label="Payday day of month"
-            hint="Salary credit date. The query deadline is derived as payday − 2 at 6:00 PM."
-          >
-            <NumberInput
-              value={settings.paydayDayOfMonth}
-              min={3}
-              max={28}
-              onChange={(e) => {
-                const day = Math.min(28, Math.max(3, Math.round(Number(e.target.value) || 0)));
-                updateSettings({ paydayDayOfMonth: day });
-              }}
-            />
-          </Field>
-          <Field label="Payroll contact (printed on the slip footer)">
-            <Input
-              value={settings.payrollContact}
-              onChange={(e) => updateSettings({ payrollContact: e.target.value })}
-            />
-          </Field>
+      {saveError && (
+        <div className="flex items-start gap-2 rounded-md border border-amber-edge bg-amber-tint px-3 py-2 text-[12px] font-medium text-amber-brand">
+          <AlertTriangle size={14} className="mt-0.5 shrink-0" />
+          Failed to save settings: {saveError}
         </div>
-        <p className="mt-4 rounded-md bg-surface px-3 py-2 text-[11px] text-muted">
-          Preview for {formatMonthYear(previewMonth)} — review queries by{' '}
-          <span className="font-semibold text-amber-brand">
-            {formatQueryDeadline(reviewDeadline)}
-          </span>
-          , salary credited{' '}
-          <span className="font-semibold text-emerald-deep">{formatDate(creditDate)}</span>.
-        </p>
+      )}
+
+      {savedAt && !hasUnsavedChanges && !saveError && (
+        <div className="flex items-center gap-2 rounded-md border border-emerald-brand/30 bg-emerald-tint px-3 py-2 text-[12px] font-medium text-emerald-deep">
+          <CheckCircle2 size={14} className="shrink-0" />
+          Settings saved to Supabase at {formatDate(savedAt)}.
+        </div>
+      )}
+
+      {hasUnsavedChanges && !saving && (
+        <p className="text-[12px] font-medium text-amber-brand">You have unsaved changes.</p>
+      )}
+
+      <div className="rounded-lg border border-hairline bg-paper p-5">
+        <h3 className="text-sm font-semibold text-ink">Payroll contact</h3>
+        <p className="mt-2 text-sm text-muted">{PAYROLL_CONTACT}</p>
       </div>
 
       <div className="rounded-lg border border-hairline bg-paper p-5">
@@ -204,8 +202,6 @@ export default function SettingsView() {
         {notice && <p className="text-xs text-emerald-deep">{notice}</p>}
         {error && <p className="text-xs text-amber-brand">{error}</p>}
       </div>
-
-      <PayrollStressTestPanel />
     </div>
   );
 }
