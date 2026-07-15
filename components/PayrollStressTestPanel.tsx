@@ -3,7 +3,6 @@
 import { useEffect, useState } from 'react';
 import { ChevronDown, ChevronRight, FlaskConical } from 'lucide-react';
 import {
-  STRESS_SCENARIOS,
   logStressTestsToConsole,
   runAllStressTests,
 } from '@/lib/payroll-stress-test';

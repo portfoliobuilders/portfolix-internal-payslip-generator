@@ -1,5 +1,11 @@
 'use client';
 
+/**
+ * Legacy shell (header + main). Not mounted by app/layout.tsx — production
+ * chrome uses AppHeader instead. Kept only as a dependency of the unused
+ * PayrollDataProvider; do not delete until that provider is retired with proof.
+ */
+
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useEffect, useState } from 'react';
