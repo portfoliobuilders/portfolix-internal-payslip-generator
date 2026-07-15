@@ -217,10 +217,11 @@ export function rowToSlip(row: PayrollSlipRow): SlipSnapshot {
 }
 
 export function slipToRow(snapshot: SlipSnapshot): Omit<PayrollSlipRow, 'id'> & { id?: string } {
-  const { id, employeeId, monthYear, status, ...details } = snapshot;
+  const { id, employeeId: _employeeId, monthYear, status, ...details } = snapshot;
   return {
     ...(id ? { id } : {}),
-    employee_id: employeeId,
+    // FK targets employees.employee_id (e.g. PB-TEST-001), not the internal UUID.
+    employee_id: snapshot.employee.empId,
     month_year: monthYear,
     status,
     details_json: {

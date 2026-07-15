@@ -201,7 +201,7 @@ export default function GeneratorView({
   // Rule 7: deferred opening auto-fills from the most recent FINAL slip.
   const previousFinal = useMemo(
     () =>
-      employee ? findPreviousFinalSlip(slipHistory, employee.id, form.monthYear) : null,
+      employee ? findPreviousFinalSlip(slipHistory, employee.empId, form.monthYear) : null,
     [employee, slipHistory, form.monthYear],
   );
   const expectedOpening = previousFinal ? previousFinal.computed.deferredClosing : 0;
@@ -210,7 +210,7 @@ export default function GeneratorView({
   // from the flex balance that slip STARTED from — the committed balance
   // already includes this month's lateness and must not be charged twice.
   const existingFinal = useMemo(
-    () => (employee ? findFinalSlipForMonth(slipHistory, employee.id, form.monthYear) : null),
+    () => (employee ? findFinalSlipForMonth(slipHistory, employee.empId, form.monthYear) : null),
     [employee, slipHistory, form.monthYear],
   );
   const flexBankBase = existingFinal
@@ -361,7 +361,7 @@ export default function GeneratorView({
     if (!employee || !result) return null;
     return {
       id: 'preview',
-      employeeId: employee.id,
+      employeeId: employee.empId,
       monthYear: form.monthYear,
       status,
       inputs: {
@@ -432,7 +432,7 @@ export default function GeneratorView({
     if (!employee || !snapshot || !result || hasErrors || mode === 'authorised') return;
 
     if (status === 'final' && !confirmedSupersede) {
-      const existing = findFinalSlipForMonth(slipHistory, employee.id, form.monthYear);
+      const existing = findFinalSlipForMonth(slipHistory, employee.empId, form.monthYear);
       if (existing) {
         setSupersedePending(true);
         return;
