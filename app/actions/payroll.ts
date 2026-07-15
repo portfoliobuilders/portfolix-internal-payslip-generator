@@ -354,7 +354,9 @@ export async function finalizePayrollSlip(
     const employeesResult = await fetchEmployees();
     if (!employeesResult.ok) return employeesResult;
 
-    const employee = employeesResult.data.find((e) => e.id === snapshot.employeeId);
+    const employee = employeesResult.data.find(
+      (e) => e.id === snapshot.employeeId || e.empId === snapshot.employeeId,
+    );
     if (!employee) {
       return { ok: false, error: 'Employee not found.' };
     }

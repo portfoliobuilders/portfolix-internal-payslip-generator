@@ -430,8 +430,14 @@ export async function fetchPaymentLedger(
     payrollStatus: string;
   }>
 > {
-  const bundle = await loadLedgerBundle(payrollRecordId);
-  if (!bundle.ok) return bundle;
+  let bundle = await loadLedgerBundle(payrollRecordId);
+  if (!bundle.ok) {
+    // Backfill obligation for older final slips that pre-date the payment module.
+    const ensured = await ensureObligationForExistingSlip(payrollRecordId);
+    if (!ensured.ok) return { ok: false, error: bundle.error };
+    bundle = await loadLedgerBundle(payrollRecordId);
+    if (!bundle.ok) return bundle;
+  }
 
   // Refresh overdue flags on read
   const synced = await syncObligationTotals(
@@ -453,18 +459,127 @@ export async function fetchPaymentLedger(
   };
 }
 
+/** Create obligation rows for final payrolls that do not yet have one. */
+async function ensureObligationForExistingSlip(
+  payrollRecordId: string,
+): Promise<ActionResult<SalaryPaymentObligation>> {
+  try {
+    const supabase = await createClient();
+    const { data: slipRow, error } = await supabase
+      .from('payroll_slips')
+      .select('id, employee_id, month_year, status, details_json')
+      .eq('id', payrollRecordId)
+      .maybeSingle();
+
+    if (error) return { ok: false, error: error.message };
+    if (!slipRow) return { ok: false, error: 'Payroll slip not found.' };
+
+    const status = String((slipRow as { status?: string }).status ?? '').toLowerCase();
+    if (status !== 'final') {
+      return { ok: false, error: 'Payment ledger is only available for finalised payroll.' };
+    }
+
+    const details = (slipRow as { details_json?: Record<string, unknown> }).details_json ?? {};
+    const computed = (details.computed ?? {}) as { netPay?: number };
+    const employee = (details.employee ?? {}) as { id?: string };
+    const netPay = Number(computed.netPay ?? 0);
+    const employeeId =
+      employee.id ||
+      String((slipRow as { employee_id?: string }).employee_id ?? '');
+    const monthYear = String((slipRow as { month_year?: string }).month_year ?? '');
+
+    let paydayDayOfMonth = 5;
+    try {
+      const { fetchSettings } = await import('@/app/actions/settings');
+      const settingsResult = await fetchSettings();
+      if (settingsResult.ok) paydayDayOfMonth = settingsResult.data.paydayDayOfMonth ?? 5;
+    } catch {
+      // fall back to default payday
+    }
+
+    return ensureSalaryPaymentObligation({
+      payrollRecordId,
+      employeeId,
+      monthYear,
+      netSalaryPayable: netPay,
+      paydayDayOfMonth,
+      actorUserId: 'system-backfill',
+    });
+  } catch (err) {
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : 'Failed to backfill payment obligation.',
+    };
+  }
+}
+
 export async function fetchPaymentObligationsForHistory(): Promise<
   ActionResult<SalaryPaymentObligation[]>
 > {
   try {
     const supabase = await createClient();
+
+    // Backfill missing obligations for existing FINAL slips so History is live
+    // without requiring a re-finalisation.
+    const { data: finalSlips } = await supabase
+      .from('payroll_slips')
+      .select('id, employee_id, month_year, status, details_json')
+      .eq('status', 'final');
+
+    const { data: existingObl, error: existingErr } = await supabase
+      .from('salary_payment_obligations')
+      .select('payroll_record_id');
+
+    if (existingErr) {
+      if (/does not exist|schema cache/i.test(existingErr.message)) {
+        return { ok: true, data: [] };
+      }
+      return { ok: false, error: existingErr.message };
+    }
+
+    const have = new Set(
+      ((existingObl ?? []) as Array<{ payroll_record_id: string }>).map(
+        (r) => r.payroll_record_id,
+      ),
+    );
+
+    let paydayDayOfMonth = 5;
+    try {
+      const { fetchSettings } = await import('@/app/actions/settings');
+      const settingsResult = await fetchSettings();
+      if (settingsResult.ok) paydayDayOfMonth = settingsResult.data.paydayDayOfMonth ?? 5;
+    } catch {
+      // default
+    }
+
+    for (const slip of (finalSlips ?? []) as Array<{
+      id: string;
+      employee_id: string | null;
+      month_year: string;
+      details_json?: Record<string, unknown>;
+    }>) {
+      if (have.has(slip.id)) continue;
+      const details = slip.details_json ?? {};
+      const computed = (details.computed ?? {}) as { netPay?: number };
+      const employee = (details.employee ?? {}) as { id?: string };
+      const netPay = Number(computed.netPay ?? 0);
+      if (!Number.isFinite(netPay) || netPay < 0) continue;
+      await ensureSalaryPaymentObligation({
+        payrollRecordId: slip.id,
+        employeeId: employee.id || slip.employee_id || '',
+        monthYear: slip.month_year,
+        netSalaryPayable: netPay,
+        paydayDayOfMonth,
+        actorUserId: 'system-backfill',
+      });
+    }
+
     const { data, error } = await supabase
       .from('salary_payment_obligations')
       .select('*')
       .order('updated_at', { ascending: false });
 
     if (error) {
-      // Table may not exist yet — soft-fail empty.
       if (/does not exist|schema cache/i.test(error.message)) {
         return { ok: true, data: [] };
       }
