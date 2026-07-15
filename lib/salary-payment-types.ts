@@ -20,9 +20,14 @@ export type SalaryPaymentStatus =
   | 'OVERDUE'
   | 'REVERSED'
   | 'CANCELLED'
-  | 'UNDER_RECONCILIATION';
+  | 'UNDER_RECONCILIATION'
+  | 'NO_SALARY_DUE'
+  | 'SALARY_WAIVED';
 
-/** Document lifecycle — independent of payroll FINAL and of payment PAID. */
+/**
+ * Document eligibility / readiness for slip issuance.
+ * Independent of payroll FINAL and of payment PAID.
+ */
 export type DocumentLifecycleStatus =
   | 'NOT_READY'
   | 'INTERNAL_AVAILABLE'
@@ -32,23 +37,41 @@ export type DocumentLifecycleStatus =
   | 'AUTHORISED_ELIGIBLE'
   | 'AUTHORISED_ISSUED';
 
+/** Issued-document status for internal / authorised copies. */
+export type IssuedDocumentStatus =
+  | 'DRAFT'
+  | 'ISSUED'
+  | 'SUPERSEDED'
+  | 'REVOKED'
+  | 'CANCELLED'
+  | 'LEGACY_UNVERIFIED';
+
 /** Child payment transaction lifecycle. */
 export type PaymentTransactionStatus =
+  | 'DRAFT'
   | 'INITIATED'
   | 'PROCESSING'
   | 'SETTLED'
   | 'CONFIRMED'
   | 'FAILED'
+  | 'REJECTED'
   | 'REJECTED_BY_BANK'
   | 'REVERSED'
-  | 'CANCELLED';
+  | 'CANCELLED'
+  | 'PENDING_CONFIRMATION';
 
 export type PaymentHoldReasonCategory =
   | 'BANK_ISSUE'
+  | 'BANK_DETAILS_PENDING'
+  | 'BANK_TRANSFER_FAILED'
   | 'COMPLIANCE_HOLD'
   | 'EMPLOYEE_REQUEST'
   | 'FUNDING_DELAY'
+  | 'INTERNAL_FINANCIAL_DELAY'
+  | 'PAYROLL_DISPUTE'
   | 'DISPUTE'
+  | 'EXIT_SETTLEMENT_REVIEW'
+  | 'STATUTORY_OR_COURT_DIRECTION'
   | 'OTHER';
 
 export type TimelinessIndicator = 'NOT_YET_PAID' | 'PAID_ON_TIME' | 'PAID_LATE' | 'N/A';
@@ -57,7 +80,10 @@ export type DocumentKind =
   | 'INTERNAL_PAY_SLIP'
   | 'AUTHORISED_SALARY_SLIP'
   | 'SALARY_PAYMENT_ADVICE_PARTIALLY_PAID'
-  | 'OUTSTANDING_SALARY_STATEMENT';
+  | 'OUTSTANDING_SALARY_STATEMENT'
+  | 'NO_SALARY_DRAWN_STATEMENT'
+  | 'SALARY_WAIVER_RECORD'
+  | 'DEFERRED_SALARY_STATEMENT';
 
 export interface SalaryPaymentObligation {
   id: string;

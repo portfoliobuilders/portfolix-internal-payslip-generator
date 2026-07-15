@@ -20,6 +20,7 @@ import {
   formatDateTime,
   formatINR,
   formatMonthYear,
+  formatSalaryAttendanceCycle,
   slipFilename,
 } from '@/lib/format';
 import { exportElementToPdf } from '@/lib/pdf-export';
@@ -143,7 +144,21 @@ export default function HistoryView({ slipHistory, loading, error, onRefresh }: 
     if (!deleteTarget) return;
     setDeleting(true);
     setDeleteError(null);
-    const result = await deletePayrollSlip(deleteTarget.id);
+    const isFinal = deleteTarget.status === 'final';
+    const reason = isFinal
+      ? window.prompt(
+          'Final/issued payroll cannot be permanently deleted. Enter a reason to Cancel or Revoke this record:',
+        )
+      : undefined;
+    if (isFinal && !reason?.trim()) {
+      setDeleting(false);
+      setDeleteError('A reason is required to cancel or revoke a final payroll record.');
+      return;
+    }
+    const result = await deletePayrollSlip(deleteTarget.id, {
+      reason: reason?.trim(),
+      actorUserId: 'hr-user',
+    });
     setDeleting(false);
     if (!result.ok) {
       setDeleteError(result.error);
@@ -151,7 +166,13 @@ export default function HistoryView({ slipHistory, loading, error, onRefresh }: 
     }
     if (viewing?.id === deleteTarget.id) setViewing(null);
     setDeleteTarget(null);
-    setToastMessage('Slip removed from history.');
+    setToastMessage(
+      result.data.action === 'deleted'
+        ? 'Draft slip removed from history.'
+        : result.data.action === 'revoked'
+          ? 'Issued document revoked (original preserved as cancelled/revoked).'
+          : 'Final payroll cancelled (original preserved).',
+    );
     await onRefresh?.();
   }
 
@@ -393,7 +414,8 @@ export default function HistoryView({ slipHistory, loading, error, onRefresh }: 
             <thead>
               <tr className="border-b border-hairline text-left text-[11px] uppercase tracking-wide text-muted">
                 <th className="px-3 py-2 font-semibold">Employee</th>
-                <th className="px-3 py-2 font-semibold">Pay month</th>
+                <th className="px-3 py-2 font-semibold">Salary month</th>
+                <th className="px-3 py-2 font-semibold">Attendance cycle</th>
                 <th className="px-3 py-2 font-semibold">Payroll</th>
                 <th className="px-3 py-2 font-semibold">Payment</th>
                 <th className="px-3 py-2 text-right font-semibold">Net due</th>
@@ -416,6 +438,9 @@ export default function HistoryView({ slipHistory, loading, error, onRefresh }: 
                     <p className="text-[12px] text-muted">{s.employee.empId}</p>
                   </td>
                   <td className="px-3 py-2.5 whitespace-nowrap">{formatMonthYear(s.monthYear)}</td>
+                  <td className="px-3 py-2.5 text-[11px] text-muted whitespace-nowrap">
+                    {formatSalaryAttendanceCycle(s.monthYear)}
+                  </td>
                   <td className="px-3 py-2.5"><StatusBadge status={s.status} /></td>
                   <td className="px-3 py-2.5"><PaymentBadge obligation={obl} /></td>
                   <td className="amount px-3 py-2.5 text-right font-medium">
@@ -467,7 +492,14 @@ export default function HistoryView({ slipHistory, loading, error, onRefresh }: 
                       )}
                       <BankCopyButton snapshot={s} compact />
                       <button
-                        title="Delete slip"
+                        title={
+                          s.status === 'final'
+                            ? 'Cancel / Revoke (final records are never permanently deleted)'
+                            : 'Delete draft slip'
+                        }
+                        aria-label={
+                          s.status === 'final' ? 'Cancel or revoke payroll record' : 'Delete draft slip'
+                        }
                         className="rounded p-1.5 text-muted hover:bg-surface hover:text-amber-brand"
                         onClick={() => {
                           setDeleteError(null);
@@ -571,6 +603,19 @@ export default function HistoryView({ slipHistory, loading, error, onRefresh }: 
               paydayDayOfMonth={settings.paydayDayOfMonth}
               signatureUrl={bankCopyExport.signatureUrl}
               sealUrl={bankCopyExport.sealUrl}
+              actualCreditDate={
+                obligationsByPayrollId.get(bankCopyExport.snapshot.id)?.actualFinalCreditDate ??
+                obligationsByPayrollId.get(bankCopyExport.snapshot.id)?.lastPaymentDate ??
+                bankCopyExport.snapshot.generatedAt.slice(0, 10)
+              }
+              confirmedPaidAmount={
+                obligationsByPayrollId.get(bankCopyExport.snapshot.id)?.confirmedPaidAmount
+              }
+              outstandingBalance={
+                obligationsByPayrollId.get(bankCopyExport.snapshot.id)?.outstandingAmount ?? 0
+              }
+              documentNumber={`ASL-${bankCopyExport.snapshot.employee.empId}-${bankCopyExport.snapshot.monthYear}`}
+              verificationId={bankCopyExport.snapshot.id.replace(/-/g, '').slice(0, 24)}
             />
           </div>,
           document.body,

@@ -266,13 +266,36 @@ export function assertDocumentAllowed(
       if (documentStatus === 'NOT_READY') {
         return {
           ok: false,
-          error: 'Internal pay slip is not available until payroll is finalised.',
+          error: 'Internal pay slip is not available until payroll is calculated.',
           code: 'DOCUMENT_NOT_READY',
         };
       }
       return { ok: true };
 
-    case 'AUTHORISED_SALARY_SLIP':
+    case 'AUTHORISED_SALARY_SLIP': {
+      if (
+        paymentStatus === 'NO_SALARY_DUE' ||
+        paymentStatus === 'SALARY_WAIVED' ||
+        paymentStatus === 'PAYMENT_DEFERRED' ||
+        paymentStatus === 'ON_HOLD' ||
+        paymentStatus === 'PARTIALLY_PAID' ||
+        paymentStatus === 'NOT_SCHEDULED' ||
+        paymentStatus === 'SCHEDULED' ||
+        paymentStatus === 'PROCESSING' ||
+        paymentStatus === 'OVERDUE' ||
+        paymentStatus === 'FAILED' ||
+        paymentStatus === 'REJECTED_BY_BANK' ||
+        paymentStatus === 'REVERSED' ||
+        paymentStatus === 'UNDER_RECONCILIATION' ||
+        paymentStatus === 'CANCELLED'
+      ) {
+        return {
+          ok: false,
+          error:
+            'Authorised salary slip is blocked until payroll is PAID and fully reconciled (no outstanding balance).',
+          code: 'AUTHORISED_BLOCKED_OUTSTANDING',
+        };
+      }
       if (paymentStatus !== 'PAID' || outstandingAmount > 0) {
         return {
           ok: false,
@@ -292,6 +315,7 @@ export function assertDocumentAllowed(
         };
       }
       return { ok: true };
+    }
 
     case 'SALARY_PAYMENT_ADVICE_PARTIALLY_PAID':
       if (paymentStatus !== 'PARTIALLY_PAID' && !(outstandingAmount > 0 && paymentStatus !== 'PAID')) {
@@ -304,11 +328,41 @@ export function assertDocumentAllowed(
       return { ok: true };
 
     case 'OUTSTANDING_SALARY_STATEMENT':
-      if (outstandingAmount <= 0) {
+      if (outstandingAmount <= 0 && paymentStatus !== 'ON_HOLD') {
         return {
           ok: false,
           error: 'Outstanding salary statement requires a remaining balance.',
           code: 'OUTSTANDING_STATEMENT_NOT_APPLICABLE',
+        };
+      }
+      return { ok: true };
+
+    case 'NO_SALARY_DRAWN_STATEMENT':
+      if (paymentStatus !== 'NO_SALARY_DUE') {
+        return {
+          ok: false,
+          error: 'No-salary statement requires payment status NO_SALARY_DUE.',
+          code: 'NO_SALARY_STATEMENT_NOT_APPLICABLE',
+        };
+      }
+      return { ok: true };
+
+    case 'SALARY_WAIVER_RECORD':
+      if (paymentStatus !== 'SALARY_WAIVED') {
+        return {
+          ok: false,
+          error: 'Salary waiver record requires payment status SALARY_WAIVED.',
+          code: 'WAIVER_RECORD_NOT_APPLICABLE',
+        };
+      }
+      return { ok: true };
+
+    case 'DEFERRED_SALARY_STATEMENT':
+      if (paymentStatus !== 'PAYMENT_DEFERRED') {
+        return {
+          ok: false,
+          error: 'Deferred salary statement requires payment status PAYMENT_DEFERRED.',
+          code: 'DEFERRED_STATEMENT_NOT_APPLICABLE',
         };
       }
       return { ok: true };
@@ -752,6 +806,13 @@ export function placeHoldOrDeferral(input: {
   if (!input.detailedExplanation.trim()) {
     return { ok: false, error: 'Detailed explanation is required.', code: 'EXPLANATION_REQUIRED' };
   }
+  if (input.reasonCategory === 'OTHER' && input.detailedExplanation.trim().length < 10) {
+    return {
+      ok: false,
+      error: 'OTHER hold reason requires a detailed explanation (at least 10 characters).',
+      code: 'OTHER_EXPLANATION_REQUIRED',
+    };
+  }
   if (!input.revisedExpectedDate) {
     return {
       ok: false,
@@ -790,6 +851,9 @@ export function placeHoldOrDeferral(input: {
     ...input.obligation,
     revisedExpectedDate: input.revisedExpectedDate,
     paymentStatus: input.kind === 'PAYMENT_DEFERRED' ? 'PAYMENT_DEFERRED' : 'ON_HOLD',
+    // Explicitly preserve original due:
+    originalStatutoryDueDate: input.obligation.originalStatutoryDueDate,
+    overdueEventAt: input.obligation.overdueEventAt,
     updatedAt: now.toISOString(),
   };
 

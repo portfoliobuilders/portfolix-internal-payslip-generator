@@ -87,7 +87,7 @@ describe('employment dates', () => {
 });
 
 describe('finalization gates', () => {
-  it('blocks when period has not ended under strict gates', () => {
+  it('blocks when attendance cycle has not ended under strict gates', () => {
     const issues = validateFinalization({
       monthYear: '2099-12',
       now: new Date('2026-07-15T12:00:00Z'),
@@ -115,7 +115,12 @@ describe('finalization gates', () => {
       enforceStrictGates: true,
     });
     expect(hasBlockingErrors(issues)).toBe(true);
-    expect(issues.some((i) => i.code === 'PERIOD_NOT_ENDED')).toBe(true);
+    expect(
+      issues.some(
+        (i) =>
+          i.code === 'FINALISATION_BEFORE_CYCLE_END' || i.code === 'PERIOD_NOT_ENDED',
+      ),
+    ).toBe(true);
   });
 
   it('blocks duplicate FINAL', () => {
