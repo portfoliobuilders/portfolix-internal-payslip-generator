@@ -3,6 +3,8 @@
 A salary slip generator for Portfolix Enterprise Pvt Ltd and its brands (Portfolio Builders,
 Portfolix.tech, Portfolix Hub). A stopgap for the HR team until the official Portfolix EMS ships.
 
+> The old handbook has been added as a reference source only. It is not automatically enforced by the app. Any policy implementation requires founder approval.
+
 **Supabase-backed.** Employees and slip history are stored in the cloud. Entity branding and
 payroll settings are kept in the browser session.
 

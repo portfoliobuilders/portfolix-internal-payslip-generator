@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { format } from 'date-fns';
 import { AlertTriangle, Download, Printer } from 'lucide-react';
-import { computePayroll, validateVariablePaid } from '@/lib/payroll-calc';
+import { computePayroll, derivePtThisMonth, validateVariablePaid } from '@/lib/payroll-calc';
 import { formatINR, formatMinutes, slipFilename } from '@/lib/format';
 import { exportElementToPdf } from '@/lib/pdf-export';
 import { finalizePayrollSlip, savePayrollSlip } from '@/app/actions/payroll';
@@ -163,6 +163,15 @@ export default function GeneratorView({
     setForm((f) => ({ ...f, [key]: value }));
 
   // ---------- Live computation via the pure engine ----------
+  const ptThisMonth = useMemo(() => {
+    if (!employee) return 0;
+    return derivePtThisMonth(
+      employee.ptHalfYearly,
+      form.monthYear,
+      settings.ptDeductionMonths,
+    );
+  }, [employee, form.monthYear, settings.ptDeductionMonths]);
+
   const result = useMemo(() => {
     if (!employee) return null;
     return computePayroll({
@@ -174,12 +183,14 @@ export default function GeneratorView({
       halfDays: num(form.halfDays),
       fixedAllowance: num(form.fixedAllowance),
       otherDeductions: num(form.otherDeductions),
+      tdsMonthly: employee.tdsMonthly,
+      ptThisMonth,
       variableEarned: num(form.variableEarned),
       variablePaid: num(form.variablePaid),
       deferredOpening: num(form.deferredOpening),
       committedPayoutDate: form.committedPayoutDate || null,
     });
-  }, [employee, form, flexBankBase]);
+  }, [employee, form, flexBankBase, ptThisMonth]);
 
   const needsPayoutDate = (result?.deferredClosing ?? 0) > 0;
 
@@ -230,6 +241,8 @@ export default function GeneratorView({
         flexMinutesEarned: num(form.flexMinutesEarned),
         fixedAllowance: num(form.fixedAllowance),
         otherDeductions: num(form.otherDeductions),
+        tdsMonthly: employee.tdsMonthly,
+        ptThisMonth,
         variableLabel: form.variableLabel,
         variableEarned: num(form.variableEarned),
         variablePaid: num(form.variablePaid),
@@ -248,6 +261,8 @@ export default function GeneratorView({
         lopDays: result.lopDays,
         lopDeduction: result.lopDeduction,
         otherDeductions: result.otherDeductions,
+        tds: result.tds,
+        pt: result.pt,
         totalDeductions: result.totalDeductions,
         grossFixed: result.grossFixed,
         variableEarned: result.variableEarned,
@@ -333,18 +348,18 @@ export default function GeneratorView({
   }
 
   return (
-    <div className="grid grid-cols-1 gap-6 xl:grid-cols-[420px_minmax(0,1fr)]">
+    <div className="grid grid-cols-1 gap-6 lg:grid-cols-[420px_minmax(0,1fr)]">
       {/* ================= Left panel — inputs ================= */}
-      <div className="no-print space-y-4">
+      <div className="no-print min-w-0 space-y-4">
         {saveError && (
           <p className="rounded-md border border-amber-edge bg-amber-tint px-3 py-2 text-[12px] font-medium text-amber-brand">
             Saved PDF locally, but Supabase sync failed: {saveError}
           </p>
         )}
-        <div className="rounded-lg border border-hairline bg-paper p-4">
+        <div className="rounded-lg border border-hairline bg-paper p-4 shadow-card">
           <h1 className="mb-3 text-sm font-semibold">Slip Generator</h1>
-          <div className="grid grid-cols-2 gap-3">
-            <div className="col-span-2">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div className="sm:col-span-2">
               <Field label="Employee" error={errors.employee ?? null}>
                 <select
                   className={inputCls}
@@ -389,6 +404,34 @@ export default function GeneratorView({
             </Field>
             <Field label="Other deductions (₹)" error={errors.otherDeductions ?? null}>
               <input type="number" min={0} step="0.01" className={inputAmountCls} value={form.otherDeductions} onChange={(e) => set('otherDeductions', e.target.value)} />
+            </Field>
+            <Field
+              label="TDS this month (₹)"
+              hint="From employee roster — edit on the employee record."
+            >
+              <input
+                type="number"
+                className={inputAmountCls}
+                value={employee ? String(employee.tdsMonthly) : '0'}
+                readOnly
+                disabled
+              />
+            </Field>
+            <Field
+              label="Professional Tax this month (₹)"
+              hint={
+                employee
+                  ? `Half-yearly ₹${employee.ptHalfYearly.toFixed(2)} · deducted in months ${settings.ptDeductionMonths.join(', ')}`
+                  : undefined
+              }
+            >
+              <input
+                type="number"
+                className={inputAmountCls}
+                value={String(ptThisMonth)}
+                readOnly
+                disabled
+              />
             </Field>
           </div>
         </div>
@@ -459,12 +502,12 @@ export default function GeneratorView({
           </div>
         )}
 
-        <div className="rounded-lg border border-hairline bg-paper p-4">
+        <div className="rounded-lg border border-hairline bg-paper p-4 shadow-card">
           <h2 className="mb-3 text-[12px] font-semibold uppercase tracking-wide text-muted">
             Variable component
           </h2>
-          <div className="grid grid-cols-2 gap-3">
-            <div className="col-span-2">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div className="sm:col-span-2">
               <Field label="Label">
                 <input className={inputCls} value={form.variableLabel} onChange={(e) => set('variableLabel', e.target.value)} placeholder="Performance incentive" />
               </Field>
@@ -510,7 +553,7 @@ export default function GeneratorView({
           )}
         </div>
 
-        <div className="rounded-lg border border-hairline bg-paper p-4">
+        <div className="rounded-lg border border-hairline bg-paper p-4 shadow-card">
           <Field label="Remarks / operations note">
             <textarea
               className={`${inputCls} resize-none`}
@@ -524,28 +567,28 @@ export default function GeneratorView({
       </div>
 
       {/* ================= Right panel — live preview ================= */}
-      <div className="no-print space-y-3">
-        <div className="flex flex-wrap items-center gap-3 rounded-lg border border-hairline bg-paper px-4 py-2.5">
+      <div className="no-print min-w-0 space-y-3">
+        <div className="flex flex-wrap items-center gap-3 rounded-lg border border-hairline bg-paper px-4 py-2.5 shadow-card">
           <div className="flex overflow-hidden rounded-md border border-hairline">
             <button
               onClick={() => setStatus('draft')}
-              className={`px-3 py-1.5 text-sm font-medium ${
-                status === 'draft' ? 'bg-amber-tint text-amber-brand' : 'bg-paper text-muted hover:text-ink'
+              className={`min-h-[44px] px-3 py-2 text-sm font-medium transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ink/20 sm:min-h-0 ${
+                status === 'draft' ? 'bg-amber-tint text-amber-brand' : 'bg-paper text-muted hover:bg-surface hover:text-ink'
               }`}
             >
               Draft
             </button>
             <button
               onClick={() => setStatus('final')}
-              className={`border-l border-hairline px-3 py-1.5 text-sm font-medium ${
-                status === 'final' ? 'bg-emerald-tint text-emerald-deep' : 'bg-paper text-muted hover:text-ink'
+              className={`min-h-[44px] border-l border-hairline px-3 py-2 text-sm font-medium transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ink/20 sm:min-h-0 ${
+                status === 'final' ? 'bg-emerald-tint text-emerald-deep' : 'bg-paper text-muted hover:bg-surface hover:text-ink'
               }`}
             >
               ✓ Final
             </button>
           </div>
 
-          <div className="ml-auto flex items-center gap-2">
+          <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
             <button className={btnSecondary} disabled={!snapshot || hasErrors} onClick={() => window.print()}>
               <Printer size={14} /> Print
             </button>
@@ -564,6 +607,26 @@ export default function GeneratorView({
           </div>
         </div>
 
+        {hasErrors && (
+          <div className="flex items-start gap-2 rounded-lg border border-amber-edge bg-amber-tint px-4 py-2.5 text-[12px] font-medium text-amber-brand">
+            <AlertTriangle size={14} className="mt-0.5 shrink-0" />
+            <span>
+              {needsPayoutDate && !form.committedPayoutDate ? (
+                <>
+                  Export blocked: {formatINR(result?.deferredClosing ?? 0)} is deferred (variable
+                  earned − paid). Set a <strong>Committed payout date</strong> in the Variable
+                  component below, or make paid ≥ earned so nothing is deferred.
+                </>
+              ) : (
+                <>
+                  Export blocked — fix the highlighted fields in the left panel to enable Print and
+                  Download.
+                </>
+              )}
+            </span>
+          </div>
+        )}
+
         {snapshot && entity ? (
           <ScaledPreview>
             <SalarySlip
@@ -571,6 +634,7 @@ export default function GeneratorView({
               entity={entity}
               payrollContact={settings.payrollContact}
               paydayDayOfMonth={settings.paydayDayOfMonth}
+              reviewDeadlineTime={settings.reviewDeadlineTime}
               ledgerMismatch={ledgerMismatch}
             />
           </ScaledPreview>
@@ -591,6 +655,7 @@ export default function GeneratorView({
               entity={entity}
               payrollContact={settings.payrollContact}
               paydayDayOfMonth={settings.paydayDayOfMonth}
+              reviewDeadlineTime={settings.reviewDeadlineTime}
               ledgerMismatch={ledgerMismatch}
             />
           </div>,

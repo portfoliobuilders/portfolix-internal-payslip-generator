@@ -1,7 +1,14 @@
-import type { Metadata } from 'next';
+import type { Metadata, Viewport } from 'next';
 import './globals.css';
 
 export const dynamic = 'force-dynamic';
+
+// Without this, phones render at ~980px and no Tailwind breakpoint ever fires.
+export const viewport: Viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  maximumScale: 5,
+};
 
 export const metadata: Metadata = {
   title: 'Portfolix SlipGen — Internal Salary Slip Generator',
