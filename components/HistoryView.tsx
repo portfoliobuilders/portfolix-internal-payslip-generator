@@ -216,6 +216,8 @@ export default function HistoryView({ slipHistory, loading }: HistoryViewProps) 
               entity={settings.entities[viewing.employee.entityCode]}
               payrollContact={settings.payrollContact}
               paydayDayOfMonth={settings.paydayDayOfMonth}
+              authorizedSignatoryName={settings.authorizedSignatoryName}
+              authorizedSignatoryTitle={settings.authorizedSignatoryTitle}
             />
           </div>
         </div>
@@ -231,6 +233,8 @@ export default function HistoryView({ slipHistory, loading }: HistoryViewProps) 
               entity={settings.entities[viewing.employee.entityCode]}
               payrollContact={settings.payrollContact}
               paydayDayOfMonth={settings.paydayDayOfMonth}
+              authorizedSignatoryName={settings.authorizedSignatoryName}
+              authorizedSignatoryTitle={settings.authorizedSignatoryTitle}
             />
           </div>,
           document.body,
@@ -246,6 +250,8 @@ export default function HistoryView({ slipHistory, loading }: HistoryViewProps) 
               entity={settings.entities[exportTarget.employee.entityCode]}
               payrollContact={settings.payrollContact}
               paydayDayOfMonth={settings.paydayDayOfMonth}
+              authorizedSignatoryName={settings.authorizedSignatoryName}
+              authorizedSignatoryTitle={settings.authorizedSignatoryTitle}
             />
           </div>,
           document.body,

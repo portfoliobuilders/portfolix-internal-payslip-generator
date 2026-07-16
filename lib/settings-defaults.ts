@@ -6,6 +6,9 @@ const ENTITY_CODES: EntityCode[] = ['PX', 'PB', 'PT', 'PH'];
 export const SEED_SETTINGS: Settings = {
   paydayDayOfMonth: 5,
   payrollContact: 'payroll@portfolix.tech',
+  authorizedSignatoryName: 'Authorized Signatory',
+  authorizedSignatoryTitle: 'HR & Payroll',
+  bankVerificationEnabledByDefault: false,
   entities: {
     PX: {
       name: 'Portfolix Enterprise Pvt Ltd',
@@ -61,6 +64,13 @@ export function mergeSettings(stored: Partial<Settings> | null | undefined): Set
   return {
     paydayDayOfMonth: stored.paydayDayOfMonth ?? SEED_SETTINGS.paydayDayOfMonth,
     payrollContact: stored.payrollContact ?? SEED_SETTINGS.payrollContact,
+    authorizedSignatoryName:
+      stored.authorizedSignatoryName ?? SEED_SETTINGS.authorizedSignatoryName,
+    authorizedSignatoryTitle:
+      stored.authorizedSignatoryTitle ?? SEED_SETTINGS.authorizedSignatoryTitle,
+    bankVerificationEnabledByDefault:
+      stored.bankVerificationEnabledByDefault ??
+      SEED_SETTINGS.bankVerificationEnabledByDefault,
     entities: mergeEntityBranding(stored.entities, SEED_SETTINGS.entities),
   };
 }

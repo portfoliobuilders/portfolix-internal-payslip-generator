@@ -20,6 +20,8 @@ interface SalarySlipProps {
   entity: EntityInfo;
   payrollContact: string;
   paydayDayOfMonth: number;
+  authorizedSignatoryName?: string;
+  authorizedSignatoryTitle?: string;
   /** Rule 7 — manual deferred-opening override broke the FINAL chain. */
   ledgerMismatch?: boolean;
 }
@@ -60,10 +62,13 @@ export default function SalarySlip({
   entity,
   payrollContact,
   paydayDayOfMonth,
+  authorizedSignatoryName = 'Authorized Signatory',
+  authorizedSignatoryTitle = 'HR & Payroll',
   ledgerMismatch = false,
 }: SalarySlipProps) {
   const { inputs, computed, employee } = snapshot;
   const isDraft = snapshot.status === 'draft';
+  const isAuthorizedForBank = !isDraft && Boolean(inputs.authorizedForBankVerification);
   const { creditDate, reviewDeadline } = payrollCycleDates(snapshot.monthYear, paydayDayOfMonth);
   const variableLabel = inputs.variableLabel.trim() || 'Variable / Incentive';
   const hasLateness = inputs.lateMinutes > 0 || inputs.flexMinutesEarned > 0;
@@ -99,7 +104,9 @@ export default function SalarySlip({
           </div>
         </div>
         <div className="shrink-0 text-right">
-          <p className="text-[15px] font-bold uppercase tracking-[0.12em]">Salary Slip</p>
+          <p className="text-[15px] font-bold uppercase tracking-[0.12em]">
+            {isAuthorizedForBank ? 'Authorized Salary Slip' : 'Salary Slip'}
+          </p>
           <p className="text-[11px] font-medium text-muted">{formatMonthYear(snapshot.monthYear)}</p>
           {isDraft ? (
             <span className="slip-badge-draft mt-1.5 inline-block rounded border px-2 py-0.5 text-[10px] font-bold uppercase tracking-widest">
@@ -124,6 +131,13 @@ export default function SalarySlip({
         <div className="slip-banner-draft mt-2 rounded border px-3 py-2 text-[10px] font-semibold">
           LEDGER MISMATCH: the deferred opening balance on this slip does not match this
           employee&apos;s last finalized slip. Verify before issuing.
+        </div>
+      )}
+
+      {isAuthorizedForBank && (
+        <div className="mt-2 rounded border border-emerald-300 bg-emerald-50 px-3 py-2 text-[10px] font-semibold text-emerald-900">
+          AUTHORIZED FOR BANK VERIFICATION: This finalized salary slip is issued by payroll for
+          account verification and official salary proof.
         </div>
       )}
 
@@ -358,6 +372,13 @@ export default function SalarySlip({
           Confidential — intended solely for the named employee. This is a computer-generated
           document; no signature is required.
         </p>
+        {isAuthorizedForBank && (
+          <div className="mt-2 border-t border-hairline pt-2 text-[9px] text-ink">
+            <p className="font-semibold">Authorized signatory</p>
+            <p>{authorizedSignatoryName}</p>
+            <p className="text-muted">{authorizedSignatoryTitle}</p>
+          </div>
+        )}
       </footer>
     </div>
   );

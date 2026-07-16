@@ -1,5 +1,6 @@
 'use client';
 
+import { useState } from 'react';
 import type { EntityCode } from '@/lib/types';
 import { useHRStore } from '@/store/useHRStore';
 import { Field, Input, NumberInput, Textarea } from '@/components/ui';
@@ -24,10 +25,12 @@ export default function SettingsView() {
   const saveError = useHRStore((s) => s.saveError);
 
   const previewMonth = currentMonthKey();
+  const [selectedEntity, setSelectedEntity] = useState<EntityCode>('PX');
   const { creditDate, reviewDeadline } = payrollCycleDates(
     previewMonth,
     settings.paydayDayOfMonth,
   );
+  const entity = settings.entities[selectedEntity];
 
   return (
     <div className="space-y-6">
@@ -105,61 +108,101 @@ export default function SettingsView() {
         </p>
       </div>
 
-      <div className="space-y-4">
-        {ENTITY_ORDER.map((code) => {
-          const entity = settings.entities[code];
-          return (
-            <div key={code} className="rounded-lg border border-hairline bg-paper p-5 shadow-card">
-              <div className="mb-4 flex items-center gap-2">
-                <span className="rounded bg-surface px-1.5 py-0.5 text-[11px] font-semibold text-ink">
-                  {code}
-                </span>
-                <h3 className="text-sm font-semibold text-ink">{entity.name || 'Entity'}</h3>
-              </div>
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                <div className="md:col-span-2">
-                  <EntityLogoUpload code={code} />
-                </div>
-                <Field label="Display name">
-                  <Input
-                    value={entity.name}
-                    onChange={(e) => updateEntity(code, { name: e.target.value })}
-                  />
-                </Field>
-                <Field
-                  label="Legal line"
-                  hint='Non-parent brands use "A unit of Portfolix Enterprise Pvt Ltd".'
-                >
-                  <Input
-                    value={entity.legalLine}
-                    onChange={(e) => updateEntity(code, { legalLine: e.target.value })}
-                    placeholder="A unit of Portfolix Enterprise Pvt Ltd"
-                  />
-                </Field>
-                <Field label="Contact">
-                  <Input
-                    value={entity.contact}
-                    onChange={(e) => updateEntity(code, { contact: e.target.value })}
-                  />
-                </Field>
-                <Field label="Address (one line per row)">
-                  <Textarea
-                    value={entity.addressLines.join('\n')}
-                    onChange={(e) => updateEntity(code, { addressLines: e.target.value.split('\n') })}
-                    onBlur={(e) =>
-                      updateEntity(code, {
-                        addressLines: e.target.value
-                          .split('\n')
-                          .map((l) => l.trim())
-                          .filter(Boolean),
-                      })
-                    }
-                  />
-                </Field>
-              </div>
-            </div>
-          );
-        })}
+      <div className="rounded-lg border border-hairline bg-paper p-5 shadow-card">
+        <h3 className="mb-4 text-sm font-semibold text-ink">Authorized slip for bank verification</h3>
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+          <Field label="Enable by default in Generator">
+            <select
+              className="h-10 w-full rounded-md border border-hairline bg-paper px-3 text-sm text-ink focus:border-ink/30 focus:outline-none focus:ring-2 focus:ring-ink/10"
+              value={settings.bankVerificationEnabledByDefault ? 'yes' : 'no'}
+              onChange={(e) =>
+                updateSettings({ bankVerificationEnabledByDefault: e.target.value === 'yes' })
+              }
+            >
+              <option value="no">No</option>
+              <option value="yes">Yes</option>
+            </select>
+          </Field>
+          <Field label="Authorized signatory name">
+            <Input
+              value={settings.authorizedSignatoryName}
+              onChange={(e) => updateSettings({ authorizedSignatoryName: e.target.value })}
+            />
+          </Field>
+          <Field label="Authorized signatory title">
+            <Input
+              value={settings.authorizedSignatoryTitle}
+              onChange={(e) => updateSettings({ authorizedSignatoryTitle: e.target.value })}
+            />
+          </Field>
+        </div>
+      </div>
+
+      <div className="rounded-lg border border-hairline bg-paper p-5 shadow-card">
+        <div className="mb-4 flex flex-wrap items-center gap-2">
+          <h3 className="mr-2 text-sm font-semibold text-ink">Entity branding & details</h3>
+          {ENTITY_ORDER.map((code) => (
+            <button
+              key={code}
+              type="button"
+              onClick={() => setSelectedEntity(code)}
+              className={`rounded-md border px-2.5 py-1 text-[11px] font-semibold ${
+                selectedEntity === code
+                  ? 'border-ink bg-ink text-paper'
+                  : 'border-hairline bg-paper text-ink hover:bg-surface'
+              }`}
+            >
+              {code}
+            </button>
+          ))}
+        </div>
+
+        <div className="mb-4 flex items-center gap-2">
+          <span className="rounded bg-surface px-1.5 py-0.5 text-[11px] font-semibold text-ink">
+            {selectedEntity}
+          </span>
+          <h3 className="text-sm font-semibold text-ink">{entity.name || 'Entity'}</h3>
+        </div>
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+          <div className="md:col-span-2">
+            <EntityLogoUpload code={selectedEntity} />
+          </div>
+          <Field label="Display name">
+            <Input
+              value={entity.name}
+              onChange={(e) => updateEntity(selectedEntity, { name: e.target.value })}
+            />
+          </Field>
+          <Field label="Legal line" hint='Non-parent brands use "A unit of Portfolix Enterprise Pvt Ltd".'>
+            <Input
+              value={entity.legalLine}
+              onChange={(e) => updateEntity(selectedEntity, { legalLine: e.target.value })}
+              placeholder="A unit of Portfolix Enterprise Pvt Ltd"
+            />
+          </Field>
+          <Field label="Contact">
+            <Input
+              value={entity.contact}
+              onChange={(e) => updateEntity(selectedEntity, { contact: e.target.value })}
+            />
+          </Field>
+          <Field label="Address (one line per row)">
+            <Textarea
+              value={entity.addressLines.join('\n')}
+              onChange={(e) =>
+                updateEntity(selectedEntity, { addressLines: e.target.value.split('\n') })
+              }
+              onBlur={(e) =>
+                updateEntity(selectedEntity, {
+                  addressLines: e.target.value
+                    .split('\n')
+                    .map((l) => l.trim())
+                    .filter(Boolean),
+                })
+              }
+            />
+          </Field>
+        </div>
       </div>
 
       <PayrollStressTestPanel />

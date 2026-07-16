@@ -30,6 +30,7 @@ interface FormState {
   deferredOpening: string;
   committedPayoutDate: string;
   remarks: string;
+  authorizedForBankVerification: boolean;
 }
 
 function emptyForm(monthYear: string): FormState {
@@ -47,6 +48,7 @@ function emptyForm(monthYear: string): FormState {
     deferredOpening: '0',
     committedPayoutDate: '',
     remarks: '',
+    authorizedForBankVerification: false,
   };
 }
 
@@ -127,6 +129,13 @@ export default function GeneratorView({
       setGeneratorEmployeeId(null);
     }
   }, [preselectedId, setGeneratorEmployeeId]);
+
+  useEffect(() => {
+    setForm((f) => ({
+      ...f,
+      authorizedForBankVerification: settings.bankVerificationEnabledByDefault,
+    }));
+  }, [settings.bankVerificationEnabledByDefault]);
 
   const employee = employees.find((e) => e.id === employeeId) ?? null;
   const entity = employee ? settings.entities[employee.entityCode] : null;
@@ -236,6 +245,7 @@ export default function GeneratorView({
         deferredOpening: num(form.deferredOpening),
         committedPayoutDate: form.committedPayoutDate || null,
         remarks: form.remarks,
+        authorizedForBankVerification: form.authorizedForBankVerification,
         flexBankBalanceBefore: flexBankBase,
         baseSalary: employee.baseSalary,
       },
@@ -445,6 +455,19 @@ export default function GeneratorView({
         </div>
 
         <div className="rounded-lg border border-hairline bg-paper p-4 shadow-card">
+          <Field label="Authorized copy for bank verification">
+            <select
+              className={inputCls}
+              value={form.authorizedForBankVerification ? 'yes' : 'no'}
+              onChange={(e) => set('authorizedForBankVerification', e.target.value === 'yes')}
+            >
+              <option value="no">No</option>
+              <option value="yes">Yes</option>
+            </select>
+          </Field>
+        </div>
+
+        <div className="rounded-lg border border-hairline bg-paper p-4 shadow-card">
           <Field label="Remarks / operations note">
             <textarea
               className={`${inputCls} resize-none`}
@@ -526,6 +549,8 @@ export default function GeneratorView({
               payrollContact={settings.payrollContact}
               paydayDayOfMonth={settings.paydayDayOfMonth}
               ledgerMismatch={ledgerMismatch}
+              authorizedSignatoryName={settings.authorizedSignatoryName}
+              authorizedSignatoryTitle={settings.authorizedSignatoryTitle}
             />
           </ScaledPreview>
         ) : (
@@ -546,6 +571,8 @@ export default function GeneratorView({
               payrollContact={settings.payrollContact}
               paydayDayOfMonth={settings.paydayDayOfMonth}
               ledgerMismatch={ledgerMismatch}
+              authorizedSignatoryName={settings.authorizedSignatoryName}
+              authorizedSignatoryTitle={settings.authorizedSignatoryTitle}
             />
           </div>,
           document.body,
