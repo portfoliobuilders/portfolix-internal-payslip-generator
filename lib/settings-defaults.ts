@@ -29,9 +29,10 @@ const EMPTY_SIGNATORY: Pick<
 /** Default payroll settings and entity branding used on first run. */
 export const SEED_SETTINGS: Settings = {
   paydayDayOfMonth: 5,
-  payrollContact: SETTINGS_PLACEHOLDER,
-  reviewDeadlineTime: '6:00 PM',
-  ptDeductionMonths: [8, 2],
+  payrollContact: 'payroll@portfolix.tech',
+  authorizedSignatoryName: 'Authorized Signatory',
+  authorizedSignatoryTitle: 'HR & Payroll',
+  bankVerificationEnabledByDefault: false,
   entities: {
     PX: {
       // Legal registered name must be confirmed in companies.legal_name — do not ship a guess.
@@ -116,11 +117,15 @@ export function mergeSettings(stored: Partial<Settings> | null | undefined): Set
 
   return {
     paydayDayOfMonth: stored.paydayDayOfMonth ?? SEED_SETTINGS.paydayDayOfMonth,
-    payrollContact: stored.payrollContact?.trim() || SEED_SETTINGS.payrollContact,
-    reviewDeadlineTime:
-      stored.reviewDeadlineTime?.trim() || SEED_SETTINGS.reviewDeadlineTime,
-    ptDeductionMonths: normalizePtMonths(stored.ptDeductionMonths),
-    entities: mergeEntityBranding(stored.entities, structuredClone(SEED_SETTINGS.entities)),
+    payrollContact: stored.payrollContact ?? SEED_SETTINGS.payrollContact,
+    authorizedSignatoryName:
+      stored.authorizedSignatoryName ?? SEED_SETTINGS.authorizedSignatoryName,
+    authorizedSignatoryTitle:
+      stored.authorizedSignatoryTitle ?? SEED_SETTINGS.authorizedSignatoryTitle,
+    bankVerificationEnabledByDefault:
+      stored.bankVerificationEnabledByDefault ??
+      SEED_SETTINGS.bankVerificationEnabledByDefault,
+    entities: mergeEntityBranding(stored.entities, SEED_SETTINGS.entities),
   };
 }
 

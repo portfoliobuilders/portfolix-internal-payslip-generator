@@ -31,16 +31,9 @@ export interface EntityInfo {
 export interface Settings {
   paydayDayOfMonth: number;
   payrollContact: string;
-  /**
-   * Clock label printed with the draft review deadline (e.g. "6:00 PM").
-   * No longer hardcoded in slip components.
-   */
-  reviewDeadlineTime: string;
-  /**
-   * Calendar months (1–12) in which Kerala Professional Tax is deducted.
-   * Default Aug + Feb: [8, 2].
-   */
-  ptDeductionMonths: number[];
+  authorizedSignatoryName: string;
+  authorizedSignatoryTitle: string;
+  bankVerificationEnabledByDefault: boolean;
   entities: Record<EntityCode, EntityInfo>;
 }
 
@@ -154,6 +147,8 @@ export interface SlipInputs {
   /** ISO date string; required whenever deferredClosing > 0. */
   committedPayoutDate: string | null;
   remarks: string;
+  /** Enables an additional declaration block for bank verification. */
+  authorizedForBankVerification?: boolean;
   /** Flex balance the computation started from (for audit). */
   flexBankBalanceBefore: number;
   baseSalary: number;

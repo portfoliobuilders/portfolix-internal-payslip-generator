@@ -32,8 +32,8 @@ interface SalarySlipProps {
   entity: EntityInfo;
   payrollContact: string;
   paydayDayOfMonth: number;
-  /** e.g. "6:00 PM" from settings.reviewDeadlineTime */
-  reviewDeadlineTime?: string;
+  authorizedSignatoryName?: string;
+  authorizedSignatoryTitle?: string;
   /** Rule 7 — manual deferred-opening override broke the FINAL chain. */
   ledgerMismatch?: boolean;
   /** Payment obligation summary — FINAL ≠ PAID. */
@@ -85,7 +85,8 @@ export default function SalarySlip({
   entity,
   payrollContact,
   paydayDayOfMonth,
-  reviewDeadlineTime = '6:00 PM',
+  authorizedSignatoryName = 'Authorized Signatory',
+  authorizedSignatoryTitle = 'HR & Payroll',
   ledgerMismatch = false,
   paymentStatus = null,
   expectedPaymentDate = null,
@@ -99,6 +100,7 @@ export default function SalarySlip({
   const { inputs, computed, employee } = snapshot;
   /** Review window and draft chrome key ONLY on the rendered variant. */
   const isDraft = snapshot.status === 'draft';
+  const isAuthorizedForBank = !isDraft && Boolean(inputs.authorizedForBankVerification);
   const { creditDate, reviewDeadline } = payrollCycleDates(snapshot.monthYear, paydayDayOfMonth);
   const expectedDate = expectedPaymentDate ?? formatDate(creditDate);
   const isPaid = paymentStatus === 'PAID';
@@ -156,14 +158,10 @@ export default function SalarySlip({
           </div>
         </div>
         <div className="shrink-0 text-right">
-          <p className="text-[15px] font-bold uppercase tracking-[0.12em]">Internal Pay Slip</p>
-          <p className="text-[11px] font-medium text-muted">
-            Salary month: {formatMonthYear(snapshot.monthYear)}
+          <p className="text-[15px] font-bold uppercase tracking-[0.12em]">
+            {isAuthorizedForBank ? 'Authorized Salary Slip' : 'Salary Slip'}
           </p>
-          <p className="mt-0.5 text-[10px] text-muted">Attendance cycle: {attendanceCycle}</p>
-          {statementMeta.statusBadge && (
-            <p className="mt-1 text-[10px] font-semibold text-amber-brand">{statementMeta.statusBadge}</p>
-          )}
+          <p className="text-[11px] font-medium text-muted">{formatMonthYear(snapshot.monthYear)}</p>
           {isDraft ? (
             <span className="slip-badge-draft mt-1.5 inline-block rounded border px-2 py-0.5 text-[10px] font-bold uppercase tracking-widest">
               Draft — Provisional
@@ -191,12 +189,15 @@ export default function SalarySlip({
         </div>
       )}
 
-      {/* ---------- Period / payment strip ---------- */}
-      <div className="mt-3 grid grid-cols-2 divide-x divide-hairline rounded border border-hairline bg-surface text-[10px] sm:grid-cols-4">
-        <div className="px-3 py-2">
-          <p className="text-[8.5px] font-semibold uppercase tracking-wider text-muted">Payroll status</p>
-          <p className="font-semibold">{isDraft ? 'Draft' : 'Finalised'}</p>
+      {isAuthorizedForBank && (
+        <div className="mt-2 rounded border border-emerald-300 bg-emerald-50 px-3 py-2 text-[10px] font-semibold text-emerald-900">
+          AUTHORIZED FOR BANK VERIFICATION: This finalized salary slip is issued by payroll for
+          account verification and official salary proof.
         </div>
+      )}
+
+      {/* ---------- Period strip ---------- */}
+      <div className="mt-3 grid grid-cols-3 divide-x divide-hairline rounded border border-hairline bg-surface text-[10px]">
         <div className="px-3 py-2">
           <p className="text-[8.5px] font-semibold uppercase tracking-wider text-muted">Payment status</p>
           <p className="font-semibold">{paymentLabel}</p>
@@ -471,6 +472,13 @@ export default function SalarySlip({
           This is a computer-generated internal payroll document and does not require a physical
           signature.
         </p>
+        {isAuthorizedForBank && (
+          <div className="mt-2 border-t border-hairline pt-2 text-[9px] text-ink">
+            <p className="font-semibold">Authorized signatory</p>
+            <p>{authorizedSignatoryName}</p>
+            <p className="text-muted">{authorizedSignatoryTitle}</p>
+          </div>
+        )}
       </footer>
     </div>
   );

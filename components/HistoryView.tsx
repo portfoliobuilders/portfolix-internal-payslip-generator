@@ -561,21 +561,14 @@ export default function HistoryView({ slipHistory, loading, error, onRefresh }: 
                 <X size={14} /> Close
               </button>
             </div>
-            {bankCopyError && viewing.status === 'final' && (
-              <p className="mb-2 rounded-md border border-amber-edge bg-amber-tint px-3 py-2 text-[12px] text-amber-brand">
-                {bankCopyError}
-              </p>
-            )}
-            {/* Keep A4 slip layout intact; scroll horizontally if viewport is narrower. */}
-            <div className="overflow-x-auto overscroll-x-contain [-webkit-overflow-scrolling:touch]">
-              <SalarySlip
-                snapshot={viewing}
-                entity={settings.entities[viewing.employee.entityCode]}
-                payrollContact={settings.payrollContact}
-                paydayDayOfMonth={settings.paydayDayOfMonth}
-                reviewDeadlineTime={settings.reviewDeadlineTime}
-              />
-            </div>
+            <SalarySlip
+              snapshot={viewing}
+              entity={settings.entities[viewing.employee.entityCode]}
+              payrollContact={settings.payrollContact}
+              paydayDayOfMonth={settings.paydayDayOfMonth}
+              authorizedSignatoryName={settings.authorizedSignatoryName}
+              authorizedSignatoryTitle={settings.authorizedSignatoryTitle}
+            />
           </div>
         </div>
       )}
@@ -589,7 +582,8 @@ export default function HistoryView({ slipHistory, loading, error, onRefresh }: 
               entity={settings.entities[viewing.employee.entityCode]}
               payrollContact={settings.payrollContact}
               paydayDayOfMonth={settings.paydayDayOfMonth}
-              reviewDeadlineTime={settings.reviewDeadlineTime}
+              authorizedSignatoryName={settings.authorizedSignatoryName}
+              authorizedSignatoryTitle={settings.authorizedSignatoryTitle}
             />
           </div>,
           document.body,
@@ -604,7 +598,8 @@ export default function HistoryView({ slipHistory, loading, error, onRefresh }: 
               entity={settings.entities[exportTarget.employee.entityCode]}
               payrollContact={settings.payrollContact}
               paydayDayOfMonth={settings.paydayDayOfMonth}
-              reviewDeadlineTime={settings.reviewDeadlineTime}
+              authorizedSignatoryName={settings.authorizedSignatoryName}
+              authorizedSignatoryTitle={settings.authorizedSignatoryTitle}
             />
           </div>,
           document.body,
