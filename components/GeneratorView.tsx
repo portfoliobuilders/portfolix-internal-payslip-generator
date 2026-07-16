@@ -172,13 +172,6 @@ export default function GeneratorView({
     }
   }, [preselectedId, setGeneratorEmployeeId]);
 
-  useEffect(() => {
-    setForm((f) => ({
-      ...f,
-      authorizedForBankVerification: settings.bankVerificationEnabledByDefault,
-    }));
-  }, [settings.bankVerificationEnabledByDefault]);
-
   const employee = employees.find((e) => e.id === employeeId) ?? null;
 
   useEffect(() => {
@@ -784,19 +777,6 @@ export default function GeneratorView({
         </div>
 
         <div className="rounded-lg border border-hairline bg-paper p-4 shadow-card">
-          <Field label="Authorized copy for bank verification">
-            <select
-              className={inputCls}
-              value={form.authorizedForBankVerification ? 'yes' : 'no'}
-              onChange={(e) => set('authorizedForBankVerification', e.target.value === 'yes')}
-            >
-              <option value="no">No</option>
-              <option value="yes">Yes</option>
-            </select>
-          </Field>
-        </div>
-
-        <div className="rounded-lg border border-hairline bg-paper p-4 shadow-card">
           <Field label="Remarks / operations note">
             <textarea
               className={`${inputCls} resize-none`}
@@ -814,6 +794,7 @@ export default function GeneratorView({
         <div className="flex flex-wrap items-center gap-3 rounded-lg border border-hairline bg-paper px-4 py-2.5 shadow-card">
           <div className="flex overflow-hidden rounded-md border border-hairline">
             <button
+              type="button"
               onClick={() => setMode('draft')}
               className={`min-h-[44px] px-3 py-2 text-sm font-medium transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ink/20 sm:min-h-0 ${
                 mode === 'draft' ? 'bg-amber-tint text-amber-brand' : 'bg-paper text-muted hover:bg-surface hover:text-ink'
@@ -822,29 +803,22 @@ export default function GeneratorView({
               Draft
             </button>
             <button
+              type="button"
               onClick={() => setMode('final')}
               className={`min-h-[44px] border-l border-hairline px-3 py-2 text-sm font-medium transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ink/20 sm:min-h-0 ${
                 mode === 'final' ? 'bg-emerald-tint text-emerald-deep' : 'bg-paper text-muted hover:bg-surface hover:text-ink'
               }`}
             >
-              ✓ Final
+              Final
             </button>
             <button
+              type="button"
               onClick={() => setMode('authorised')}
               className={`min-h-[44px] border-l border-hairline px-3 py-2 text-sm font-medium transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ink/20 sm:min-h-0 ${
-                mode === 'authorised' ? 'bg-surface text-ink' : 'bg-paper text-muted hover:bg-surface hover:text-ink'
+                mode === 'authorised' ? 'bg-ink text-paper' : 'bg-paper text-muted hover:bg-surface hover:text-ink'
               }`}
             >
-              <Download size={14} />
-              {exporting
-                ? 'Exporting…'
-                : status === 'final'
-                  ? employee?.paymentType === 'salary'
-                    ? 'Generate Salary Slip'
-                    : employee?.paymentType === 'stipend'
-                      ? 'Generate Stipend Statement'
-                      : 'Generate Payment Statement'
-                  : 'Download draft PDF'}
+              Authorised
             </button>
           </div>
 
@@ -852,6 +826,7 @@ export default function GeneratorView({
             {mode === 'authorised' ? (
               <>
                 <button
+                  type="button"
                   className={btnSecondary}
                   disabled={!authorisedBundle || !!authorisedDisableReason}
                   onClick={() => window.print()}
@@ -859,21 +834,28 @@ export default function GeneratorView({
                   <Printer size={14} /> Print
                 </button>
                 <button
+                  type="button"
                   className={btnPrimary}
                   disabled={!!authorisedDisableReason || exporting || authorisedLoading}
                   title={authorisedDisableReason ?? undefined}
                   onClick={() => void doAuthorisedExport()}
                 >
                   <Download size={14} />
-                  {exporting ? 'Exporting…' : 'Download bank copy PDF'}
+                  {exporting ? 'Exporting…' : 'Download authorised PDF'}
                 </button>
               </>
             ) : (
               <>
-                <button className={btnSecondary} disabled={!snapshot || hasErrors} onClick={() => window.print()}>
+                <button
+                  type="button"
+                  className={btnSecondary}
+                  disabled={!snapshot || hasErrors}
+                  onClick={() => window.print()}
+                >
                   <Printer size={14} /> Print
                 </button>
                 <button
+                  type="button"
                   className={btnPrimary}
                   disabled={!snapshot || hasErrors || exporting}
                   onClick={() => void doExport(false)}
@@ -883,7 +865,11 @@ export default function GeneratorView({
                   }
                 >
                   <Download size={14} />
-                  {exporting ? 'Exporting…' : status === 'final' ? 'Download PDF & finalize' : 'Download draft PDF'}
+                  {exporting
+                    ? 'Exporting…'
+                    : mode === 'final'
+                      ? 'Download PDF & finalize'
+                      : 'Download draft PDF'}
                 </button>
               </>
             )}
