@@ -221,6 +221,7 @@ export async function savePayrollSlip(
 
     if (error) return { ok: false, error: error.message };
 
+    // Secondary history mirror — never fail the primary payroll_slips save when missing/unavailable.
     const { error: statementError } = await supabase.from('payment_statements').insert({
       id: slipData.id,
       person_id: slipData.employeeId,
@@ -255,7 +256,12 @@ export async function savePayrollSlip(
       snapshot_settings_data: settingsSnapshot ?? null,
       snapshot_data: slipData,
     });
-    if (statementError) return { ok: false, error: statementError.message };
+    if (statementError) {
+      console.warn(
+        '[payroll] payment_statements mirror skipped:',
+        statementError.message,
+      );
+    }
 
     revalidatePayrollViews();
     return { ok: true, data: rowToSlip(data as PayrollSlipRow) };
