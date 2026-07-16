@@ -626,83 +626,19 @@ export async function logAuthorisedSlipGeneration(
 
 /** Returns application settings from Supabase, seeding defaults if missing. */
 export async function getAppSettings(): Promise<ActionResult<Settings>> {
-  try {
-    const supabase = await getSupabase();
-    const { data, error } = await supabase
-      .from('app_settings')
-      .select('*')
-      .eq('id', APP_SETTINGS_ID)
-      .maybeSingle();
-
-    if (error) return { ok: false, error: error.message };
-
-    if (!data) {
-      const seedResult = await seedDefaultAppSettingsIfMissing();
-      if (!seedResult.ok) return seedResult;
-      return { ok: true, data: seedResult.data };
-    }
-
-    return { ok: true, data: rowToSettings(data as AppSettingsRow) };
-  } catch (err) {
-    return {
-      ok: false,
-      error: err instanceof Error ? err.message : 'Failed to fetch app settings.',
-    };
-  }
+  const { fetchSettings } = await import('@/app/actions/settings');
+  return fetchSettings();
 }
 
 /** Inserts default settings when the singleton row does not exist. */
 export async function seedDefaultAppSettingsIfMissing(): Promise<ActionResult<Settings>> {
-  try {
-    const supabase = await getSupabase();
-    const row = {
-      ...defaultSettingsRow(),
-      updated_at: new Date().toISOString(),
-    };
-
-    const { data, error } = await supabase
-      .from('app_settings')
-      .upsert(row, { onConflict: 'id' })
-      .select('*')
-      .single();
-
-    if (error) return { ok: false, error: error.message };
-
-    revalidatePayrollViews();
-    return { ok: true, data: rowToSettings(data as AppSettingsRow) };
-  } catch (err) {
-    return {
-      ok: false,
-      error: err instanceof Error ? err.message : 'Failed to seed app settings.',
-    };
-  }
+  return getAppSettings();
 }
 
 /** Saves application settings to Supabase. */
 export async function upsertAppSettings(settings: Settings): Promise<ActionResult<Settings>> {
-  try {
-    const supabase = await getSupabase();
-    const row = {
-      ...settingsToRow(settings),
-      updated_at: new Date().toISOString(),
-    };
-
-    const { data, error } = await supabase
-      .from('app_settings')
-      .upsert(row, { onConflict: 'id' })
-      .select('*')
-      .single();
-
-    if (error) return { ok: false, error: error.message };
-
-    revalidatePayrollViews();
-    return { ok: true, data: rowToSettings(data as AppSettingsRow) };
-  } catch (err) {
-    return {
-      ok: false,
-      error: err instanceof Error ? err.message : 'Failed to save app settings.',
-    };
-  }
+  const { saveSettings } = await import('@/app/actions/settings');
+  return saveSettings(settings);
 }
 
 /** Removes a payroll slip from history. */

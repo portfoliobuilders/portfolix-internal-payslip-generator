@@ -18,7 +18,7 @@ import type {
   SlipSnapshot,
   WorkMode,
 } from '@/lib/types';
-import { SEED_SETTINGS } from '@/lib/settings-defaults';
+import { mergeSettings, SEED_SETTINGS } from '@/lib/settings-defaults';
 import { defaultPaymentTypeForEngagement } from './workforce';
 import { slipStatutoryDeductions } from './payroll-calc';
 
@@ -261,13 +261,12 @@ function mergeEntityBranding(
 
 /** Maps a Supabase app_settings row to the app's Settings type. */
 export function rowToSettings(row: AppSettingsRow): Settings {
-  return {
+  const merged = mergeSettings({
     paydayDayOfMonth: row.payday_day_of_month,
     payrollContact: row.payroll_contact,
-    reviewDeadlineTime: SEED_SETTINGS.reviewDeadlineTime,
-    ptDeductionMonths: [...SEED_SETTINGS.ptDeductionMonths],
-    entities: mergeEntityBranding(row.entity_branding),
-  };
+    entities: row.entity_branding ?? undefined,
+  });
+  return merged;
 }
 
 /** Maps app Settings to a Supabase upsert row. */

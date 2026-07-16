@@ -1,72 +1,62 @@
+import {
+  COMPANY_ENTITIES,
+  PAYROLL_CONTACT,
+} from '@/lib/constants/company';
 import type { EntityCode, EntityInfo, Settings } from '@/lib/types';
 
 const ENTITY_CODES: EntityCode[] = ['PX', 'PB', 'PT', 'PH'];
 
-/** Obvious placeholder — misspelled hardcoded contacts must never ship. */
+/** Obvious placeholder for fields that must be confirmed in Settings (CIN, assets). */
 export const SETTINGS_PLACEHOLDER = 'SET-IN-SETTINGS';
 
-const EMPTY_SIGNATORY: Pick<
-  EntityInfo,
-  | 'cin'
-  | 'registeredAddress'
-  | 'phone'
-  | 'payrollEmail'
-  | 'signatoryName'
-  | 'signatoryDesignation'
-  | 'signatureAssetPath'
-  | 'sealAssetPath'
-> = {
-  cin: SETTINGS_PLACEHOLDER,
-  registeredAddress: SETTINGS_PLACEHOLDER,
-  phone: SETTINGS_PLACEHOLDER,
-  payrollEmail: SETTINGS_PLACEHOLDER,
-  signatoryName: SETTINGS_PLACEHOLDER,
-  signatoryDesignation: SETTINGS_PLACEHOLDER,
-  signatureAssetPath: null,
-  sealAssetPath: null,
+const ENTITY_COMPANY_MAP: Record<EntityCode, (typeof COMPANY_ENTITIES)[number]> = {
+  PX: COMPANY_ENTITIES[0],
+  PT: COMPANY_ENTITIES[1],
+  PB: COMPANY_ENTITIES[2],
+  PH: COMPANY_ENTITIES[3],
 };
+
+function addressLinesFrom(address: string): string[] {
+  return address
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean);
+}
+
+function buildEntity(code: EntityCode): EntityInfo {
+  const company = ENTITY_COMPANY_MAP[code];
+  const addressLines = addressLinesFrom(company.address);
+  return {
+    name: company.displayName,
+    legalLine: code === 'PX' ? '' : company.legalLine,
+    addressLines,
+    contact: PAYROLL_CONTACT,
+    logoDataUrl: null,
+    cin: SETTINGS_PLACEHOLDER,
+    registeredAddress: addressLines.join(', '),
+    phone: PAYROLL_CONTACT,
+    payrollEmail: 'payroll@portfolix.tech',
+    signatoryName: 'Authorized Signatory',
+    signatoryDesignation: 'HR & Payroll',
+    signatureAssetPath: null,
+    sealAssetPath: null,
+  };
+}
 
 /** Default payroll settings and entity branding used on first run. */
 export const SEED_SETTINGS: Settings = {
   paydayDayOfMonth: 5,
   payrollContact: 'payroll@portfolix.tech',
+  reviewDeadlineTime: '6:00 PM',
+  ptDeductionMonths: [8, 2],
   authorizedSignatoryName: 'Authorized Signatory',
   authorizedSignatoryTitle: 'HR & Payroll',
   bankVerificationEnabledByDefault: false,
   entities: {
-    PX: {
-      // Legal registered name must be confirmed in companies.legal_name — do not ship a guess.
-      name: SETTINGS_PLACEHOLDER,
-      legalLine: '',
-      addressLines: [SETTINGS_PLACEHOLDER],
-      contact: SETTINGS_PLACEHOLDER,
-      logoDataUrl: null,
-      ...EMPTY_SIGNATORY,
-    },
-    PB: {
-      name: 'Portfolio Builders',
-      legalLine: SETTINGS_PLACEHOLDER,
-      addressLines: [SETTINGS_PLACEHOLDER],
-      contact: SETTINGS_PLACEHOLDER,
-      logoDataUrl: null,
-      ...EMPTY_SIGNATORY,
-    },
-    PT: {
-      name: 'Portfolix.tech',
-      legalLine: SETTINGS_PLACEHOLDER,
-      addressLines: [SETTINGS_PLACEHOLDER],
-      contact: SETTINGS_PLACEHOLDER,
-      logoDataUrl: null,
-      ...EMPTY_SIGNATORY,
-    },
-    PH: {
-      name: 'Portfolix Hub',
-      legalLine: SETTINGS_PLACEHOLDER,
-      addressLines: [SETTINGS_PLACEHOLDER],
-      contact: SETTINGS_PLACEHOLDER,
-      logoDataUrl: null,
-      ...EMPTY_SIGNATORY,
-    },
+    PX: buildEntity('PX'),
+    PB: buildEntity('PB'),
+    PT: buildEntity('PT'),
+    PH: buildEntity('PH'),
   },
 };
 
@@ -76,6 +66,18 @@ function normalizePtMonths(raw: unknown): number[] {
     .map((m) => (typeof m === 'number' ? m : Number(m)))
     .filter((m) => Number.isInteger(m) && m >= 1 && m <= 12);
   return months.length > 0 ? [...new Set(months)].sort((a, b) => a - b) : [...SEED_SETTINGS.ptDeductionMonths];
+}
+
+function coalesceText(stored: string | undefined, fallback: string): string {
+  const v = (stored ?? '').trim();
+  if (v === '' || v === SETTINGS_PLACEHOLDER) return fallback;
+  return v;
+}
+
+function coalesceAddressLines(stored: string[] | undefined, fallback: string[]): string[] {
+  if (!stored || stored.length === 0) return fallback;
+  if (stored.length === 1 && isSettingsPlaceholder(stored[0])) return fallback;
+  return stored;
 }
 
 function mergeEntityBranding(
@@ -92,13 +94,19 @@ function mergeEntityBranding(
       merged[code] = {
         ...merged[code],
         ...rest,
-        cin: patch.cin?.trim() || merged[code].cin,
-        registeredAddress: patch.registeredAddress?.trim() || merged[code].registeredAddress,
-        phone: patch.phone?.trim() || contactPhone?.trim() || merged[code].phone,
-        payrollEmail: patch.payrollEmail?.trim() || merged[code].payrollEmail,
-        signatoryName: patch.signatoryName?.trim() || merged[code].signatoryName,
-        signatoryDesignation:
-          patch.signatoryDesignation?.trim() || merged[code].signatoryDesignation,
+        name: coalesceText(patch.name, merged[code].name),
+        legalLine: patch.legalLine === undefined ? merged[code].legalLine : patch.legalLine,
+        addressLines: coalesceAddressLines(patch.addressLines, merged[code].addressLines),
+        contact: coalesceText(patch.contact, merged[code].contact),
+        cin: coalesceText(patch.cin, merged[code].cin),
+        registeredAddress: coalesceText(patch.registeredAddress, merged[code].registeredAddress),
+        phone: coalesceText(patch.phone ?? contactPhone, merged[code].phone),
+        payrollEmail: coalesceText(patch.payrollEmail, merged[code].payrollEmail),
+        signatoryName: coalesceText(patch.signatoryName, merged[code].signatoryName),
+        signatoryDesignation: coalesceText(
+          patch.signatoryDesignation,
+          merged[code].signatoryDesignation,
+        ),
         signatureAssetPath:
           patch.signatureAssetPath === undefined
             ? merged[code].signatureAssetPath
@@ -117,7 +125,9 @@ export function mergeSettings(stored: Partial<Settings> | null | undefined): Set
 
   return {
     paydayDayOfMonth: stored.paydayDayOfMonth ?? SEED_SETTINGS.paydayDayOfMonth,
-    payrollContact: stored.payrollContact ?? SEED_SETTINGS.payrollContact,
+    payrollContact: coalesceText(stored.payrollContact, SEED_SETTINGS.payrollContact),
+    reviewDeadlineTime: coalesceText(stored.reviewDeadlineTime, SEED_SETTINGS.reviewDeadlineTime),
+    ptDeductionMonths: normalizePtMonths(stored.ptDeductionMonths),
     authorizedSignatoryName:
       stored.authorizedSignatoryName ?? SEED_SETTINGS.authorizedSignatoryName,
     authorizedSignatoryTitle:

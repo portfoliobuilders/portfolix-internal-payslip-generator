@@ -1,34 +1,39 @@
 'use client';
 
 import { useState } from 'react';
+import { AlertTriangle, CheckCircle2, Loader2 } from 'lucide-react';
 import type { EntityCode } from '@/lib/types';
-import { fetchCompanySettings, updateCompanySettings } from '@/app/actions/settings';
+import { useAppSettings } from '@/hooks/useAppSettings';
 import { useHRStore } from '@/store/useHRStore';
-import { Field, Input, NumberInput, Textarea, btnPrimary } from '@/components/ui';
+import { Field, Input, NumberInput, Textarea, btnPrimary, btnSecondary } from '@/components/ui';
 import EntityLogoUpload from '@/components/EntityLogoUpload';
+import SignatoryAssetUpload from '@/components/SignatoryAssetUpload';
 import PayrollStressTestPanel from '@/components/PayrollStressTestPanel';
 import {
   currentMonthKey,
+  formatDate,
   formatMonthYear,
   formatQueryDeadline,
   payrollCycleDates,
 } from '@/lib/format';
 
-const PRIMARY_ENTITY: EntityCode = 'PX';
+const ENTITY_ORDER: EntityCode[] = ['PX', 'PB', 'PT', 'PH'];
 
-/**
- * Settings UI — loads/saves the company_settings singleton and mirrors
- * primary-entity branding into the local store for slip previews.
- */
 export default function SettingsView() {
   const settings = useHRStore((s) => s.settings);
-  const setSettings = useHRStore((s) => s.setSettings);
   const updateSettings = useHRStore((s) => s.updateSettings);
   const updateEntity = useHRStore((s) => s.updateEntity);
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
+  const discardSettingsChanges = useHRStore((s) => s.discardSettingsChanges);
+
+  const {
+    settingsLoading,
+    settingsError,
+    settingsSaving,
+    settingsSaveError,
+    settingsSavedAt,
+    hasUnsavedSettings,
+    save,
+  } = useAppSettings();
 
   const previewMonth = currentMonthKey();
   const [selectedEntity, setSelectedEntity] = useState<EntityCode>('PX');
@@ -38,127 +43,124 @@ export default function SettingsView() {
   );
   const entity = settings.entities[selectedEntity];
 
-  useEffect(() => {
-    let cancelled = false;
-    async function loadSettings() {
-      setLoading(true);
-      setError(null);
-
-      const result = await fetchCompanySettings();
-      if (cancelled) return;
-      if (!result.ok) {
-        setError(result.error);
-        setLoading(false);
-        return;
-      }
-
-      if (result.data) {
-        const data = result.data;
-        const current = useHRStore.getState().settings;
-        setSettings({
-          ...current,
-          paydayDayOfMonth: data.payday_day,
-          payrollContact: data.payroll_contact,
-          entities: {
-            ...current.entities,
-            [PRIMARY_ENTITY]: {
-              ...current.entities[PRIMARY_ENTITY],
-              name: data.display_name,
-              legalLine: data.legal_line,
-              addressLines: data.address
-                .split('\n')
-                .map((line) => line.trim())
-                .filter(Boolean),
-              logoDataUrl: data.logo_url,
-            },
-          },
-        });
-      }
-
-      setLoading(false);
-    }
-
-    void loadSettings();
-    return () => {
-      cancelled = true;
-    };
-  }, [setSettings]);
-
-  const settingsPayload = useMemo(
-    () => ({
-      payday_day: settings.paydayDayOfMonth,
-      payroll_contact: settings.payrollContact,
-      display_name: primaryEntity.name,
-      legal_line: primaryEntity.legalLine,
-      address: primaryEntity.addressLines.join('\n'),
-      logo_url: primaryEntity.logoDataUrl,
-    }),
-    [settings, primaryEntity],
-  );
-
   async function handleSave() {
-    setSaving(true);
-    setError(null);
-    setNotice(null);
-    const result = await updateCompanySettings(settingsPayload);
-    if (!result.ok) {
-      setError(result.error);
-      setSaving(false);
-      return;
-    }
-    setNotice('Settings saved to Supabase.');
-    setSaving(false);
+    await save();
+  }
+
+  if (settingsLoading) {
+    return (
+      <p className="py-20 text-center text-sm text-muted">
+        <Loader2 className="mr-2 inline animate-spin" size={16} />
+        Loading settings from Supabase…
+      </p>
+    );
   }
 
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-base font-semibold text-ink">Settings</h2>
-        <p className="mt-1 text-sm text-muted">
-          These values print on every slip and are saved to Supabase. The legal
-          company name must match the confirmed registration (see Company Legal
-          settings after Phase 2 migrations are applied).
-        </p>
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <h2 className="text-base font-semibold text-ink">Settings</h2>
+          <p className="mt-1 text-sm text-muted">
+            These values print on every slip and are saved to Supabase. Edit each entity (PX, PB,
+            PT, PH) and save when you are done.
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          {hasUnsavedSettings && (
+            <button type="button" className={btnSecondary} onClick={discardSettingsChanges}>
+              Discard changes
+            </button>
+          )}
+          <button
+            type="button"
+            className={btnPrimary}
+            disabled={settingsSaving || !hasUnsavedSettings}
+            onClick={() => void handleSave()}
+          >
+            {settingsSaving ? (
+              <>
+                <Loader2 size={14} className="animate-spin" />
+                Saving…
+              </>
+            ) : (
+              'Save settings'
+            )}
+          </button>
+        </div>
       </div>
 
-      {notice && (
+      {settingsSavedAt && !hasUnsavedSettings && !settingsSaveError && (
         <div className="flex items-center gap-2 rounded-md border border-emerald-brand/30 bg-emerald-tint px-3 py-2 text-[12px] font-medium text-emerald-deep">
           <CheckCircle2 size={14} className="shrink-0" />
-          {notice}
+          All changes saved to Supabase.
         </div>
       )}
 
-      {error && (
+      {(settingsError || settingsSaveError) && (
         <div className="flex items-start gap-2 rounded-md border border-amber-edge bg-amber-tint px-3 py-2 text-[12px] font-medium text-amber-brand">
           <AlertTriangle size={14} className="mt-0.5 shrink-0" />
-          {error}
+          {settingsSaveError ?? settingsError}
         </div>
       )}
 
-      <div className="rounded-lg border border-hairline bg-paper p-5">
-        <h3 className="text-sm font-semibold text-ink">Payroll calendar</h3>
+      <div className="rounded-lg border border-hairline bg-paper p-5 shadow-card">
+        <h3 className="text-sm font-semibold text-ink">Payroll calendar &amp; contact</h3>
         <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <Field label="Payday (day of month)">
+          <Field
+            label="Payday (day of month)"
+            hint="Salary credit date. Query deadline is payday − 2."
+          >
             <NumberInput
               value={settings.paydayDayOfMonth}
               min={3}
               max={28}
-              onChange={(e) =>
-                updateSettings({ paydayDayOfMonth: Number(e.target.value) || 5 })
-              }
+              onChange={(e) => {
+                const day = Math.min(28, Math.max(3, Math.round(Number(e.target.value) || 0)));
+                updateSettings({ paydayDayOfMonth: day });
+              }}
             />
           </Field>
-          <Field label="Payroll contact">
+          <Field label="Payroll contact (printed on slip footer)">
             <Input
               value={settings.payrollContact}
               onChange={(e) => updateSettings({ payrollContact: e.target.value })}
-              placeholder="payroll@example.com"
+              placeholder="payroll@portfolix.tech"
+            />
+          </Field>
+          <Field label="Review deadline time">
+            <Input
+              value={settings.reviewDeadlineTime}
+              onChange={(e) => updateSettings({ reviewDeadlineTime: e.target.value })}
+              placeholder="6:00 PM"
+            />
+          </Field>
+          <Field
+            label="PT deduction months"
+            hint="Comma-separated month numbers (e.g. 8,2 for Aug and Feb)."
+          >
+            <Input
+              value={settings.ptDeductionMonths.join(', ')}
+              onChange={(e) => {
+                const months = e.target.value
+                  .split(',')
+                  .map((m) => Math.round(Number(m.trim())))
+                  .filter((m) => Number.isInteger(m) && m >= 1 && m <= 12);
+                updateSettings({
+                  ptDeductionMonths:
+                    months.length > 0 ? [...new Set(months)].sort((a, b) => a - b) : [8, 2],
+                });
+              }}
             />
           </Field>
         </div>
         <p className="mt-3 text-[12px] text-muted">
-          Preview for {formatMonthYear(previewMonth)}: credit {creditDate.toDateString()} · query
-          deadline {formatQueryDeadline(reviewDeadline, settings.reviewDeadlineTime)}
+          Preview for {formatMonthYear(previewMonth)} — review queries by{' '}
+          <span className="font-semibold text-amber-brand">
+            {formatQueryDeadline(reviewDeadline, settings.reviewDeadlineTime)}
+          </span>
+          , salary credited{' '}
+          <span className="font-semibold text-emerald-deep">{formatDate(creditDate)}</span>.
         </p>
       </div>
 
@@ -177,13 +179,13 @@ export default function SettingsView() {
               <option value="yes">Yes</option>
             </select>
           </Field>
-          <Field label="Authorized signatory name">
+          <Field label="Authorized signatory name (internal slip banner)">
             <Input
               value={settings.authorizedSignatoryName}
               onChange={(e) => updateSettings({ authorizedSignatoryName: e.target.value })}
             />
           </Field>
-          <Field label="Authorized signatory title">
+          <Field label="Authorized signatory title (internal slip banner)">
             <Input
               value={settings.authorizedSignatoryTitle}
               onChange={(e) => updateSettings({ authorizedSignatoryTitle: e.target.value })}
@@ -194,7 +196,7 @@ export default function SettingsView() {
 
       <div className="rounded-lg border border-hairline bg-paper p-5 shadow-card">
         <div className="mb-4 flex flex-wrap items-center gap-2">
-          <h3 className="mr-2 text-sm font-semibold text-ink">Entity branding & details</h3>
+          <h3 className="mr-2 text-sm font-semibold text-ink">Entity branding &amp; details</h3>
           {ENTITY_ORDER.map((code) => (
             <button
               key={code}
@@ -217,6 +219,7 @@ export default function SettingsView() {
           </span>
           <h3 className="text-sm font-semibold text-ink">{entity.name || 'Entity'}</h3>
         </div>
+
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
           <div className="md:col-span-2">
             <EntityLogoUpload code={selectedEntity} />
@@ -227,20 +230,29 @@ export default function SettingsView() {
               onChange={(e) => updateEntity(selectedEntity, { name: e.target.value })}
             />
           </Field>
-          <Field label="Legal line" hint='Non-parent brands use "A unit of Portfolix Enterprise Pvt Ltd".'>
+          <Field
+            label="Legal line"
+            hint='Non-parent brands use "A unit of Portfolix Entreprise Pvt Ltd".'
+          >
             <Input
               value={entity.legalLine}
               onChange={(e) => updateEntity(selectedEntity, { legalLine: e.target.value })}
-              placeholder="A unit of Portfolix Enterprise Pvt Ltd"
+              placeholder="A unit of Portfolix Entreprise Pvt Ltd"
             />
           </Field>
-          <Field label="Contact">
+          <Field label="Contact phone">
             <Input
               value={entity.contact}
               onChange={(e) => updateEntity(selectedEntity, { contact: e.target.value })}
             />
           </Field>
-          <Field label="Address (one line per row)">
+          <Field label="Payroll email">
+            <Input
+              value={entity.payrollEmail}
+              onChange={(e) => updateEntity(selectedEntity, { payrollEmail: e.target.value })}
+            />
+          </Field>
+          <Field label="Address (one line per row — printed on internal slip)">
             <Textarea
               value={entity.addressLines.join('\n')}
               onChange={(e) =>
@@ -256,6 +268,54 @@ export default function SettingsView() {
               }
             />
           </Field>
+        </div>
+      </div>
+
+      <div className="rounded-lg border border-hairline bg-paper p-5 shadow-card">
+        <h3 className="mb-1 text-sm font-semibold text-ink">
+          Company legal &amp; signatory — {selectedEntity}
+        </h3>
+        <p className="mb-4 text-[12px] text-muted">
+          Required for the authorised bank-verification PDF (signature, seal, CIN, registered
+          address).
+        </p>
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+          <Field label="CIN">
+            <Input
+              value={entity.cin}
+              onChange={(e) => updateEntity(selectedEntity, { cin: e.target.value })}
+            />
+          </Field>
+          <Field label="Phone (authorised slip)">
+            <Input
+              value={entity.phone}
+              onChange={(e) => updateEntity(selectedEntity, { phone: e.target.value })}
+            />
+          </Field>
+          <Field label="Registered address (authorised slip letterhead)">
+            <Textarea
+              value={entity.registeredAddress}
+              onChange={(e) => updateEntity(selectedEntity, { registeredAddress: e.target.value })}
+            />
+          </Field>
+          <Field label="Signatory name">
+            <Input
+              value={entity.signatoryName}
+              onChange={(e) => updateEntity(selectedEntity, { signatoryName: e.target.value })}
+            />
+          </Field>
+          <Field label="Signatory designation">
+            <Input
+              value={entity.signatoryDesignation}
+              onChange={(e) =>
+                updateEntity(selectedEntity, { signatoryDesignation: e.target.value })
+              }
+            />
+          </Field>
+          <div className="md:col-span-2 grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <SignatoryAssetUpload code={selectedEntity} kind="signature" label="Signature image" />
+            <SignatoryAssetUpload code={selectedEntity} kind="seal" label="Company seal" />
+          </div>
         </div>
       </div>
 

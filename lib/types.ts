@@ -31,6 +31,10 @@ export interface EntityInfo {
 export interface Settings {
   paydayDayOfMonth: number;
   payrollContact: string;
+  /** Local time label printed on slips, e.g. "6:00 PM". */
+  reviewDeadlineTime: string;
+  /** Calendar months (1–12) when Kerala PT is deducted from salary. */
+  ptDeductionMonths: number[];
   authorizedSignatoryName: string;
   authorizedSignatoryTitle: string;
   bankVerificationEnabledByDefault: boolean;

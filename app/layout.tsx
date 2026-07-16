@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from 'next';
 import './globals.css';
 import AppHeader from '@/components/AppHeader';
+import AppSettingsProvider from '@/components/AppSettingsProvider';
 
 export const dynamic = 'force-dynamic';
 
@@ -21,10 +22,12 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en">
       <body className="min-h-screen">
-        <AppHeader />
-        <main className="no-print mx-auto min-w-0 max-w-[1400px] px-4 py-6 sm:px-6 lg:px-8">
-          {children}
-        </main>
+        <AppSettingsProvider>
+          <AppHeader />
+          <main className="no-print mx-auto min-w-0 max-w-[1400px] px-4 py-6 sm:px-6 lg:px-8">
+            {children}
+          </main>
+        </AppSettingsProvider>
       </body>
     </html>
   );

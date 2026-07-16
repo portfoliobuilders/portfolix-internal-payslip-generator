@@ -34,6 +34,7 @@ interface SalarySlipProps {
   paydayDayOfMonth: number;
   authorizedSignatoryName?: string;
   authorizedSignatoryTitle?: string;
+  reviewDeadlineTime?: string;
   /** Rule 7 — manual deferred-opening override broke the FINAL chain. */
   ledgerMismatch?: boolean;
   /** Payment obligation summary — FINAL ≠ PAID. */
@@ -87,6 +88,7 @@ export default function SalarySlip({
   paydayDayOfMonth,
   authorizedSignatoryName = 'Authorized Signatory',
   authorizedSignatoryTitle = 'HR & Payroll',
+  reviewDeadlineTime = '6:00 PM',
   ledgerMismatch = false,
   paymentStatus = null,
   expectedPaymentDate = null,

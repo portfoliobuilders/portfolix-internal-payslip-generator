@@ -57,7 +57,7 @@ function normalizeSettings(settings: Settings): Settings {
   return {
     ...settings,
     paydayDayOfMonth: clampPaydayDay(settings.paydayDayOfMonth),
-    payrollContact: settings.payrollContact.trim() || 'SET-IN-SETTINGS',
+    payrollContact: settings.payrollContact.trim() || SEED_SETTINGS.payrollContact,
     reviewDeadlineTime: settings.reviewDeadlineTime.trim() || '6:00 PM',
     ptDeductionMonths:
       months.length > 0 ? [...new Set(months)].sort((a, b) => a - b) : [8, 2],
