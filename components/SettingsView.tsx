@@ -2,27 +2,33 @@
 
 import { useState } from 'react';
 import type { EntityCode } from '@/lib/types';
+import { fetchCompanySettings, updateCompanySettings } from '@/app/actions/settings';
 import { useHRStore } from '@/store/useHRStore';
-import { Field, Input, NumberInput, Textarea } from '@/components/ui';
+import { Field, Input, NumberInput, Textarea, btnPrimary } from '@/components/ui';
 import EntityLogoUpload from '@/components/EntityLogoUpload';
 import PayrollStressTestPanel from '@/components/PayrollStressTestPanel';
 import {
   currentMonthKey,
-  formatDate,
   formatMonthYear,
   formatQueryDeadline,
   payrollCycleDates,
 } from '@/lib/format';
-import { AlertTriangle, CheckCircle2, Loader2 } from 'lucide-react';
 
-const ENTITY_ORDER: EntityCode[] = ['PX', 'PB', 'PT', 'PH'];
+const PRIMARY_ENTITY: EntityCode = 'PX';
 
+/**
+ * Settings UI — loads/saves the company_settings singleton and mirrors
+ * primary-entity branding into the local store for slip previews.
+ */
 export default function SettingsView() {
   const settings = useHRStore((s) => s.settings);
+  const setSettings = useHRStore((s) => s.setSettings);
   const updateSettings = useHRStore((s) => s.updateSettings);
   const updateEntity = useHRStore((s) => s.updateEntity);
-  const saveState = useHRStore((s) => s.saveState);
-  const saveError = useHRStore((s) => s.saveError);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
 
   const previewMonth = currentMonthKey();
   const [selectedEntity, setSelectedEntity] = useState<EntityCode>('PX');
@@ -32,79 +38,127 @@ export default function SettingsView() {
   );
   const entity = settings.entities[selectedEntity];
 
+  useEffect(() => {
+    let cancelled = false;
+    async function loadSettings() {
+      setLoading(true);
+      setError(null);
+
+      const result = await fetchCompanySettings();
+      if (cancelled) return;
+      if (!result.ok) {
+        setError(result.error);
+        setLoading(false);
+        return;
+      }
+
+      if (result.data) {
+        const data = result.data;
+        const current = useHRStore.getState().settings;
+        setSettings({
+          ...current,
+          paydayDayOfMonth: data.payday_day,
+          payrollContact: data.payroll_contact,
+          entities: {
+            ...current.entities,
+            [PRIMARY_ENTITY]: {
+              ...current.entities[PRIMARY_ENTITY],
+              name: data.display_name,
+              legalLine: data.legal_line,
+              addressLines: data.address
+                .split('\n')
+                .map((line) => line.trim())
+                .filter(Boolean),
+              logoDataUrl: data.logo_url,
+            },
+          },
+        });
+      }
+
+      setLoading(false);
+    }
+
+    void loadSettings();
+    return () => {
+      cancelled = true;
+    };
+  }, [setSettings]);
+
+  const settingsPayload = useMemo(
+    () => ({
+      payday_day: settings.paydayDayOfMonth,
+      payroll_contact: settings.payrollContact,
+      display_name: primaryEntity.name,
+      legal_line: primaryEntity.legalLine,
+      address: primaryEntity.addressLines.join('\n'),
+      logo_url: primaryEntity.logoDataUrl,
+    }),
+    [settings, primaryEntity],
+  );
+
+  async function handleSave() {
+    setSaving(true);
+    setError(null);
+    setNotice(null);
+    const result = await updateCompanySettings(settingsPayload);
+    if (!result.ok) {
+      setError(result.error);
+      setSaving(false);
+      return;
+    }
+    setNotice('Settings saved to Supabase.');
+    setSaving(false);
+  }
+
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <h2 className="text-base font-semibold text-ink">Settings</h2>
-          <p className="mt-1 text-sm text-muted">
-            These values print on every slip. Settings and entity branding are stored in Supabase;
-            changes save automatically.
-          </p>
-        </div>
-        {saveState !== 'idle' && (
-          <div
-            className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[11px] font-medium ${
-              saveState === 'error'
-                ? 'bg-amber-tint text-amber-brand'
-                : saveState === 'saved'
-                  ? 'bg-emerald-tint text-emerald-deep'
-                  : 'bg-surface text-muted'
-            }`}
-          >
-            {saveState === 'saving' && (
-              <>
-                <Loader2 size={12} className="animate-spin" />
-                Saving…
-              </>
-            )}
-            {saveState === 'saved' && (
-              <>
-                <CheckCircle2 size={12} />
-                All changes saved
-              </>
-            )}
-            {saveState === 'error' && (
-              <>
-                <AlertTriangle size={12} />
-                {saveError ?? 'Could not save'}
-              </>
-            )}
-          </div>
-        )}
+      <div>
+        <h2 className="text-base font-semibold text-ink">Settings</h2>
+        <p className="mt-1 text-sm text-muted">
+          These values print on every slip and are saved to Supabase. The legal
+          company name must match the confirmed registration (see Company Legal
+          settings after Phase 2 migrations are applied).
+        </p>
       </div>
 
-      <div className="rounded-lg border border-hairline bg-paper p-5 shadow-card">
-        <h3 className="mb-4 text-sm font-semibold text-ink">Payroll calendar &amp; contact</h3>
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-          <Field
-            label="Payday day of month"
-            hint="Salary credit date. The query deadline is derived as payday − 2 at 6:00 PM."
-          >
+      {notice && (
+        <div className="flex items-center gap-2 rounded-md border border-emerald-brand/30 bg-emerald-tint px-3 py-2 text-[12px] font-medium text-emerald-deep">
+          <CheckCircle2 size={14} className="shrink-0" />
+          {notice}
+        </div>
+      )}
+
+      {error && (
+        <div className="flex items-start gap-2 rounded-md border border-amber-edge bg-amber-tint px-3 py-2 text-[12px] font-medium text-amber-brand">
+          <AlertTriangle size={14} className="mt-0.5 shrink-0" />
+          {error}
+        </div>
+      )}
+
+      <div className="rounded-lg border border-hairline bg-paper p-5">
+        <h3 className="text-sm font-semibold text-ink">Payroll calendar</h3>
+        <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <Field label="Payday (day of month)">
             <NumberInput
               value={settings.paydayDayOfMonth}
               min={3}
               max={28}
-              onChange={(e) => {
-                const day = Math.min(28, Math.max(3, Math.round(Number(e.target.value) || 0)));
-                updateSettings({ paydayDayOfMonth: day });
-              }}
+              onChange={(e) =>
+                updateSettings({ paydayDayOfMonth: Number(e.target.value) || 5 })
+              }
             />
           </Field>
-          <Field label="Payroll contact (printed on the slip footer)">
+          <Field label="Payroll contact">
             <Input
               value={settings.payrollContact}
               onChange={(e) => updateSettings({ payrollContact: e.target.value })}
+              placeholder="payroll@example.com"
             />
           </Field>
         </div>
-        <p className="mt-4 rounded-md bg-surface px-3 py-2 text-[11px] text-muted">
-          Preview for {formatMonthYear(previewMonth)} — review queries by{' '}
-          <span className="font-semibold text-amber-brand">
-            {formatQueryDeadline(reviewDeadline)}
-          </span>
-          , salary credited{' '}
-          <span className="font-semibold text-emerald-deep">{formatDate(creditDate)}</span>.
+        <p className="mt-3 text-[12px] text-muted">
+          Preview for {formatMonthYear(previewMonth)}: credit {creditDate.toDateString()} · query
+          deadline {formatQueryDeadline(reviewDeadline, settings.reviewDeadlineTime)}
         </p>
       </div>
 

@@ -1,9 +1,11 @@
 'use client';
 
 /**
- * A4 PDF export via html2canvas + jsPDF. Libraries are imported lazily
- * so the main bundle stays lean and static export never touches them
- * at build time.
+ * Preview/legacy A4 export via html2canvas + jsPDF.
+ *
+ * Production AUTHORISED / INTERNAL final documents should use
+ * lib/pdf-vector.ts (text/vector). Do not treat a full-page screenshot
+ * as the bank-grade PDF of record.
  */
 
 const A4_WIDTH_MM = 210;
@@ -11,7 +13,36 @@ const A4_HEIGHT_MM = 297;
 /** Safe inset so captures never clip at the page edge. */
 const MARGIN_MM = 6;
 
+/** Wait for webfonts and in-tree images so baselines and assets capture cleanly. */
+async function waitForExportReady(element: HTMLElement): Promise<void> {
+  if (typeof document !== 'undefined' && document.fonts?.ready) {
+    try {
+      await document.fonts.ready;
+    } catch {
+      // Ignore font readiness failures — continue with best-effort capture.
+    }
+  }
+
+  const images = Array.from(element.querySelectorAll('img'));
+  await Promise.all(
+    images.map(
+      (img) =>
+        new Promise<void>((resolve) => {
+          if (img.complete && img.naturalWidth > 0) {
+            resolve();
+            return;
+          }
+          const done = () => resolve();
+          img.addEventListener('load', done, { once: true });
+          img.addEventListener('error', done, { once: true });
+        }),
+    ),
+  );
+}
+
 export async function exportElementToPdf(element: HTMLElement, filename: string): Promise<void> {
+  await waitForExportReady(element);
+
   const [{ default: html2canvas }, { jsPDF }] = await Promise.all([
     import('html2canvas'),
     import('jspdf'),

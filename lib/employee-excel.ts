@@ -3,7 +3,8 @@
  */
 
 import * as XLSX from 'xlsx';
-import type { Employee, EntityCode, PaymentMode } from '@/lib/types';
+import type { Employee, EngagementType, EntityCode, PaymentMode, PaymentType } from '@/lib/types';
+import { defaultPaymentTypeForEngagement } from './workforce';
 
 export const EMPLOYEE_TEMPLATE_HEADERS = [
   'Full Name',
@@ -12,12 +13,19 @@ export const EMPLOYEE_TEMPLATE_HEADERS = [
   'Joining Date',
   'Department',
   'Designation',
+  'Engagement Type',
+  'Employment Status',
+  'Payment Type',
+  'Compensation Amount',
   'Address',
   'Base Salary',
+  'Start Date',
+  'End Date',
   'Payment Mode',
-  'Bank A/C',
-  'PAN',
+  'Bank Details',
+  'PAN Masked',
   'Opening Flex-Bank Balance',
+  'Notes',
 ] as const;
 
 export type EmployeeTemplateHeader = (typeof EMPLOYEE_TEMPLATE_HEADERS)[number];
@@ -84,6 +92,19 @@ function normalizeBankLast4(value: unknown): string {
   return digits.length >= 4 ? digits.slice(-4) : digits;
 }
 
+function normalizeEngagementType(value: unknown): EngagementType {
+  const raw = cellString(value).toLowerCase();
+  const values: EngagementType[] = ['regular_employee', 'probation_employee', 'notice_period_employee', 'intern', 'trainee', 'apprentice', 'contract_employee', 'freelancer', 'consultant'];
+  return values.includes(raw as EngagementType) ? (raw as EngagementType) : 'regular_employee';
+}
+
+function normalizePaymentType(value: unknown, engagementType: EngagementType): PaymentType {
+  const raw = cellString(value).toLowerCase();
+  const values: PaymentType[] = ['salary', 'stipend', 'professional_fee', 'consultancy_fee', 'contract_remuneration', 'honorarium'];
+  if (values.includes(raw as PaymentType)) return raw as PaymentType;
+  return defaultPaymentTypeForEngagement(engagementType);
+}
+
 function isRowEmpty(row: Record<string, unknown>): boolean {
   return EMPLOYEE_TEMPLATE_HEADERS.every((header) => cellString(row[header]) === '');
 }
@@ -101,8 +122,8 @@ function validateRow(
   if (!/^\d{4}-\d{2}-\d{2}$/.test(employee.joiningDate)) {
     return `Row ${rowNumber}: Joining Date must be a valid date.`;
   }
-  if (!Number.isFinite(employee.baseSalary) || employee.baseSalary <= 0) {
-    return `Row ${rowNumber}: Base Salary must be greater than zero.`;
+  if (!Number.isFinite(employee.compensationAmount) || employee.compensationAmount <= 0) {
+    return `Row ${rowNumber}: Compensation Amount must be greater than zero.`;
   }
   if (employee.bankLast4 && !/^\d{4}$/.test(employee.bankLast4)) {
     return `Row ${rowNumber}: Bank A/C must be exactly 4 digits.`;
@@ -112,6 +133,12 @@ function validateRow(
   }
   if (!Number.isFinite(employee.flexBankBalance) || employee.flexBankBalance < 0) {
     return `Row ${rowNumber}: Opening Flex-Bank Balance must be 0 or more.`;
+  }
+  if (!Number.isFinite(employee.tdsMonthly) || employee.tdsMonthly < 0) {
+    return `Row ${rowNumber}: TDS Monthly must be 0 or more.`;
+  }
+  if (!Number.isFinite(employee.ptHalfYearly) || employee.ptHalfYearly < 0) {
+    return `Row ${rowNumber}: PT Half-Yearly must be 0 or more.`;
   }
   return null;
 }
@@ -124,19 +151,42 @@ function mapRow(row: Record<string, unknown>, rowNumber: number): BulkEmployeeIn
     return `Row ${rowNumber}: Entity ID must be one of PX, PB, PT, PH.`;
   }
 
+  const engagementType = normalizeEngagementType(row['Engagement Type']);
+  const paymentType = normalizePaymentType(row['Payment Type'], engagementType);
+  const compensationAmount = cellNumber(row['Compensation Amount']) || cellNumber(row['Base Salary']);
   const employee: BulkEmployeeInput = {
     fullName: cellString(row['Full Name']),
     entityCode,
-    empId: cellString(row['Employee ID']).toUpperCase(),
+    empId: cellString(row['Employee ID']).toUpperCase().replace(/\s+/g, ''),
     joiningDate: normalizeJoiningDate(row['Joining Date']),
     department: cellString(row['Department']),
     designation: cellString(row['Designation']),
+    engagementType,
+    employmentStatus: (cellString(row['Employment Status']).toLowerCase() as Employee['employmentStatus']) || 'active',
+    paymentType,
     employeeAddress: cellString(row['Address']),
-    baseSalary: cellNumber(row['Base Salary']),
+    compensationAmount,
+    baseSalary: compensationAmount,
     paymentMode: normalizePaymentMode(row['Payment Mode']),
-    bankLast4: normalizeBankLast4(row['Bank A/C']),
-    panMasked: cellString(row['PAN']).toUpperCase(),
+    bankLast4: normalizeBankLast4(row['Bank Details']),
+    panMasked: cellString(row['PAN Masked']).toUpperCase(),
     flexBankBalance: cellNumber(row['Opening Flex-Bank Balance']) || 0,
+    internshipStartDate: null,
+    internshipEndDate: normalizeJoiningDate(row['End Date']) || null,
+    probationStartDate: null,
+    probationEndDate: null,
+    noticeStartDate: null,
+    noticeEndDate: null,
+    contractStartDate: normalizeJoiningDate(row['Start Date']) || null,
+    contractEndDate: normalizeJoiningDate(row['End Date']) || null,
+    offboardingDate: null,
+    reportingManager: '',
+    workMode: 'office',
+    agreementType: 'offer_letter',
+    documentsStatus: 'pending',
+    notes: cellString(row['Notes']),
+    tdsMonthly: 0,
+    ptHalfYearly: 0,
   };
 
   const error = validateRow(employee, rowNumber);

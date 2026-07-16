@@ -1,9 +1,15 @@
 /**
  * Display formatting helpers. Formatting only — all payroll math lives
- * in lib/payroll-calc.ts.
+ * in lib/payroll-calc.ts. Attendance-cycle math lives in lib/payroll-cycle.ts.
  */
 
-import { format, parse, parseISO, isValid } from 'date-fns';
+import { endOfMonth, format, parse, parseISO, isValid, startOfMonth } from 'date-fns';
+import {
+  computeAttendancePeriod,
+  formatAttendanceCycle,
+  DEFAULT_PAYROLL_CYCLE_METHOD,
+  type PayrollCycleMethod,
+} from './payroll-cycle';
 
 const inrFormatter = new Intl.NumberFormat('en-IN', {
   minimumFractionDigits: 2,
@@ -27,6 +33,13 @@ export function formatDate(isoDate: string | Date): string {
   return format(d, 'dd MMM yyyy');
 }
 
+/** Date + local time for generation stamps (e.g. 15 Jul 2026, 14:30). */
+export function formatDateTime(isoDate: string | Date): string {
+  const d = typeof isoDate === 'string' ? parseISO(isoDate) : isoDate;
+  if (!isValid(d)) return '—';
+  return format(d, 'dd MMM yyyy, HH:mm');
+}
+
 /** '2026-07' → 'July 2026'. */
 export function formatMonthYear(monthYear: string): string {
   const d = parse(monthYear, 'yyyy-MM', new Date());
@@ -44,8 +57,9 @@ export function dateInMonth(monthYear: string, dayOfMonth: number): Date {
 }
 
 /**
- * Payroll cycle dates for a slip month. Salary credits on payday of the
- * FOLLOWING month; review queries close 2 days before payday (T−2).
+ * Payment credit / review window for a slip month.
+ * Salary credits on payday of the FOLLOWING month; review queries close T−2.
+ * This is NOT the attendance cycle — see computeAttendancePeriod.
  */
 export function payrollCycleDates(
   monthYear: string,
@@ -57,6 +71,34 @@ export function payrollCycleDates(
   const creditDate = dateInMonth(nextMonthYear, paydayDayOfMonth);
   const reviewDeadline = dateInMonth(nextMonthYear, paydayDayOfMonth - 2);
   return { creditDate, reviewDeadline };
+}
+
+/**
+ * @deprecated Prefer computeAttendancePeriod + formatAttendanceCycle.
+ * Calendar-month range only — do not use as default Portfolix attendance cycle.
+ */
+export function formatPayPeriodRange(monthYear: string): string {
+  const base = parse(monthYear, 'yyyy-MM', new Date());
+  if (!isValid(base)) return monthYear;
+  const start = startOfMonth(base);
+  const end = endOfMonth(base);
+  return `${format(start, 'dd MMM yyyy')} – ${format(end, 'dd MMM yyyy')}`;
+}
+
+/** Attendance cycle display using server-side cycle method (default 25→24). */
+export function formatSalaryAttendanceCycle(
+  salaryMonth: string,
+  method: PayrollCycleMethod = DEFAULT_PAYROLL_CYCLE_METHOD,
+  stored?: { start?: string | null; end?: string | null },
+): string {
+  if (stored?.start && stored?.end) {
+    return formatAttendanceCycle({
+      attendancePeriodStart: stored.start,
+      attendancePeriodEnd: stored.end,
+    });
+  }
+  const period = computeAttendancePeriod({ salaryMonth, method });
+  return formatAttendanceCycle(period);
 }
 
 /** Minutes → 'Xh Ym' compact display. */
@@ -76,12 +118,31 @@ export function currentMonthKey(): string {
 }
 
 /** "03 Jul 2026 · 6:00 PM" style string for the review deadline. */
-export function formatQueryDeadline(deadline: Date): string {
-  return `${formatDate(deadline)} · 6:00 PM`;
+export function formatQueryDeadline(
+  deadline: Date,
+  timeLabel: string = '6:00 PM',
+): string {
+  return `${formatDate(deadline)} · ${timeLabel}`;
 }
 
 /** PDF filename per spec: PX_PaySlip_YYYY-MM_<EMPID>[_DRAFT].pdf */
-export function slipFilename(monthYear: string, empId: string, isDraft: boolean): string {
+export function slipFilename(
+  monthYear: string,
+  empId: string,
+  isDraft: boolean,
+  prefix = 'PaymentStatement',
+): string {
   const safeEmpId = empId.replace(/[^A-Za-z0-9-]/g, '');
-  return `PX_PaySlip_${monthYear}_${safeEmpId}${isDraft ? '_DRAFT' : ''}.pdf`;
+  return `PX_${prefix}_${monthYear}_${safeEmpId}${isDraft ? '_DRAFT' : ''}.pdf`;
+}
+
+/** Authorised bank-copy filename. */
+export function authorisedSlipFilename(
+  entityCode: string,
+  monthYear: string,
+  empId: string,
+): string {
+  const safeEmpId = empId.replace(/[^A-Za-z0-9-]/g, '');
+  const safeEntity = entityCode.replace(/[^A-Za-z0-9-]/g, '');
+  return `${safeEntity}_AuthorisedSalarySlip_${monthYear}_${safeEmpId}.pdf`;
 }

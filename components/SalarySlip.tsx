@@ -10,10 +10,22 @@
  */
 
 import { CheckCircle2 } from 'lucide-react';
-import { FIXED_DIVISOR } from '@/lib/payroll-calc';
-import { formatDate, formatINR, formatMinutes, formatMonthYear, payrollCycleDates } from '@/lib/format';
+import {
+  lopCalculationBasisDisplayText,
+  lopCalculationBasisLabel,
+} from '@/lib/calculation-method';
+import { FIXED_DIVISOR, slipStatutoryDeductions } from '@/lib/payroll-calc';
+import {
+  formatDate,
+  formatINR,
+  formatMinutes,
+  formatMonthYear,
+  formatSalaryAttendanceCycle,
+  payrollCycleDates,
+} from '@/lib/format';
 import type { EntityInfo, SlipSnapshot } from '@/lib/types';
 import EntityLogo from '@/components/EntityLogo';
+import { statementMetaFor } from '@/lib/workforce';
 
 interface SalarySlipProps {
   snapshot: SlipSnapshot;
@@ -24,6 +36,15 @@ interface SalarySlipProps {
   authorizedSignatoryTitle?: string;
   /** Rule 7 — manual deferred-opening override broke the FINAL chain. */
   ledgerMismatch?: boolean;
+  /** Payment obligation summary — FINAL ≠ PAID. */
+  paymentStatus?: string | null;
+  expectedPaymentDate?: string | null;
+  actualCreditDate?: string | null;
+  confirmedPaidAmount?: number | null;
+  outstandingBalance?: number | null;
+  attendancePeriodStart?: string | null;
+  attendancePeriodEnd?: string | null;
+  showResidentialAddress?: boolean;
 }
 
 function Row({
@@ -31,14 +52,16 @@ function Row({
   value,
   bold = false,
   sub,
+  rowClassName = 'slip-amount-row',
 }: {
   label: React.ReactNode;
   value: string;
   bold?: boolean;
   sub?: React.ReactNode;
+  rowClassName?: string;
 }) {
   return (
-    <div className={`slip-amount-row ${bold ? 'font-semibold' : ''}`}>
+    <div className={`${rowClassName} ${bold ? 'font-semibold' : ''}`}>
       <div className="min-w-0">
         <span className="text-[11px] leading-snug">{label}</span>
         {sub && <div className="text-[9.5px] leading-snug text-muted">{sub}</div>}
@@ -65,13 +88,44 @@ export default function SalarySlip({
   authorizedSignatoryName = 'Authorized Signatory',
   authorizedSignatoryTitle = 'HR & Payroll',
   ledgerMismatch = false,
+  paymentStatus = null,
+  expectedPaymentDate = null,
+  actualCreditDate = null,
+  confirmedPaidAmount = null,
+  outstandingBalance = null,
+  attendancePeriodStart = null,
+  attendancePeriodEnd = null,
+  showResidentialAddress = false,
 }: SalarySlipProps) {
   const { inputs, computed, employee } = snapshot;
+  /** Review window and draft chrome key ONLY on the rendered variant. */
   const isDraft = snapshot.status === 'draft';
   const isAuthorizedForBank = !isDraft && Boolean(inputs.authorizedForBankVerification);
   const { creditDate, reviewDeadline } = payrollCycleDates(snapshot.monthYear, paydayDayOfMonth);
+  const expectedDate = expectedPaymentDate ?? formatDate(creditDate);
+  const isPaid = paymentStatus === 'PAID';
+  const attendanceCycle = formatSalaryAttendanceCycle(snapshot.monthYear, 'PREVIOUS_25_TO_CURRENT_24', {
+    start: attendancePeriodStart,
+    end: attendancePeriodEnd,
+  });
+  const lopBasisLabel =
+    snapshot.calculationMethodLabel?.trim() ||
+    (snapshot.calculationMethodCode
+      ? lopCalculationBasisDisplayText(snapshot.calculationMethodCode)
+      : `LOP Calculation Basis: Fixed ${FIXED_DIVISOR}-day divisor`);
   const variableLabel = inputs.variableLabel.trim() || 'Variable / Incentive';
   const hasLateness = inputs.lateMinutes > 0 || inputs.flexMinutesEarned > 0;
+  const { tds, pt } = slipStatutoryDeductions(computed, inputs);
+  const statementMeta = statementMetaFor(
+    employee.paymentType,
+    employee.engagementType,
+    employee.employmentStatus,
+  );
+  const paymentLabel = paymentStatus
+    ? paymentStatus.replace(/_/g, ' ')
+    : isDraft
+      ? 'NOT SCHEDULED'
+      : 'SCHEDULED';
 
   return (
     <div
@@ -110,20 +164,21 @@ export default function SalarySlip({
           <p className="text-[11px] font-medium text-muted">{formatMonthYear(snapshot.monthYear)}</p>
           {isDraft ? (
             <span className="slip-badge-draft mt-1.5 inline-block rounded border px-2 py-0.5 text-[10px] font-bold uppercase tracking-widest">
-              Draft
+              Draft — Provisional
             </span>
           ) : (
             <span className="slip-badge-final mt-1.5 inline-flex items-center gap-1 rounded border px-2 py-0.5 text-[10px] font-bold uppercase tracking-widest">
-              <CheckCircle2 size={11} strokeWidth={3} /> Final
+              <CheckCircle2 size={11} strokeWidth={3} /> Finalised
             </span>
           )}
         </div>
       </header>
 
-      {/* ---------- Draft banner (exact required text) ---------- */}
+      {/* ---------- Draft banner ---------- */}
       {isDraft && (
         <div className="slip-banner-draft mt-3 rounded border px-3 py-2 text-[10px] font-semibold">
-          INTERNAL DRAFT: Invalid for financial or official use. Pending final HR approval.
+          DRAFT — PROVISIONAL INTERNAL PAYROLL STATEMENT. Invalid for financial or official use.
+          Pending attendance lock, LOP confirmation, review and approval.
         </div>
       )}
 
@@ -144,22 +199,32 @@ export default function SalarySlip({
       {/* ---------- Period strip ---------- */}
       <div className="mt-3 grid grid-cols-3 divide-x divide-hairline rounded border border-hairline bg-surface text-[10px]">
         <div className="px-3 py-2">
-          <p className="text-[8.5px] font-semibold uppercase tracking-wider text-muted">Issue date</p>
-          <p className="font-semibold">{formatDate(snapshot.generatedAt)}</p>
+          <p className="text-[8.5px] font-semibold uppercase tracking-wider text-muted">Payment status</p>
+          <p className="font-semibold">{paymentLabel}</p>
         </div>
         <div className="px-3 py-2">
           <p className="text-[8.5px] font-semibold uppercase tracking-wider text-muted">
-            Review window
+            {isPaid ? 'Actual salary credit date' : 'Expected payment date'}
           </p>
           <p className="font-semibold">
-            Review queries by {formatDate(reviewDeadline)} · 6:00 PM
+            {isPaid && actualCreditDate
+              ? formatDate(actualCreditDate)
+              : typeof expectedDate === 'string' && expectedDate.includes('-')
+                ? formatDate(expectedDate)
+                : expectedDate}
           </p>
         </div>
         <div className="px-3 py-2">
           <p className="text-[8.5px] font-semibold uppercase tracking-wider text-muted">
-            Salary credit
+            {isDraft ? 'Review window' : 'Outstanding / paid'}
           </p>
-          <p className="font-semibold">{formatDate(creditDate)}</p>
+          <p className="font-semibold">
+            {isDraft
+              ? `By ${formatDate(reviewDeadline)} · ${reviewDeadlineTime}`
+              : isPaid
+                ? `Paid ${formatINR(confirmedPaidAmount ?? computed.netPay)} · ₹0 due`
+                : `Paid ${formatINR(confirmedPaidAmount ?? 0)} · Due ${formatINR(outstandingBalance ?? computed.netPay)}`}
+          </p>
         </div>
       </div>
 
@@ -200,29 +265,45 @@ export default function SalarySlip({
             <p className="text-[8.5px] font-semibold uppercase tracking-wider text-muted">PAN</p>
             <p className="amount">{employee.panMasked || '—'}</p>
           </div>
-          <div>
-            <p className="text-[8.5px] font-semibold uppercase tracking-wider text-muted">Address</p>
-            <p className="leading-snug">{employee.employeeAddress || '—'}</p>
-          </div>
+          {showResidentialAddress && (
+            <div>
+              <p className="text-[8.5px] font-semibold uppercase tracking-wider text-muted">Address</p>
+              <p className="leading-snug">{employee.employeeAddress || '—'}</p>
+            </div>
+          )}
         </div>
       </section>
 
-      {/* ---------- Attendance & rate basis ---------- */}
+      {/* ---------- Attendance & LOP divisor (not the attendance cycle) ---------- */}
       <section className="mt-4">
-        <SectionTitle tag="02">Attendance &amp; Rate Basis</SectionTitle>
+        <SectionTitle tag="02">Attendance &amp; LOP Calculation</SectionTitle>
         <div className="rounded border border-hairline bg-surface px-3 py-2">
           <p className="amount text-[11px] font-semibold">
-            {formatINR(inputs.baseSalary)} ÷ {FIXED_DIVISOR} = {formatINR(computed.perDayRate)}/day
+            {formatINR(inputs.compensationAmount)} ÷ {FIXED_DIVISOR} = {formatINR(computed.perDayRate)}/day
           </p>
           <p className="mt-0.5 text-[9px] text-muted">
-            Company-standard {FIXED_DIVISOR}-day rate basis · applied to all loss-of-pay calculations
+            {lopCalculationBasisLabel('FIXED_25')} — this is the salary-calculation divisor, not the
+            attendance-cycle length ({attendanceCycle}).
           </p>
+          <p className="mt-0.5 text-[9px] text-muted">{lopBasisLabel}</p>
         </div>
         <div className="mt-1.5 grid grid-cols-2 gap-x-6">
-          <Row label="Absent days" value={String(inputs.absentDays)} />
-          <Row label="Half days" value={String(inputs.halfDays)} />
-          <Row label="Late minutes" value={formatMinutes(inputs.lateMinutes)} />
-          <Row label="LOP days (total)" value={computed.lopDays.toFixed(1)} />
+          <Row
+            rowClassName="slip-stat-row"
+            label="Absent days"
+            value={String(inputs.absentDays)}
+          />
+          <Row rowClassName="slip-stat-row" label="Half days" value={String(inputs.halfDays)} />
+          <Row
+            rowClassName="slip-stat-row"
+            label="Late minutes"
+            value={formatMinutes(inputs.lateMinutes)}
+          />
+          <Row
+            rowClassName="slip-stat-row"
+            label="LOP days (total)"
+            value={computed.lopDays.toFixed(1)}
+          />
         </div>
         {isDraft && hasLateness && (
           <div className="mt-1 rounded border border-hairline px-3 py-1.5 text-[9.5px] text-muted">
@@ -241,7 +322,7 @@ export default function SalarySlip({
         <div className="flex h-full flex-col">
           <SectionTitle tag="A">Fixed Earnings</SectionTitle>
           <div className="flex-1">
-            <Row label="Basic salary" value={formatINR(inputs.baseSalary)} />
+            <Row label={statementMeta.mainEarningLabel} value={formatINR(inputs.compensationAmount)} />
             <Row label="Fixed allowance" value={formatINR(inputs.fixedAllowance)} />
           </div>
           <div className="mt-auto border-t border-ink/60">
@@ -252,14 +333,18 @@ export default function SalarySlip({
           <SectionTitle tag="B">Deductions</SectionTitle>
           <div className="flex-1">
             <Row
-              label={`Loss of pay — ${computed.lopDays.toFixed(1)} day(s)`}
+              label={
+                <span className="whitespace-nowrap">
+                  Loss of pay — {computed.lopDays.toFixed(1)} day(s)
+                </span>
+              }
               sub={
                 <>
-                  <span className="amount whitespace-nowrap">
+                  <span className="amount block whitespace-nowrap">
                     × {formatINR(computed.perDayRate)}/day
                   </span>
                   {isDraft && (
-                    <span className="block">
+                    <span className="mt-0.5 block">
                       {inputs.absentDays} absent + {inputs.halfDays} × 0.5 half-day +{' '}
                       {computed.lopFromLateness.toFixed(1)} from lateness
                     </span>
@@ -268,6 +353,8 @@ export default function SalarySlip({
               }
               value={formatINR(computed.lopDeduction)}
             />
+            <Row label="Professional Tax (Kerala)" value={formatINR(pt)} />
+            <Row label="TDS (Income Tax)" value={formatINR(tds)} />
             <Row label="Other deductions" value={formatINR(computed.otherDeductions)} />
           </div>
           <div className="mt-auto border-t border-ink/60">
@@ -359,18 +446,31 @@ export default function SalarySlip({
       )}
 
       {/* ---------- Footer ---------- */}
-      <footer className="mt-auto border-t border-hairline pt-3 text-[8.5px] leading-relaxed text-muted">
+      <footer className="mt-6 border-t border-hairline pt-3 text-[8.5px] leading-relaxed text-muted">
         <p>
-          <span className="font-semibold text-ink">Queries:</span> {payrollContact} — reply before{' '}
-          {formatDate(reviewDeadline)}, 6:00 PM. Salary credits on {formatDate(creditDate)}.
+          <span className="font-semibold text-ink">Queries:</span> {payrollContact}
+          {isDraft
+            ? ` — reply before ${formatDate(reviewDeadline)}, ${reviewDeadlineTime}.`
+            : '.'}{' '}
+          {isPaid
+            ? `Actual salary credit date: ${actualCreditDate ? formatDate(actualCreditDate) : '—'}.`
+            : `Expected payment date: ${typeof expectedDate === 'string' && expectedDate.includes(' ') ? expectedDate : formatDate(String(expectedDate))}.`}
+        </p>
+        {statementMeta.disclaimer && <p>{statementMeta.disclaimer}</p>}
+        {isDraft && (
+          <p>
+            Draft slips are superseded by the final slip issued on payday; only the slip marked FINAL
+            is valid for records.
+          </p>
+        )}
+        <p>
+          Confidential internal payroll record. This document is intended for the named employee and
+          authorised company personnel only. It is not an authorised income certificate and must not
+          be used for bank, loan, visa or third-party verification purposes.
         </p>
         <p>
-          Draft slips are superseded by the final slip issued on payday; only the slip marked FINAL
-          is valid for records.
-        </p>
-        <p>
-          Confidential — intended solely for the named employee. This is a computer-generated
-          document; no signature is required.
+          This is a computer-generated internal payroll document and does not require a physical
+          signature.
         </p>
         {isAuthorizedForBank && (
           <div className="mt-2 border-t border-hairline pt-2 text-[9px] text-ink">

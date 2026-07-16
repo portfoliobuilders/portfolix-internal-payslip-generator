@@ -1,12 +1,21 @@
+/**
+ * Entity logo uploads (PUBLIC branding bucket).
+ *
+ * TODO(auth session): guard uploadEntityLogo behind requirePayrollAdmin() —
+ * same guard list as app/actions/payroll.ts and app/actions/settings.ts.
+ * Do NOT copy this public-bucket pattern for signatory assets
+ * (see app/actions/signatory-assets.ts + SUPABASE_SECRET_KEY).
+ */
+
 import type { EntityCode, EntityInfo } from '@/lib/types';
 import { createClient } from '@/utils/supabase/client';
 
 /** Bundled fallback logos when no custom upload is saved in settings. */
 export const DEFAULT_ENTITY_LOGOS: Record<EntityCode, string> = {
-  PX: '/logos/portfolix-enterprise.svg',
-  PB: '/logos/portfolio-builders.svg',
-  PT: '/logos/portfolix-tech.svg',
-  PH: '/logos/portfolix-hub.svg',
+  PX: '/logos/portfolix-entreprise.png',
+  PB: '/logos/portfolio-builders.png',
+  PT: '/logos/portfolix-tech.png',
+  PH: '/logos/portfolix-hub.png',
 };
 
 /** Max upload size — keeps localStorage backups reasonable. */

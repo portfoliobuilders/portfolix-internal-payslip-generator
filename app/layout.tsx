@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from 'next';
 import './globals.css';
+import AppHeader from '@/components/AppHeader';
 
 export const dynamic = 'force-dynamic';
 
@@ -13,13 +14,18 @@ export const viewport: Viewport = {
 export const metadata: Metadata = {
   title: 'Portfolix SlipGen — Internal Salary Slip Generator',
   description:
-    'Internal salary slip generator for Portfolix Enterprise Pvt Ltd. Employees and payroll history synced to Supabase.',
+    'Internal salary slip generator for Portfolix Entreprise Pvt Ltd. Employees and payroll history synced to Supabase.',
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body className="min-h-screen">
+        <AppHeader />
+        <main className="no-print mx-auto min-w-0 max-w-[1400px] px-4 py-6 sm:px-6 lg:px-8">
+          {children}
+        </main>
+      </body>
     </html>
   );
 }

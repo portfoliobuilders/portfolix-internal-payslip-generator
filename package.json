@@ -9,7 +9,8 @@
     "start": "next start",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "setup:agent": "npm ci --cache ~/.npm --prefer-offline && npm run typecheck && npm run build"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.0",
@@ -19,6 +20,7 @@
     "jspdf": "^3.0.1",
     "lucide-react": "^0.525.0",
     "next": "^14.2.30",
+    "pdf-lib": "^1.17.1",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "xlsx": "^0.18.5",
@@ -29,6 +31,9 @@
     "@types/react": "^18.3.23",
     "@types/react-dom": "^18.3.7",
     "autoprefixer": "^10.4.21",
+    "eslint": "^8.57.1",
+    "eslint-config-next": "^14.2.35",
+    "playwright-core": "^1.61.1",
     "postcss": "^8.5.6",
     "tailwindcss": "^3.4.17",
     "typescript": "^5.8.3",
