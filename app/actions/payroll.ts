@@ -616,6 +616,9 @@ export async function logAuthorisedSlipGeneration(
       .insert({
         payroll_slip_id: payrollSlipId,
         signatory_snapshot: signatorySnapshot,
+        document_number: signatorySnapshot.documentNumber ?? null,
+        revision_number: signatorySnapshot.revisionNumber ?? 1,
+        public_verification_id: signatorySnapshot.publicVerificationId ?? null,
       })
       .select('id')
       .single();

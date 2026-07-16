@@ -4,6 +4,7 @@ import { createClient } from '@/utils/supabase/server';
 import {
   buildVerificationFingerprint,
   buildVerificationUrl,
+  generateAuthorisedPayslipNumber,
   generatePublicVerificationId,
 } from '@/lib/verification';
 import type { SlipSnapshot } from '@/lib/types';
@@ -19,32 +20,31 @@ export interface IssuedAuthorisedDocument {
   verificationFingerprint: string;
   revisionNumber: number;
   reused: boolean;
+  issueDate: string;
 }
 
 /**
  * Register an issued AUTHORISED salary slip with a secure verification ID.
- * Does not fabricate payment state — caller must pass PAID gate first.
- * Reprints reuse the existing ISSUED document (never invent a second active authorised slip).
+ * Reprints reuse the existing ISSUED document (never invent a second active number).
+ * Payslip number is generated ONCE via generateAuthorisedPayslipNumber and stored.
  */
 export async function issueAuthorisedSalarySlipDocument(input: {
   snapshot: SlipSnapshot;
   obligationId?: string | null;
   netSalary: number;
-  actualCreditDate: string;
+  /** Ledger credit date only — null when scheduled. */
+  actualCreditDate: string | null;
   legalCompanyName: string;
   cin?: string | null;
   signatoryName?: string | null;
   signatoryDesignation?: string | null;
   verificationBaseUrl: string;
   issuedBy?: string;
+  revisionNumber?: number;
+  /** Snapshot/log date — never wall-clock at render. */
+  issueDate?: string;
 }): Promise<ActionResult<IssuedAuthorisedDocument>> {
   try {
-    if (!input.actualCreditDate) {
-      return {
-        ok: false,
-        error: 'Actual salary-credit date is required for authorised slip issuance.',
-      };
-    }
     const supabase = await createClient();
 
     const { data: existing } = await supabase
@@ -71,13 +71,22 @@ export async function issueAuthorisedSalarySlipDocument(input: {
             : '',
           revisionNumber: Number(existing.revision_number ?? 1),
           reused: true,
+          issueDate: String(
+            existing.issue_date ??
+              input.issueDate ??
+              input.snapshot.generatedAt.slice(0, 10),
+          ),
         },
       };
     }
 
     const publicVerificationId = generatePublicVerificationId();
-    const revisionNumber = input.snapshot.revisionNumber ?? 1;
-    const documentNumber = `PX-AUTH-${input.snapshot.monthYear}-${input.snapshot.employee.empId}-R${revisionNumber}`;
+    const revisionNumber =
+      input.revisionNumber ?? input.snapshot.revisionNumber ?? 1;
+    const documentNumber = generateAuthorisedPayslipNumber(
+      input.snapshot.employee.empId,
+      input.snapshot.monthYear,
+    );
     const fingerprint = buildVerificationFingerprint({
       documentNumber,
       publicVerificationId,
@@ -86,7 +95,9 @@ export async function issueAuthorisedSalarySlipDocument(input: {
       actualCreditDate: input.actualCreditDate,
       revisionNumber,
     });
-    const issueDate = new Date().toISOString().slice(0, 10);
+    const issueDate =
+      input.issueDate ??
+      input.snapshot.generatedAt.slice(0, 10);
 
     const { error } = await supabase.from('payroll_issued_documents').insert({
       payroll_record_id: input.snapshot.id,
@@ -116,7 +127,7 @@ export async function issueAuthorisedSalarySlipDocument(input: {
         },
       },
       issued_by: input.issuedBy ?? 'system',
-      issued_at: new Date().toISOString(),
+      issued_at: input.snapshot.generatedAt,
     });
 
     if (error) return { ok: false, error: error.message };
@@ -133,6 +144,7 @@ export async function issueAuthorisedSalarySlipDocument(input: {
         verificationFingerprint: fingerprint,
         revisionNumber,
         reused: false,
+        issueDate,
       },
     };
   } catch (err) {

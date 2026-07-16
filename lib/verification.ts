@@ -23,9 +23,22 @@ export interface PublicVerificationPayload {
   publicVerificationId: string;
 }
 
-/** Unpredictable public verification id (URL-safe). */
+/** Unpredictable public verification id (URL-safe). ~32 chars, unguessable. */
 export function generatePublicVerificationId(): string {
   return randomBytes(24).toString('base64url');
+}
+
+/**
+ * Canonical authorised payslip number — ONE scheme for header, filename, and log.
+ * Format: ASL-<EMPID>-<YYYY-MM>
+ * Revision is stored/displayed separately; it increments only on supersede.
+ */
+export function generateAuthorisedPayslipNumber(
+  empId: string,
+  monthYear: string,
+): string {
+  const safeEmp = empId.replace(/[^A-Za-z0-9-]/g, '').toUpperCase();
+  return `ASL-${safeEmp}-${monthYear}`;
 }
 
 export function computeVerificationFingerprint(parts: {

@@ -6,6 +6,7 @@ import { describe, expect, it } from 'vitest';
 import {
   assertAuthorisedSlipReady,
   computeVerificationFingerprint,
+  generateAuthorisedPayslipNumber,
   generatePublicVerificationId,
   maskEmployeeId,
   privacyControlledName,
@@ -19,6 +20,12 @@ describe('verification helpers', () => {
     expect(b.length).toBeGreaterThanOrEqual(20);
     expect(a).not.toBe(b);
     expect(a).not.toMatch(/^\d+$/);
+  });
+
+  it('canonical authorised payslip number is ASL-<EMPID>-<YYYY-MM>', () => {
+    expect(generateAuthorisedPayslipNumber('PX-2024-001', '2026-07')).toBe(
+      'ASL-PX-2024-001-2026-07',
+    );
   });
 
   it('masks employee id and privacy-controls name', () => {

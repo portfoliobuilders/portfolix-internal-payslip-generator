@@ -136,13 +136,16 @@ export function slipFilename(
   return `PX_${prefix}_${monthYear}_${safeEmpId}${isDraft ? '_DRAFT' : ''}.pdf`;
 }
 
-/** Authorised bank-copy filename. */
+/**
+ * Authorised bank-copy filename — includes the persisted payslip number so
+ * header, filename, and authorised_slip_log share one reference.
+ */
 export function authorisedSlipFilename(
-  entityCode: string,
   monthYear: string,
   empId: string,
+  documentNumber: string,
 ): string {
   const safeEmpId = empId.replace(/[^A-Za-z0-9-]/g, '');
-  const safeEntity = entityCode.replace(/[^A-Za-z0-9-]/g, '');
-  return `${safeEntity}_AuthorisedSalarySlip_${monthYear}_${safeEmpId}.pdf`;
+  const safeDoc = documentNumber.replace(/[^A-Za-z0-9-]/g, '');
+  return `PX_AuthorisedSalarySlip_${monthYear}_${safeEmpId}_${safeDoc}.pdf`;
 }
