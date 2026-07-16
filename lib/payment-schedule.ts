@@ -175,4 +175,40 @@ export function clampPaymentDay(day: number): number {
   return Math.min(31, Math.max(1, Math.round(day)));
 }
 
+/**
+ * Compatibility wrapper used by payroll finalisation when creating the
+ * parent salary-payment obligation. Delegates to computePaymentDates.
+ */
+export function resolvePaymentSchedule(input: {
+  salaryMonth: string;
+  companyDefaultPaymentDay: number;
+  employeePreferredPaymentDay?: number | null;
+  employeeDefaultPaymentDay?: number | null;
+  employeeScheduleType?: PaymentScheduleType | null;
+  manualPaymentDay?: number | null;
+}): Pick<ResolvedPaymentDates, 'originalDueDate' | 'scheduledPaymentDate'> & {
+  paymentScheduleType: PaymentScheduleType;
+  paymentDayUsed: number;
+} {
+  const resolved = computePaymentDates({
+    salaryMonth: input.salaryMonth,
+    companyDefaultPayday: input.companyDefaultPaymentDay,
+    manualPaydayDay: input.manualPaymentDay,
+    employeeSchedule: {
+      preferredPaymentDay: input.employeePreferredPaymentDay ?? null,
+      defaultPaymentDay: input.employeeDefaultPaymentDay ?? null,
+      paymentScheduleType: input.employeeScheduleType ?? null,
+      paymentScheduleEffectiveFrom: null,
+      paymentScheduleEffectiveTo: null,
+      paymentScheduleNotes: null,
+    },
+  });
+  return {
+    originalDueDate: resolved.originalDueDate,
+    scheduledPaymentDate: resolved.scheduledPaymentDate,
+    paymentScheduleType: resolved.paymentScheduleType,
+    paymentDayUsed: resolved.paydayDayOfMonthUsed,
+  };
+}
+
 void dateInMonth;

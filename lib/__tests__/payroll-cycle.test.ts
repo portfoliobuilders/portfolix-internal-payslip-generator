@@ -7,6 +7,7 @@ import {
   assertFinalisationAllowed,
   computeAttendancePeriod,
   formatAttendanceCycle,
+  inclusiveAttendanceDayCount,
   july2026DefaultCycle,
   validateAttendancePeriod,
 } from '../payroll-cycle';
@@ -138,5 +139,10 @@ describe('payroll cycle — PREVIOUS_25_TO_CURRENT_24', () => {
     });
     expect(period.attendancePeriodStart).toBe('2026-06-24');
     expect(period.attendancePeriodEnd).toBe('2026-07-23');
+  });
+
+  it('counts inclusive calendar days for attendance windows', () => {
+    expect(inclusiveAttendanceDayCount('2026-06-25', '2026-07-24')).toBe(30);
+    expect(inclusiveAttendanceDayCount('2026-05-20', '2026-06-19')).toBe(31);
   });
 });
