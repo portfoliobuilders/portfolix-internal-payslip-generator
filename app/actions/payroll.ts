@@ -651,6 +651,8 @@ export async function finalizePayrollSlip(
 /**
  * YTD line items for the Authorised Slip — Indian FY, FINAL snapshots only,
  * up to and including the given slip month.
+ * Loads payroll_slips (with active_final / workflow_status) so superseded
+ * finals cannot inflate YTD.
  */
 export async function fetchAuthorisedSlipYtd(
   employeeId: string,
@@ -658,12 +660,36 @@ export async function fetchAuthorisedSlipYtd(
 ): Promise<ActionResult<AuthorisedSlipYtd>> {
   const auth = await requirePayrollAdmin();
   if (!auth.ok) return auth;
-  const history = await fetchPayrollHistory();
-  if (!history.ok) return history;
-  return {
-    ok: true,
-    data: computeAuthorisedYtd(history.data, employeeId, throughMonthYear),
-  };
+  try {
+    const supabase = await getSupabase();
+    const { data, error } = await supabase
+      .from('payroll_slips')
+      .select('id, employee_id, month_year, status, details_json, active_final, workflow_status')
+      .eq('employee_id', employeeId)
+      .eq('status', 'final')
+      .order('month_year', { ascending: true });
+
+    if (error) {
+      // Fallback to full history path when columns are unavailable on older DBs.
+      const history = await fetchPayrollHistory();
+      if (!history.ok) return history;
+      return {
+        ok: true,
+        data: computeAuthorisedYtd(history.data, employeeId, throughMonthYear),
+      };
+    }
+
+    const slips = (data as PayrollSlipRow[]).map(rowToSlip);
+    return {
+      ok: true,
+      data: computeAuthorisedYtd(slips, employeeId, throughMonthYear),
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : 'Failed to compute authorised YTD.',
+    };
+  }
 }
 
 /**

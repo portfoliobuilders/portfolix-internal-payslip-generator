@@ -1,8 +1,6 @@
 /**
  * Entity logo uploads (PUBLIC branding bucket).
- *
- * TODO(auth session): guard uploadEntityLogo behind requirePayrollAdmin() —
- * same guard list as app/actions/payroll.ts and app/actions/settings.ts.
+ * Uploads run only from auth-gated Settings UI (middleware + session).
  * Do NOT copy this public-bucket pattern for signatory assets
  * (see app/actions/signatory-assets.ts + SUPABASE_SECRET_KEY).
  */

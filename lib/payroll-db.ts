@@ -77,6 +77,9 @@ export interface PayrollSlipRow {
   month_year: string;
   status: 'draft' | 'final';
   details_json: Omit<SlipSnapshot, 'id' | 'employeeId' | 'monthYear' | 'status'>;
+  /** Present when selected from payroll_slips (YTD dedupe). */
+  active_final?: boolean | null;
+  workflow_status?: string | null;
 }
 
 const ENTITY_CODES: EntityCode[] = ['PX', 'PB', 'PT', 'PH'];
@@ -239,6 +242,11 @@ export function rowToSlip(row: PayrollSlipRow): SlipSnapshot {
       ...details.employee,
       empId: normalizeEmployeeId(details.employee.empId),
     },
+    activeFinal:
+      row.active_final === undefined || row.active_final === null
+        ? details.activeFinal
+        : Boolean(row.active_final),
+    workflowStatus: row.workflow_status ?? details.workflowStatus ?? null,
   };
 }
 

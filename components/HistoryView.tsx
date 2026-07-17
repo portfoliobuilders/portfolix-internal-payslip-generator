@@ -28,7 +28,7 @@ import {
 } from '@/lib/format';
 import { formatAttendanceCycleRange } from '@/lib/payroll-cycle';
 import { exportElementToPdf } from '@/lib/pdf-export';
-import { signatoryIncompleteReason } from '@/lib/settings-defaults';
+import { authorisedSlipBlockedReason } from '@/lib/authorised-slip-readiness';
 import type { SalaryPaymentObligation, DocumentLifecycleStatus } from '@/lib/salary-payment-types';
 import type { AuthorisedSlipYtd, SlipSnapshot } from '@/lib/types';
 import { useHRStore } from '@/store/useHRStore';
@@ -184,9 +184,12 @@ export default function HistoryView({ slipHistory, loading, error, onRefresh }: 
 
   async function generateBankCopy(snapshot: SlipSnapshot) {
     const entity = settings.entities[snapshot.employee.entityCode];
-    const incomplete = signatoryIncompleteReason(entity);
-    if (incomplete) {
-      setBankCopyError(incomplete);
+    const blocked = authorisedSlipBlockedReason(entity, {
+      signatoryStorageConfigured,
+      signatoryStorageMessage,
+    });
+    if (blocked) {
+      setBankCopyError(blocked);
       return;
     }
 
@@ -358,12 +361,11 @@ export default function HistoryView({ slipHistory, loading, error, onRefresh }: 
   function BankCopyButton({ snapshot, compact = false }: { snapshot: SlipSnapshot; compact?: boolean }) {
     if (snapshot.status !== 'final') return null;
     const entity = settings.entities[snapshot.employee.entityCode];
-    const settingsReason = signatoryIncompleteReason(entity);
     // Payment no longer blocks generation — unpaid slips show Scheduled credit.
-    const reason = !signatoryStorageConfigured
-      ? signatoryStorageMessage ??
-        'Server key not configured (SUPABASE_SECRET_KEY). Bank copy cannot embed signature/seal.'
-      : settingsReason;
+    const reason = authorisedSlipBlockedReason(entity, {
+      signatoryStorageConfigured,
+      signatoryStorageMessage,
+    });
     const disabled = !!reason || bankCopyBusy;
 
     if (compact) {

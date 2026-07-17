@@ -25,7 +25,7 @@ import { generateId } from '@/lib/payroll-db';
 import { findFinalSlipForMonth, findPreviousFinalSlip } from '@/lib/payroll-helpers';
 import { useHRStore } from '@/store/useHRStore';
 import { useUIStore } from '@/store/useUIStore';
-import { signatoryIncompleteReason } from '@/lib/settings-defaults';
+import { authorisedSlipBlockedReason } from '@/lib/authorised-slip-readiness';
 import { COMPANY_ENTITIES, PAYROLL_CONTACT } from '@/lib/constants/company';
 import AuthorisedSlip, { printPdfBlobUrl } from './AuthorisedSlip';
 import SalarySlip from './SalarySlip';
@@ -555,13 +555,10 @@ export default function GeneratorView({
     if (!existingFinal) {
       return 'Finalize this month first — the bank copy is generated from the finalized record.';
     }
-    if (!signatoryStorageConfigured) {
-      return (
-        signatoryStorageMessage ??
-        'SUPABASE_SECRET_KEY is not configured. Bank copy cannot embed signature/seal.'
-      );
-    }
-    return signatoryIncompleteReason(entity);
+    return authorisedSlipBlockedReason(entity, {
+      signatoryStorageConfigured,
+      signatoryStorageMessage,
+    });
   }, [
     employee,
     entity,
