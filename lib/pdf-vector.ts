@@ -1068,6 +1068,17 @@ async function buildAuthorisedFullPage(
       color: rgb(0.7, 0.7, 0.7),
     });
   }
+  if (seal) {
+    const sealSize = 42;
+    const sealX = signature ? margin + 100 : margin + 80;
+    page.drawImage(seal, {
+      x: sealX,
+      y: sigY - 6,
+      width: sealSize,
+      height: sealSize,
+      opacity: 0.9,
+    });
+  }
 
   // Seal to the right of signature, still inside the left column.
   if (seal) {

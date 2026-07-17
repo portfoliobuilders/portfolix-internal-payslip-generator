@@ -45,19 +45,42 @@ export default function AuthorisedSlip({
   );
 }
 
-/** Open the same PDF blob in a print-friendly window (browsers print PDFs natively). */
+/**
+ * Print the same PDF blob browsers already display.
+ * Uses a hidden iframe — window.open(..., 'noopener') returns null and cannot print.
+ */
 export function printPdfBlobUrl(pdfUrl: string): void {
-  const w = window.open(pdfUrl, '_blank', 'noopener,noreferrer');
-  if (!w) return;
-  const tryPrint = () => {
+  const iframe = document.createElement('iframe');
+  iframe.setAttribute('title', 'Print authorised salary slip');
+  iframe.style.position = 'fixed';
+  iframe.style.right = '0';
+  iframe.style.bottom = '0';
+  iframe.style.width = '0';
+  iframe.style.height = '0';
+  iframe.style.border = '0';
+  iframe.style.opacity = '0';
+  iframe.style.pointerEvents = 'none';
+  iframe.src = pdfUrl;
+  document.body.appendChild(iframe);
+
+  const cleanup = () => {
     try {
-      w.focus();
-      w.print();
+      iframe.remove();
     } catch {
-      // Browser may block; user can print from the opened tab.
+      // ignore
     }
   };
-  // Give the PDF viewer a moment to load.
-  w.addEventListener('load', () => setTimeout(tryPrint, 250));
-  setTimeout(tryPrint, 800);
+
+  iframe.onload = () => {
+    try {
+      iframe.contentWindow?.focus();
+      iframe.contentWindow?.print();
+    } catch {
+      // Popup/print blocked — leave iframe briefly so the user can retry.
+    }
+    setTimeout(cleanup, 60_000);
+  };
+
+  // Fallback cleanup if onload never fires.
+  setTimeout(cleanup, 120_000);
 }

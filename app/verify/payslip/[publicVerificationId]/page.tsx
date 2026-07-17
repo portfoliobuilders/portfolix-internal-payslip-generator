@@ -67,10 +67,6 @@ export default async function VerifyPayslipPage({ params }: PageProps) {
               {d.issueDate ? formatDate(d.issueDate) : '—'}
             </dd>
           </div>
-          <div className="flex justify-between gap-4">
-            <dt className="text-neutral-500">Status</dt>
-            <dd className="font-medium">{d.documentStatus}</dd>
-          </div>
         </dl>
 
         <p className="mt-6 text-[11px] leading-relaxed text-neutral-500">

@@ -120,16 +120,14 @@ export async function buildAuthorisedSalarySlipPdf(input: {
     input.paydayDayOfMonth,
   );
 
-  // Soft payment lookup — never invent Paid / credit dates.
-  let actualCreditDate: string | null =
-    input.snapshot.actualCreditDate?.slice(0, 10) ?? null;
-  let confirmedPaidAmount: number | null =
-    input.snapshot.confirmedPaidAmount ?? null;
-  let outstandingAmount: number | null =
-    input.snapshot.outstandingAmount ?? null;
-  let paymentStatus: string | null = input.snapshot.paymentStatus ?? null;
+  // Payment facts ONLY from the payment ledger gate — never snapshot soft fields.
+  let actualCreditDate: string | null = null;
+  let confirmedPaidAmount: number | null = null;
+  let outstandingAmount: number | null = null;
+  let paymentStatus: string | null = null;
   let obligationId: string | null = null;
-  let netSalary = input.snapshot.computed.netPay;
+  // Face amount is always the immutable FINAL snapshot net (fingerprint uses the same).
+  const netSalary = input.snapshot.computed.netPay;
 
   const paymentGate = await assertAuthorisedSlipPaymentGate(input.snapshot.id);
   if (paymentGate.ok) {
@@ -138,7 +136,6 @@ export async function buildAuthorisedSalarySlipPdf(input: {
     outstandingAmount = paymentGate.data.outstandingAmount;
     paymentStatus = paymentGate.data.paymentStatus;
     obligationId = paymentGate.data.obligationId;
-    netSalary = paymentGate.data.netSalaryPayable;
   }
 
   const hasActualCredit = Boolean(actualCreditDate);
@@ -153,54 +150,48 @@ export async function buildAuthorisedSalarySlipPdf(input: {
   let verificationUrl: string;
   let resolvedRevision = revisionNumber;
 
-  {
-    const {
-      generateAuthorisedPayslipNumber,
-      generatePublicVerificationId,
-      buildVerificationUrl,
-    } = await import('@/lib/verification');
+  const {
+    generateAuthorisedPayslipNumber,
+    generatePublicVerificationId,
+    buildVerificationUrl,
+  } = await import('@/lib/verification');
 
-    documentNumber = generateAuthorisedPayslipNumber(
-      input.snapshot.employee.empId,
-      input.snapshot.monthYear,
-    );
-    // Deterministic offline id (UUID hex) so preview/download hashes match when
-    // the registry is unavailable; production path overwrites with randomBytes id.
+  documentNumber = generateAuthorisedPayslipNumber(
+    input.snapshot.employee.empId,
+    input.snapshot.monthYear,
+  );
+
+  if (input.registerDocument !== false) {
+    // Fail closed: no silent "issued" PDF with a dead verification URL.
+    const issued = await issueAuthorisedSalarySlipDocument({
+      snapshot: {
+        ...input.snapshot,
+        attendancePeriodStart: attendance.start,
+        attendancePeriodEnd: attendance.end,
+      },
+      obligationId,
+      netSalary,
+      actualCreditDate,
+      legalCompanyName: input.entity.name,
+      cin: input.entity.cin,
+      signatoryName: input.entity.signatoryName,
+      signatoryDesignation: input.entity.signatoryDesignation,
+      verificationBaseUrl: verificationBaseUrl(),
+      issuedBy: 'hr-export',
+      revisionNumber,
+      issueDate,
+    });
+    if (!issued.ok) return { ok: false, error: issued.error };
+    documentNumber = issued.data.documentNumber;
+    publicVerificationId = issued.data.publicVerificationId;
+    verificationUrl = issued.data.verificationUrl;
+    resolvedRevision = issued.data.revisionNumber;
+  } else {
+    // Explicit test path — deterministic id so preview/download hashes match.
     publicVerificationId =
       input.snapshot.id.replace(/-/g, '').padEnd(32, '0').slice(0, 32);
     verificationUrl = buildVerificationUrl(verificationBaseUrl(), publicVerificationId);
-
-    if (input.registerDocument !== false) {
-      const issued = await issueAuthorisedSalarySlipDocument({
-        snapshot: {
-          ...input.snapshot,
-          attendancePeriodStart: attendance.start,
-          attendancePeriodEnd: attendance.end,
-        },
-        obligationId,
-        netSalary,
-        actualCreditDate,
-        legalCompanyName: input.entity.name,
-        cin: input.entity.cin,
-        signatoryName: input.entity.signatoryName,
-        signatoryDesignation: input.entity.signatoryDesignation,
-        verificationBaseUrl: verificationBaseUrl(),
-        issuedBy: 'hr-export',
-        revisionNumber,
-        issueDate,
-      });
-      if (issued.ok) {
-        documentNumber = issued.data.documentNumber;
-        publicVerificationId = issued.data.publicVerificationId;
-        verificationUrl = issued.data.verificationUrl;
-        resolvedRevision = issued.data.revisionNumber;
-      }
-      // Registry failure (e.g. missing Supabase) still yields a local PDF for preview;
-      // download logging may fail separately — never invent payment facts.
-    } else {
-      // Explicit test/offline path — keep deterministic id; avoid unused import lint.
-      void generatePublicVerificationId;
-    }
+    void generatePublicVerificationId;
   }
 
   const [signatureBytes, sealBytes, logoBytes] = await Promise.all([
