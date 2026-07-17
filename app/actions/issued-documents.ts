@@ -1,5 +1,8 @@
 'use server';
 
+import { requirePayrollAdmin } from '@/lib/auth';
+
+
 import {
   createServiceRoleClient,
   SIGNATORY_SECRET_MISSING_MESSAGE,
@@ -63,6 +66,8 @@ export async function issueAuthorisedSalarySlipDocument(input: {
   /** Snapshot/log date — never wall-clock at render. */
   issueDate?: string;
 }): Promise<ActionResult<IssuedAuthorisedDocument>> {
+  const auth = await requirePayrollAdmin();
+  if (!auth.ok) return auth;
   try {
     const service = requireServiceClient();
     if (!service.ok) return service;
