@@ -230,6 +230,51 @@ describe('authorised export wiring helpers', () => {
     expect(result.extractedText).toContain('Confirmed paid ₹50,000.00');
   });
 
+  it('long designation and verification id stay in layout without truncating employee fields', async () => {
+    const longTitle = 'Chief Operating Officer (COO)';
+    const snap = sampleSnapshot({
+      employee: {
+        ...sampleSnapshot().employee,
+        designation: longTitle,
+        department: 'Operations',
+        empId: 'PX-OPS-2512-005',
+        fullName: 'Tinu Rani A S',
+      },
+    });
+    const result = await buildVectorPayslipPdf({
+      documentType: 'AUTHORISED_SALARY_SLIP',
+      legalCompanyName: entity.name,
+      employeeName: snap.employee.fullName,
+      employeeId: snap.employee.empId,
+      salaryMonth: '2026-07',
+      attendancePeriodStart: '2026-06-25',
+      attendancePeriodEnd: '2026-07-24',
+      netSalary: 50000,
+      documentNumber: 'ASL-PX-OPS-2512-005-2026-07',
+      paymentStatus: 'Scheduled',
+      verificationId: 'v'.repeat(48),
+      verificationUrl: 'https://example.com/verify/payslip/' + 'v'.repeat(48),
+      actualCreditDate: null,
+      scheduledCreditDate: '2026-08-03',
+      issueDate: '2026-07-28',
+      payrollFinalisedDate: '2026-07-28T10:00:00.000Z',
+      snapshot: snap,
+      entity,
+      ytd,
+      revisionNumber: 1,
+      showPaymentBand: false,
+      paymentMode: 'Bank Transfer',
+    });
+
+    expect(result.extractedText).toContain(`Designation: ${longTitle}`);
+    expect(result.extractedText).toContain('Employee name: Tinu Rani A S');
+    expect(result.extractedText).toContain('Department: Operations');
+    expect(result.extractedText).toContain('AUTHORISED SALARY SLIP');
+    expect(result.extractedText).toContain('Verification ID:');
+    expect(result.sizeBytes).toBeGreaterThan(5_000);
+    expect(result.sizeBytes).toBeLessThan(1_000_000);
+  });
+
   it('same inputs produce identical PDF byte hashes (preview === download)', async () => {
     const snap = sampleSnapshot();
     const a = await buildAuthorisedSalarySlipPdf({
