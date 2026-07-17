@@ -35,6 +35,11 @@ export interface Settings {
   reviewDeadlineTime: string;
   /** Calendar months (1–12) when Kerala PT is deducted from salary. */
   ptDeductionMonths: number[];
+  /**
+   * Suggested Kerala PT half-yearly amount (₹) for bulk apply / new hires.
+   * Per-employee `ptHalfYearly` is what slips actually use.
+   */
+  defaultPtHalfYearly: number;
   authorizedSignatoryName: string;
   authorizedSignatoryTitle: string;
   bankVerificationEnabledByDefault: boolean;
@@ -117,7 +122,11 @@ export interface Employee {
   agreementType: AgreementType;
   documentsStatus: DocumentsStatus;
   notes: string;
-  /** Only the last 4 digits are ever stored. */
+  /** Bank name printed on slips / authorised PDF (e.g. 'HDFC Bank'). */
+  bankName: string;
+  /** Full bank account number for bank copies. */
+  bankAccountNumber: string;
+  /** Last 4 digits — derived from bankAccountNumber when present (legacy snapshots). */
   bankLast4: string;
   /** Masked PAN, e.g. 'ABXXXXXX1F'. Never store the full number. */
   panMasked: string;
@@ -202,6 +211,8 @@ export interface SlipEmployeeInfo {
   employmentStatus: EmploymentStatus;
   paymentType: PaymentType;
   compensationAmount: number;
+  bankName?: string;
+  bankAccountNumber?: string;
   bankLast4: string;
   panMasked: string;
 }

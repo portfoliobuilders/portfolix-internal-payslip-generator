@@ -4,6 +4,11 @@
 
 import * as XLSX from 'xlsx';
 import type { Employee, EngagementType, EntityCode, PaymentMode, PaymentType } from '@/lib/types';
+import {
+  bankLast4FromAccount,
+  maskPan,
+  normalizeBankAccountNumber,
+} from '@/lib/identity';
 import { defaultPaymentTypeForEngagement } from './workforce';
 
 export const EMPLOYEE_TEMPLATE_HEADERS = [
@@ -22,8 +27,11 @@ export const EMPLOYEE_TEMPLATE_HEADERS = [
   'Start Date',
   'End Date',
   'Payment Mode',
-  'Bank Details',
+  'Bank Name',
+  'Bank Account Number',
   'PAN Masked',
+  'PT Half-Yearly',
+  'TDS Monthly',
   'Opening Flex-Bank Balance',
   'Notes',
 ] as const;
@@ -87,9 +95,8 @@ function normalizeEntityCode(value: unknown): EntityCode | null {
   return ENTITY_CODES.includes(code as EntityCode) ? (code as EntityCode) : null;
 }
 
-function normalizeBankLast4(value: unknown): string {
-  const digits = cellString(value).replace(/\D/g, '');
-  return digits.length >= 4 ? digits.slice(-4) : digits;
+function normalizeBankAccount(value: unknown): string {
+  return normalizeBankAccountNumber(cellString(value));
 }
 
 function normalizeEngagementType(value: unknown): EngagementType {
@@ -125,11 +132,23 @@ function validateRow(
   if (!Number.isFinite(employee.compensationAmount) || employee.compensationAmount <= 0) {
     return `Row ${rowNumber}: Compensation Amount must be greater than zero.`;
   }
-  if (employee.bankLast4 && !/^\d{4}$/.test(employee.bankLast4)) {
-    return `Row ${rowNumber}: Bank A/C must be exactly 4 digits.`;
+  if (employee.bankAccountNumber) {
+    const digits = normalizeBankAccountNumber(employee.bankAccountNumber);
+    if (digits.length >= 9 && digits.length <= 18) {
+      // full account — ok
+    } else if (digits.length === 4) {
+      // legacy last-4 import from older "Bank Details" column — ok
+    } else {
+      return `Row ${rowNumber}: Bank Account Number must be 9–18 digits (or 4 for legacy last-4).`;
+    }
+  } else if (employee.bankLast4 && !/^\d{4}$/.test(employee.bankLast4)) {
+    return `Row ${rowNumber}: Bank A/C last-4 must be exactly 4 digits.`;
   }
-  if (employee.panMasked && /^[A-Z]{5}\d{4}[A-Z]$/i.test(employee.panMasked)) {
-    return `Row ${rowNumber}: PAN looks like a full number — use a masked form (e.g. ABXXXXXX1F).`;
+  if (employee.panMasked) {
+    const masked = maskPan(employee.panMasked);
+    if (masked.length !== 10) {
+      return `Row ${rowNumber}: PAN must be 10 characters (full PAN is auto-masked).`;
+    }
   }
   if (!Number.isFinite(employee.flexBankBalance) || employee.flexBankBalance < 0) {
     return `Row ${rowNumber}: Opening Flex-Bank Balance must be 0 or more.`;
@@ -168,8 +187,20 @@ function mapRow(row: Record<string, unknown>, rowNumber: number): BulkEmployeeIn
     compensationAmount,
     baseSalary: compensationAmount,
     paymentMode: normalizePaymentMode(row['Payment Mode']),
-    bankLast4: normalizeBankLast4(row['Bank Details']),
-    panMasked: cellString(row['PAN Masked']).toUpperCase(),
+    bankName: cellString(row['Bank Name']),
+    bankAccountNumber: (() => {
+      const full = normalizeBankAccount(row['Bank Account Number']);
+      if (full.length >= 9) return full;
+      // Older templates used "Bank Details" for last-4 only — leave full account empty.
+      return full.length >= 9 ? full : '';
+    })(),
+    bankLast4: (() => {
+      const full = normalizeBankAccount(row['Bank Account Number']);
+      if (full.length >= 4) return bankLast4FromAccount(full);
+      const legacy = normalizeBankAccount(row['Bank Details']);
+      return bankLast4FromAccount(legacy);
+    })(),
+    panMasked: maskPan(cellString(row['PAN Masked'])),
     flexBankBalance: cellNumber(row['Opening Flex-Bank Balance']) || 0,
     internshipStartDate: null,
     internshipEndDate: normalizeJoiningDate(row['End Date']) || null,
@@ -185,8 +216,8 @@ function mapRow(row: Record<string, unknown>, rowNumber: number): BulkEmployeeIn
     agreementType: 'offer_letter',
     documentsStatus: 'pending',
     notes: cellString(row['Notes']),
-    tdsMonthly: 0,
-    ptHalfYearly: 0,
+    tdsMonthly: Math.max(0, cellNumber(row['TDS Monthly']) || 0),
+    ptHalfYearly: Math.max(0, cellNumber(row['PT Half-Yearly']) || 0),
   };
 
   const error = validateRow(employee, rowNumber);

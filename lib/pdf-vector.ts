@@ -727,6 +727,12 @@ async function buildAuthorisedFullPage(
   const empColGap = 10;
   const empInnerW = A4_WIDTH - margin * 2;
   const empColW = (empInnerW - empPadX * 2 - empColGap * 3) / 4;
+  const bankAccountDisplay = employee.bankAccountNumber?.trim()
+    ? employee.bankAccountNumber.trim()
+    : employee.bankLast4
+      ? `····${employee.bankLast4}`
+      : '—';
+  const bankName = employee.bankName?.trim() || '';
   const empRows: Array<[string, string][]> = [
     [
       ['Employee name', employee.fullName],
@@ -737,13 +743,12 @@ async function buildAuthorisedFullPage(
     [
       ['Date of joining', formatDate(employee.joiningDate)],
       ['PAN', employee.panMasked || '—'],
-      ['Bank a/c', employee.bankLast4 ? `····${employee.bankLast4}` : '—'],
-      [
-        'Payment mode',
-        input.paymentMode ?? employee.paymentMode ?? '—',
-      ],
+      ['Bank name', bankName || '—'],
+      ['Bank a/c', bankAccountDisplay],
     ],
   ];
+  const paymentModeLabel = input.paymentMode ?? employee.paymentMode ?? '';
+  // Payment mode is drawn as a compact line under the employee grid.
 
   // Measure each cell so row height fits wrapped designation / long names.
   const measuredRows = empRows.map((row, rowIdx) =>
@@ -824,7 +829,18 @@ async function buildAuthorisedFullPage(
     });
     rowTop -= rowH;
   });
-  ctx.y = empBottom - 12;
+
+  ctx.y = empBottom - 10;
+  if (paymentModeLabel) {
+    drawText(ctx, `Payment mode: ${paymentModeLabel}`, {
+      size: 8,
+      x: margin,
+      maxWidth: empInnerW,
+      color: rgb(0.25, 0.25, 0.25),
+    });
+    ctx.extracted.push(`Payment mode: ${paymentModeLabel}`);
+    ctx.y -= 6;
+  }
 
   // ---- Tables (fixed column geometry, right-aligned amounts) ----
   const colParticulars = margin;
@@ -835,7 +851,7 @@ async function buildAuthorisedFullPage(
   const drawTableHeader = (title: string) => {
     ctx.y -= 2;
     drawText(ctx, title, { size: 9, bold: true });
-    drawHLine(ctx, 0.7, 9);
+    ctx.y -= 4;
     const headerY = ctx.y;
     page.drawText('Particulars', {
       x: colParticulars,
@@ -858,13 +874,8 @@ async function buildAuthorisedFullPage(
       font: fontBold,
       color: rgb(0.4, 0.4, 0.4),
     });
-    ctx.y -= 11;
-    page.drawLine({
-      start: { x: margin, y: ctx.y + 5 },
-      end: { x: A4_WIDTH - margin, y: ctx.y + 5 },
-      thickness: 0.35,
-      color: rgb(0.8, 0.8, 0.8),
-    });
+    // Column headers only — no rule lines (they were overlaying row text).
+    ctx.y -= 14;
   };
 
   const drawRow = (
@@ -890,10 +901,10 @@ async function buildAuthorisedFullPage(
       font: f,
     });
     ctx.extracted.push(`${label} ${formatINR(monthAmt)} ${formatINR(ytdAmt)}`);
-    ctx.y -= size + 2;
+    ctx.y -= size + 3;
     if (opts?.note) {
       const noteLines = wrapTextToWidth(opts.note, font, 6.5, particularsMaxW, 2);
-      ctx.y -= 2;
+      ctx.y -= 1;
       for (const noteLine of noteLines) {
         page.drawText(noteLine, {
           x: colParticulars + 4,
@@ -906,14 +917,8 @@ async function buildAuthorisedFullPage(
       }
       ctx.extracted.push(opts.note);
     }
-    // Hairline under each row — never crosses into amount glyphs.
-    page.drawLine({
-      start: { x: margin, y: ctx.y + 1 },
-      end: { x: A4_WIDTH - margin, y: ctx.y + 1 },
-      thickness: 0.3,
-      color: rgb(0.88, 0.88, 0.88),
-    });
-    ctx.y -= 5;
+    // Spacing only — no underlines (kept clean; avoids overlaying notes/amounts).
+    ctx.y -= 4;
   };
 
   drawTableHeader('EARNINGS');
@@ -1066,17 +1071,6 @@ async function buildAuthorisedFullPage(
       end: { x: margin + 100, y: sigImageTop - 14 },
       thickness: 0.5,
       color: rgb(0.7, 0.7, 0.7),
-    });
-  }
-  if (seal) {
-    const sealSize = 42;
-    const sealX = signature ? margin + 100 : margin + 80;
-    page.drawImage(seal, {
-      x: sealX,
-      y: sigY - 6,
-      width: sealSize,
-      height: sealSize,
-      opacity: 0.9,
     });
   }
 

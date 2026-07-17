@@ -256,11 +256,20 @@ export default function SalarySlip({
           </div>
           <div>
             <p className="text-[8.5px] font-semibold uppercase tracking-wider text-muted">Payment mode</p>
-            <p>
-              {employee.paymentMode}
-              {employee.bankLast4 && (
-                <span className="amount text-muted"> · a/c ····{employee.bankLast4}</span>
-              )}
+            <p>{employee.paymentMode}</p>
+          </div>
+          <div>
+            <p className="text-[8.5px] font-semibold uppercase tracking-wider text-muted">Bank name</p>
+            <p>{employee.bankName?.trim() || '—'}</p>
+          </div>
+          <div>
+            <p className="text-[8.5px] font-semibold uppercase tracking-wider text-muted">Bank a/c</p>
+            <p className="amount">
+              {employee.bankAccountNumber?.trim()
+                ? employee.bankAccountNumber
+                : employee.bankLast4
+                  ? `····${employee.bankLast4}`
+                  : '—'}
             </p>
           </div>
           <div>

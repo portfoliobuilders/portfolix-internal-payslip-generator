@@ -13,6 +13,12 @@ import type {
   WorkMode,
 } from '@/lib/types';
 import { upsertEmployee } from '@/app/actions/payroll';
+import {
+  bankLast4FromAccount,
+  isFullPan,
+  maskPan,
+  normalizeBankAccountNumber,
+} from '@/lib/identity';
 import { useHRStore } from '@/store/useHRStore';
 import { Field, Modal, btnPrimary, btnSecondary, inputAmountCls, inputCls } from './ui';
 import { compensationLabelForPaymentType, defaultPaymentTypeForEngagement } from '@/lib/workforce';
@@ -54,7 +60,8 @@ type Draft = {
   agreementType: AgreementType;
   documentsStatus: DocumentsStatus;
   notes: string;
-  bankLast4: string;
+  bankName: string;
+  bankAccountNumber: string;
   panMasked: string;
   flexBankBalance: string;
   tdsMonthly: string;
@@ -90,7 +97,8 @@ function toDraft(e: Employee | null): Draft {
     agreementType: e?.agreementType ?? 'offer_letter',
     documentsStatus: e?.documentsStatus ?? 'pending',
     notes: e?.notes ?? '',
-    bankLast4: e?.bankLast4 ?? '',
+    bankName: e?.bankName ?? '',
+    bankAccountNumber: e?.bankAccountNumber ?? '',
     panMasked: e?.panMasked ?? '',
     flexBankBalance: e ? String(e.flexBankBalance) : '0',
     tdsMonthly: e ? String(e.tdsMonthly) : '0',
@@ -116,10 +124,17 @@ function validate(d: Draft): Partial<Record<keyof Draft, string>> {
   if ((d.employmentStatus === 'offboarded' || d.employmentStatus === 'completed') && !d.offboardingDate && !d.noticeEndDate && !d.contractEndDate && !d.internshipEndDate) {
     errors.offboardingDate = 'Offboarding/end date is required for offboarded/completed status.';
   }
-  if (d.bankLast4 && !/^\d{4}$/.test(d.bankLast4))
-    errors.bankLast4 = 'Exactly 4 digits — never store the full account number.';
-  if (d.panMasked && /^[A-Z]{5}\d{4}[A-Z]$/i.test(d.panMasked.trim()))
-    errors.panMasked = 'This looks like a FULL PAN. Store a masked form only, e.g. ABXXXXXX1F.';
+  const account = normalizeBankAccountNumber(d.bankAccountNumber);
+  if (d.bankAccountNumber.trim() && (account.length < 9 || account.length > 18)) {
+    errors.bankAccountNumber = 'Enter a full account number (9–18 digits).';
+  }
+  const pan = d.panMasked.trim();
+  if (pan && pan.length > 0) {
+    const masked = maskPan(pan);
+    if (masked.length !== 10) {
+      errors.panMasked = 'PAN must be 10 characters (full PAN is auto-masked on save).';
+    }
+  }
   const flex = Number(d.flexBankBalance);
   if (!Number.isFinite(flex) || flex < 0) errors.flexBankBalance = 'Minutes must be 0 or more.';
   const tds = Number(d.tdsMonthly);
@@ -144,7 +159,14 @@ export default function EmployeeFormModal({
   onSaveFailed?: (message: string) => void;
 }) {
   const entities = useHRStore((s) => s.settings.entities);
-  const [draft, setDraft] = useState<Draft>(() => toDraft(employee));
+  const defaultPt = useHRStore((s) => s.settings.defaultPtHalfYearly);
+  const [draft, setDraft] = useState<Draft>(() => {
+    const base = toDraft(employee);
+    if (!employee && defaultPt > 0 && base.ptHalfYearly === '0') {
+      return { ...base, ptHalfYearly: String(defaultPt) };
+    }
+    return base;
+  });
   const [touchedSave, setTouchedSave] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -161,6 +183,7 @@ export default function EmployeeFormModal({
     setSaveError(null);
     onSaveStart?.();
 
+    const account = normalizeBankAccountNumber(draft.bankAccountNumber);
     const payload = {
       ...(employee ? { id: employee.id, flexLog: employee.flexLog } : { flexLog: [] as Employee['flexLog'] }),
       fullName: draft.fullName.trim(),
@@ -190,8 +213,10 @@ export default function EmployeeFormModal({
       agreementType: draft.agreementType,
       documentsStatus: draft.documentsStatus,
       notes: draft.notes.trim(),
-      bankLast4: draft.bankLast4.trim(),
-      panMasked: draft.panMasked.trim().toUpperCase(),
+      bankName: draft.bankName.trim(),
+      bankAccountNumber: account,
+      bankLast4: bankLast4FromAccount(account),
+      panMasked: maskPan(draft.panMasked),
       flexBankBalance: Number(draft.flexBankBalance),
       tdsMonthly: Number(draft.tdsMonthly) || 0,
       ptHalfYearly: Number(draft.ptHalfYearly) || 0,
@@ -211,6 +236,9 @@ export default function EmployeeFormModal({
   }
 
   const err = (k: keyof Draft) => (touchedSave ? errors[k] ?? null : null);
+  const panHint = isFullPan(draft.panMasked)
+    ? `Will save as ${maskPan(draft.panMasked)}`
+    : 'e.g. ABXXXXXX1F — full PAN is auto-masked on save';
 
   return (
     <Modal title={employee ? `Edit — ${employee.fullName}` : 'Add employee'} onClose={onClose} wide>
@@ -291,11 +319,65 @@ export default function EmployeeFormModal({
             ))}
           </select>
         </Field>
-        <Field label="Bank a/c — last 4 digits only" error={err('bankLast4')}>
-          <input className={inputCls} maxLength={4} value={draft.bankLast4} onChange={(e) => set('bankLast4', e.target.value.replace(/\D/g, ''))} placeholder="4821" />
+        <Field label="Bank name">
+          <input
+            className={inputCls}
+            value={draft.bankName}
+            onChange={(e) => set('bankName', e.target.value)}
+            placeholder="HDFC Bank"
+          />
         </Field>
-        <Field label="PAN (masked)" error={err('panMasked')} hint="e.g. ABXXXXXX1F — never the full number">
-          <input className={inputCls} maxLength={10} value={draft.panMasked} onChange={(e) => set('panMasked', e.target.value)} placeholder="ABXXXXXX1F" />
+        <Field
+          label="Bank account number (full)"
+          error={err('bankAccountNumber')}
+          hint="Full account number for authorised bank copies"
+        >
+          <input
+            className={inputCls}
+            inputMode="numeric"
+            maxLength={18}
+            value={draft.bankAccountNumber}
+            onChange={(e) => set('bankAccountNumber', e.target.value.replace(/\D/g, '').slice(0, 18))}
+            placeholder="123456789012"
+          />
+        </Field>
+        <Field label="PAN (masked)" error={err('panMasked')} hint={panHint}>
+          <input
+            className={inputCls}
+            maxLength={10}
+            value={draft.panMasked}
+            onChange={(e) => set('panMasked', e.target.value.toUpperCase().replace(/[^A-Z0-9]/gi, '').slice(0, 10))}
+            onBlur={() => {
+              if (draft.panMasked.trim()) set('panMasked', maskPan(draft.panMasked));
+            }}
+            placeholder="ABXXXXXX1F"
+          />
+        </Field>
+        <Field
+          label="Professional Tax half-yearly (₹)"
+          error={err('ptHalfYearly')}
+          hint="Deducted in PT months from Settings (usually Aug & Feb)"
+        >
+          <input
+            type="number"
+            min={0}
+            step="1"
+            className={inputAmountCls}
+            value={draft.ptHalfYearly}
+            onChange={(e) => set('ptHalfYearly', e.target.value)}
+            placeholder="0"
+          />
+        </Field>
+        <Field label="TDS monthly (₹)" error={err('tdsMonthly')}>
+          <input
+            type="number"
+            min={0}
+            step="0.01"
+            className={inputAmountCls}
+            value={draft.tdsMonthly}
+            onChange={(e) => set('tdsMonthly', e.target.value)}
+            placeholder="0"
+          />
         </Field>
         <Field label="Reporting manager">
           <input className={inputCls} value={draft.reportingManager} onChange={(e) => set('reportingManager', e.target.value)} />

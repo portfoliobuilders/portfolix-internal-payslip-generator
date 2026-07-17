@@ -61,6 +61,7 @@ function normalizeSettings(settings: Settings): Settings {
     reviewDeadlineTime: settings.reviewDeadlineTime.trim() || '6:00 PM',
     ptDeductionMonths:
       months.length > 0 ? [...new Set(months)].sort((a, b) => a - b) : [8, 2],
+    defaultPtHalfYearly: Math.max(0, Number(settings.defaultPtHalfYearly) || 0),
   };
 }
 
