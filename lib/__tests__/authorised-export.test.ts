@@ -432,22 +432,36 @@ describe('placeholder and signatory guards', () => {
 });
 
 describe('resolveCanonicalAppUrl', () => {
-  it('returns error when NEXT_PUBLIC_APP_URL is not set', () => {
+  it('falls back to the stable production default when NEXT_PUBLIC_APP_URL is not set', () => {
     const original = process.env.NEXT_PUBLIC_APP_URL;
     delete process.env.NEXT_PUBLIC_APP_URL;
     const result = resolveCanonicalAppUrl();
-    expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.error).toContain('NEXT_PUBLIC_APP_URL');
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.url).toBe('https://portfolix-internal-payslip-generato.vercel.app');
+    }
     process.env.NEXT_PUBLIC_APP_URL = original;
   });
 
-  it('returns error for Vercel preview host', () => {
+  it('returns error for Vercel git-branch preview host', () => {
     const original = process.env.NEXT_PUBLIC_APP_URL;
     process.env.NEXT_PUBLIC_APP_URL =
-      'https://portfolix-abc123-teamname.vercel.app';
+      'https://portfolix-internal-payslip-generato-git-8ac69a-portfolios.vercel.app';
     const result = resolveCanonicalAppUrl();
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error).toContain('preview');
+    process.env.NEXT_PUBLIC_APP_URL = original;
+  });
+
+  it('allows the stable production *.vercel.app project host', () => {
+    const original = process.env.NEXT_PUBLIC_APP_URL;
+    process.env.NEXT_PUBLIC_APP_URL =
+      'https://portfolix-internal-payslip-generato.vercel.app';
+    const result = resolveCanonicalAppUrl();
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.url).toBe('https://portfolix-internal-payslip-generato.vercel.app');
+    }
     process.env.NEXT_PUBLIC_APP_URL = original;
   });
 
@@ -466,6 +480,15 @@ describe('resolveCanonicalAppUrl', () => {
     const result = resolveCanonicalAppUrl();
     expect(result.ok).toBe(true);
     if (result.ok) expect(result.url).toBe('https://pay.yourcompany.com');
+    process.env.NEXT_PUBLIC_APP_URL = original;
+  });
+
+  it('prefers settings override when env is unset', () => {
+    const original = process.env.NEXT_PUBLIC_APP_URL;
+    delete process.env.NEXT_PUBLIC_APP_URL;
+    const result = resolveCanonicalAppUrl('https://pay.portfolix.tech');
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.url).toBe('https://pay.portfolix.tech');
     process.env.NEXT_PUBLIC_APP_URL = original;
   });
 });
