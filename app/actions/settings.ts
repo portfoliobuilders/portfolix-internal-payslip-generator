@@ -15,7 +15,7 @@ import { revalidatePath } from 'next/cache';
 import { randomUUID } from 'node:crypto';
 import { mergeSettings, SEED_SETTINGS } from '@/lib/settings-defaults';
 import { normalizeAddressText, normalizeLegalName } from '@/lib/company-address';
-import type { Settings } from '@/lib/types';
+import type { EntityCode, Settings } from '@/lib/types';
 import { createClient } from '@/utils/supabase/server';
 
 export type SettingsActionResult<T> =
@@ -37,6 +37,7 @@ const SETTINGS_ROW_ID = 1;
 const APP_SETTINGS_ID = 1;
 const BRANDING_BUCKET = 'branding';
 const BRANDING_PATH = 'company-logo';
+const ENTITY_CODES: EntityCode[] = ['PX', 'PB', 'PT', 'PH'];
 
 interface AppSettingsRow {
   id: number;
@@ -102,7 +103,25 @@ export async function fetchSettings(): Promise<ActionResult<Settings>> {
     }
 
     const row = data as AppSettingsRow;
-    return { ok: true, data: mergeSettings(row.data) };
+    const merged = mergeSettings(row.data);
+
+    // One-off write-through cleanup: persist normalized name/address if stored
+    // jsonb still has live-print defects (duplicate commas / whitespace).
+    const needsPersist = ENTITY_CODES.some((code) => {
+      const before = row.data?.entities?.[code];
+      const after = merged.entities[code];
+      if (!before || !after) return false;
+      return (
+        (before.name ?? '') !== after.name ||
+        (before.registeredAddress ?? '') !== after.registeredAddress ||
+        JSON.stringify(before.addressLines ?? []) !== JSON.stringify(after.addressLines)
+      );
+    });
+    if (needsPersist) {
+      return saveSettings(merged);
+    }
+
+    return { ok: true, data: merged };
   } catch (err) {
     return {
       ok: false,

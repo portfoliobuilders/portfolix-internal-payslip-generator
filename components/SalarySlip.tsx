@@ -87,7 +87,7 @@ export default function SalarySlip({
   entity,
   payrollContact,
   paydayDayOfMonth,
-  authorizedSignatoryName = 'Authorized Signatory',
+  authorizedSignatoryName = 'Authorised Signatory',
   authorizedSignatoryTitle = 'HR & Payroll',
   reviewDeadlineTime = '6:00 PM',
   ledgerMismatch = false,
@@ -162,7 +162,7 @@ export default function SalarySlip({
         </div>
         <div className="shrink-0 text-right">
           <p className="text-[15px] font-bold uppercase tracking-[0.12em]">
-            {isAuthorizedForBank ? 'Authorized Salary Slip' : 'Salary Slip'}
+            {isAuthorizedForBank ? 'Authorised Salary Slip' : 'Salary Slip'}
           </p>
           <p className="text-[11px] font-medium text-muted">{formatMonthYear(snapshot.monthYear)}</p>
           {isDraft ? (
@@ -484,7 +484,7 @@ export default function SalarySlip({
         </p>
         {isAuthorizedForBank && (
           <div className="mt-2 border-t border-hairline pt-2 text-[9px] text-ink">
-            <p className="font-semibold">Authorized signatory</p>
+            <p className="font-semibold">Authorised signatory</p>
             <p>{authorizedSignatoryName}</p>
             <p className="text-muted">{authorizedSignatoryTitle}</p>
           </div>
