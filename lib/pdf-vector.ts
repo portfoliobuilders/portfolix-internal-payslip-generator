@@ -502,11 +502,12 @@ function amountOnly(amount: number): string {
 
 async function buildAuthorisedFullPage(
   pdf: PDFDocument,
-  page: PDFPage,
+  pageIn: PDFPage,
   font: PDFFont,
   fontBold: PDFFont,
   input: VectorPayslipPdfInput,
 ): Promise<string> {
+  let page = pageIn;
   const snapshot = input.snapshot!;
   const entity = input.entity!;
   const ytd = input.ytd!;
@@ -649,7 +650,7 @@ async function buildAuthorisedFullPage(
   const docGridInnerW = A4_WIDTH - margin * 2;
   const docGridColW = docGridInnerW / 2;
   const docCellPadX = 8;
-  const docCellPadY = 6;
+  const docCellPadY = 8;
   const docLabelSize = 6;
   const docValueSize = 8;
   const docLineGap = 2;
@@ -925,14 +926,19 @@ async function buildAuthorisedFullPage(
   ctx.y = empBottom - 8;
 
   // ---- EARNINGS TABLE — bordered, right-aligned amounts ----
-  const colParticulars = margin;
-  const colMonthRight = A4_WIDTH - margin - 95;
-  const colYtdRight = A4_WIDTH - margin - 4;
-  const particularsMaxW = colMonthRight - colParticulars - 4;
+  // Shared column right-edges so headers and figures share one vertical axis.
   const tableInnerW = A4_WIDTH - margin * 2;
+  const AMT_COL_W = 78;
+  const colYtdRight = margin + tableInnerW - 10;
+  const colMonthRight = colYtdRight - AMT_COL_W;
+  const colParticulars = margin + 6;
+  const particularsMaxW = colMonthRight - colParticulars - 14;
   const TABLE_BORDER = rgb(0.72, 0.72, 0.72);
   const HEADER_BG = rgb(0.94, 0.94, 0.96);
   const ROW_RULE = rgb(0.87, 0.87, 0.87);
+  // Vertical rules at the left edge of each amount column (shared by header + body).
+  const monthColRuleX = colMonthRight - AMT_COL_W + 8;
+  const ytdColRuleX = colMonthRight + 8;
 
   // Track rows for bordered rendering.
   type TableRowSpec = {
@@ -988,14 +994,14 @@ async function buildAuthorisedFullPage(
       monthAmt: null,
       ytdAmt: null,
       isTextRow: true,
-      textValue: 'Not applicable — establishment below 20 employees',
+      textNote: 'Not applicable — establishment below 20 employees',
     },
     {
       label: 'ESI',
       monthAmt: null,
       ytdAmt: null,
       isTextRow: true,
-      textValue: 'Not applicable',
+      textNote: 'Not applicable',
     },
     {
       label: 'Other Deductions',
@@ -1011,11 +1017,11 @@ async function buildAuthorisedFullPage(
   ];
 
   const drawBorderedTable = (title: string, rows: TableRowSpec[]) => {
-    ctx.y -= 4;
+    ctx.y -= 2;
 
-    // Header band.
-    const headerBandH = 22;
+    const headerBandH = 16;
     const headerTop = ctx.y;
+    const headerBaseline = headerTop - 11;
     page.drawRectangle({
       x: margin,
       y: headerTop - headerBandH,
@@ -1025,127 +1031,204 @@ async function buildAuthorisedFullPage(
       borderColor: TABLE_BORDER,
       borderWidth: 0.6,
     });
-    // Title — left aligned in the header band.
     page.drawText(title, {
-      x: colParticulars + 4,
-      y: headerTop - 12,
-      size: 8.5,
+      x: colParticulars,
+      y: headerBaseline,
+      size: 8,
       font: fontBold,
       color: rgb(0.12, 0.12, 0.35),
     });
     ctx.extracted.push(title);
-    // Column headers — right-aligned.
+    // Headers share the same right edges as the amount columns below.
     drawRightAligned(page, 'This Month (₹)', {
       rightX: colMonthRight,
-      y: headerTop - 12,
-      size: 7,
+      y: headerBaseline,
+      size: 6.5,
       font: fontBold,
       color: rgb(0.35, 0.35, 0.35),
     });
     drawRightAligned(page, 'YTD (₹)', {
       rightX: colYtdRight,
-      y: headerTop - 12,
-      size: 7,
+      y: headerBaseline,
+      size: 6.5,
       font: fontBold,
       color: rgb(0.35, 0.35, 0.35),
     });
     ctx.y = headerTop - headerBandH;
 
+    const padTop = 4;
+    const padBot = 3.5;
+    const noteSize = 5.5;
+    const noteLineH = 7;
+    const noteGap = 2.5;
+
     for (let ri = 0; ri < rows.length; ri += 1) {
       const row = rows[ri]!;
-      const rowSize = row.bold ? 8.5 : 8;
+      const rowSize = row.bold ? 8 : 7.5;
       const rowFont = row.bold ? fontBold : font;
-      const noteLines: string[] = row.textNote
-        ? wrapTextToWidth(row.textNote, font, 6, particularsMaxW, 2)
-        : [];
-      const rowH = rowSize + 3 + (noteLines.length > 0 ? 2 + noteLines.length * 8 : 0) + 6;
 
-      // Row background for subtotal.
+      // Prefer a same-line footnote when it fits in the particulars column —
+      // keeps PT/TDS/EPF rows single-height so the slip stays on one A4 page.
+      let inlineNote: string | null = null;
+      let wrappedNotes: string[] = [];
+      if (row.textNote) {
+        const sep = '  ·  ';
+        const labelW = rowFont.widthOfTextAtSize(row.label, rowSize);
+        const noteW = font.widthOfTextAtSize(row.textNote, noteSize);
+        if (labelW + font.widthOfTextAtSize(sep, noteSize) + noteW <= particularsMaxW) {
+          inlineNote = row.textNote;
+        } else {
+          wrappedNotes = wrapTextToWidth(row.textNote, font, noteSize, particularsMaxW, 2);
+        }
+      }
+      const textValLines: string[] =
+        row.isTextRow && row.textValue
+          ? wrapTextToWidth(row.textValue, font, 6.5, particularsMaxW - 4, 2)
+          : [];
+
+      const labelAscent = rowFont.heightAtSize(rowSize) * 0.72;
+      const labelDescent = rowFont.heightAtSize(rowSize) * 0.22;
+      const noteBlockH =
+        wrappedNotes.length > 0
+          ? noteGap + wrappedNotes.length * noteLineH + 1
+          : textValLines.length > 0
+            ? noteGap + textValLines.length * 8 + 1
+            : 0;
+      const rowH = Math.max(
+        padTop + labelAscent + labelDescent + noteBlockH + padBot,
+        14.5,
+      );
+
+      const rowTop = ctx.y;
+      const rowBottom = rowTop - rowH;
+
       if (row.bold) {
         page.drawRectangle({
           x: margin,
-          y: ctx.y - rowH,
+          y: rowBottom,
           width: tableInnerW,
           height: rowH,
           color: rgb(0.96, 0.96, 0.98),
         });
       }
 
-      // Row rule (top of current row, below header for ri=0).
       page.drawLine({
-        start: { x: margin, y: ctx.y },
-        end: { x: margin + tableInnerW, y: ctx.y },
+        start: { x: margin, y: rowTop },
+        end: { x: margin + tableInnerW, y: rowTop },
         thickness: 0.4,
         color: ROW_RULE,
       });
 
-      const rowY = ctx.y - rowSize - 2;
-      page.drawText(row.label, { x: colParticulars + 4, y: rowY, size: rowSize, font: rowFont });
+      const labelY = rowTop - padTop - labelAscent;
+      page.drawText(row.label, {
+        x: colParticulars,
+        y: labelY,
+        size: rowSize,
+        font: rowFont,
+      });
       ctx.extracted.push(row.label);
 
-      if (row.isTextRow && row.textValue) {
-        // Text-only row (EPF/ESI).
-        const textValLines = wrapTextToWidth(row.textValue, font, 7, colYtdRight - colParticulars - 60, 2);
-        for (let ti = 0; ti < textValLines.length; ti += 1) {
-          page.drawText(textValLines[ti]!, {
-            x: colParticulars + 80,
-            y: rowY - ti * 9,
-            size: 7,
-            font,
-            color: rgb(0.45, 0.45, 0.45),
-          });
+      if (inlineNote) {
+        const labelW = rowFont.widthOfTextAtSize(row.label, rowSize);
+        page.drawText(`  ·  ${inlineNote}`, {
+          x: colParticulars + labelW,
+          y: labelY + 0.5,
+          size: noteSize,
+          font,
+          color: rgb(0.5, 0.5, 0.5),
+        });
+      }
+
+      if (row.isTextRow) {
+        drawRightAligned(page, '—', { rightX: colMonthRight, y: labelY, size: 7, font });
+        drawRightAligned(page, '—', { rightX: colYtdRight, y: labelY, size: 7, font });
+        if (row.textValue) ctx.extracted.push(row.textValue);
+        if (inlineNote) ctx.extracted.push(inlineNote);
+        if (wrappedNotes.length > 0) {
+          let nY = labelY - noteGap - noteSize;
+          for (const nl of wrappedNotes) {
+            page.drawText(nl, {
+              x: colParticulars + 2,
+              y: nY,
+              size: noteSize,
+              font,
+              color: rgb(0.5, 0.5, 0.5),
+            });
+            nY -= noteLineH;
+          }
+          ctx.extracted.push(wrappedNotes.join(' '));
         }
-        ctx.extracted.push(row.textValue);
-        // Draw both amount columns as dash.
-        drawRightAligned(page, '—', { rightX: colMonthRight, y: rowY, size: 7, font });
-        drawRightAligned(page, '—', { rightX: colYtdRight, y: rowY, size: 7, font });
       } else {
         const mAmt = row.monthAmt ?? 0;
         const yAmt = row.ytdAmt ?? 0;
-        drawRightAligned(page, amountOnly(mAmt), { rightX: colMonthRight, y: rowY, size: rowSize, font: rowFont });
-        drawRightAligned(page, amountOnly(yAmt), { rightX: colYtdRight, y: rowY, size: rowSize, font: rowFont });
+        drawRightAligned(page, amountOnly(mAmt), {
+          rightX: colMonthRight,
+          y: labelY,
+          size: rowSize,
+          font: rowFont,
+        });
+        drawRightAligned(page, amountOnly(yAmt), {
+          rightX: colYtdRight,
+          y: labelY,
+          size: rowSize,
+          font: rowFont,
+        });
         ctx.extracted.push(`${row.label} ${formatINR(mAmt)} ${formatINR(yAmt)}`);
-      }
 
-      ctx.y -= rowSize + 3;
-      if (noteLines.length > 0) {
-        ctx.y -= 1;
-        for (const nl of noteLines) {
-          page.drawText(nl, {
-            x: colParticulars + 8,
-            y: ctx.y,
-            size: 6,
-            font,
-            color: rgb(0.5, 0.5, 0.5),
-          });
-          ctx.y -= 8;
+        if (wrappedNotes.length > 0) {
+          let nY = labelY - noteGap - noteSize;
+          for (const nl of wrappedNotes) {
+            page.drawText(nl, {
+              x: colParticulars + 2,
+              y: nY,
+              size: noteSize,
+              font,
+              color: rgb(0.5, 0.5, 0.5),
+            });
+            nY -= noteLineH;
+          }
         }
       }
-      ctx.y -= 4;
+
+      ctx.y = rowBottom;
     }
 
-    // Bottom border.
+    // Bottom + side borders and amount column rules (same X for header + body).
     page.drawLine({
-      start: { x: margin, y: ctx.y + 4 },
-      end: { x: margin + tableInnerW, y: ctx.y + 4 },
+      start: { x: margin, y: ctx.y },
+      end: { x: margin + tableInnerW, y: ctx.y },
       thickness: 0.6,
       color: TABLE_BORDER,
     });
-    // Vertical column rule.
     page.drawLine({
-      start: { x: colMonthRight + 8, y: headerTop },
-      end: { x: colMonthRight + 8, y: ctx.y + 4 },
+      start: { x: monthColRuleX, y: headerTop },
+      end: { x: monthColRuleX, y: ctx.y },
       thickness: 0.4,
       color: ROW_RULE,
     });
-    // Outer left/right borders.
-    page.drawLine({ start: { x: margin, y: headerTop }, end: { x: margin, y: ctx.y + 4 }, thickness: 0.6, color: TABLE_BORDER });
-    page.drawLine({ start: { x: margin + tableInnerW, y: headerTop }, end: { x: margin + tableInnerW, y: ctx.y + 4 }, thickness: 0.6, color: TABLE_BORDER });
-    ctx.y -= 4;
+    page.drawLine({
+      start: { x: ytdColRuleX, y: headerTop },
+      end: { x: ytdColRuleX, y: ctx.y },
+      thickness: 0.4,
+      color: ROW_RULE,
+    });
+    page.drawLine({
+      start: { x: margin, y: headerTop },
+      end: { x: margin, y: ctx.y },
+      thickness: 0.6,
+      color: TABLE_BORDER,
+    });
+    page.drawLine({
+      start: { x: margin + tableInnerW, y: headerTop },
+      end: { x: margin + tableInnerW, y: ctx.y },
+      thickness: 0.6,
+      color: TABLE_BORDER,
+    });
+    ctx.y -= 3;
   };
 
   drawBorderedTable('EARNINGS', earningsRows);
-  ctx.y -= 6;
+  ctx.y -= 5;
   drawBorderedTable('DEDUCTIONS', deductionRows);
   ctx.y -= 8;
 
@@ -1158,11 +1241,11 @@ async function buildAuthorisedFullPage(
     A4_WIDTH - margin * 2 - 24,
     2,
   );
-  const bandPad = 12;
-  const bandContentH = input.showPaymentBand
-    ? 18 + wordsLines.length * 10 + 24
-    : 18 + wordsLines.length * 10;
-  const bandH = bandContentH + bandPad;
+  const bandPadTop = 12;
+  const bandPadBot = 10;
+  const wordsBlockH = wordsLines.length * 10;
+  const payBlockH = input.showPaymentBand ? 26 : 0;
+  const bandH = bandPadTop + 12 + wordsBlockH + payBlockH + bandPadBot;
   const bandTop = ctx.y;
   const bandBottom = bandTop - bandH;
   page.drawRectangle({
@@ -1175,7 +1258,8 @@ async function buildAuthorisedFullPage(
     color: rgb(0.93, 0.97, 0.94),
   });
 
-  let bandY = bandTop - bandPad - 6;
+  // Keep large amount glyphs clear of the top border (baseline sits below ascent).
+  let bandY = bandTop - bandPadTop - 4;
   page.drawText('NET SALARY', {
     x: margin + 12,
     y: bandY,
@@ -1185,13 +1269,13 @@ async function buildAuthorisedFullPage(
   });
   drawRightAligned(page, netStr, {
     rightX: A4_WIDTH - margin - 12,
-    y: bandY,
-    size: 15,
+    y: bandY - 1,
+    size: 13,
     font: fontBold,
     color: rgb(0.05, 0.25, 0.18),
   });
   ctx.extracted.push(`Net Salary ${netStr}`);
-  bandY -= 16;
+  bandY -= 14;
   for (const line of wordsLines) {
     page.drawText(line, {
       x: margin + 12,
@@ -1224,15 +1308,25 @@ async function buildAuthorisedFullPage(
       `Outstanding ${outstanding}`,
     );
   }
-  ctx.y = bandBottom - 14;
+  ctx.y = bandBottom - 10;
 
-  // ---- SIGNATORY + VERIFICATION (two clear columns) ----
-  const sigBlockTop = ctx.y;
-  const verColW = 160;
+  // ---- SIGNATORY + VERIFICATION + FOOTER ----
+  // Spill to page 2 only when the first page truly cannot hold signatory + footer.
+  const verColW = 170;
   const verX = A4_WIDTH - margin - verColW;
-  const sigMaxW = verX - margin - 16;
+  const sigMaxW = verX - margin - 20;
+  const sigBlockH = (signature ? 32 : 12) + 44;
+  const footerH = 32;
+  const neededBelow = sigBlockH + footerH + 4;
 
-  // "For <legal name>" — full name, wrap/step-down, never ellipsis.
+  if (ctx.y - neededBelow < margin) {
+    page = pdf.addPage([A4_WIDTH, A4_HEIGHT]);
+    ctx.page = page;
+    ctx.y = A4_HEIGHT - margin;
+  }
+
+  const sigBlockTop = ctx.y;
+
   const forLine = `For ${entity.name}`;
   drawClampedText(page, forLine, {
     x: margin,
@@ -1243,32 +1337,50 @@ async function buildAuthorisedFullPage(
   });
   ctx.extracted.push(forLine);
 
-  // Signature image or placeholder line.
-  const sigImageTop = sigBlockTop - 8;
-  const sigH = 32;
-  let sigDrawnW = 100;
+  const sigImageTop = sigBlockTop - 10;
+  const sigH = signature ? 32 : 14;
+  let sigDrawnW = 110;
   if (signature) {
-    const sigW = Math.min(110, (signature.width / signature.height) * sigH);
-    page.drawImage(signature, { x: margin, y: sigImageTop - sigH, width: sigW, height: sigH });
+    const sigW = Math.min(100, (signature.width / signature.height) * sigH);
+    page.drawImage(signature, {
+      x: margin,
+      y: sigImageTop - sigH,
+      width: sigW,
+      height: sigH,
+    });
     sigDrawnW = sigW;
   } else {
     page.drawLine({
-      start: { x: margin, y: sigImageTop - 14 },
-      end: { x: margin + 100, y: sigImageTop - 14 },
+      start: { x: margin, y: sigImageTop - sigH + 2 },
+      end: { x: margin + 110, y: sigImageTop - sigH + 2 },
       thickness: 0.5,
       color: rgb(0.7, 0.7, 0.7),
     });
   }
 
-  // Seal to the right of signature.
   if (seal) {
-    const sealSize = 36;
-    const sealX = Math.min(margin + sigDrawnW + 8, margin + sigMaxW - sealSize);
-    page.drawImage(seal, { x: sealX, y: sigImageTop - sigH - 2, width: sealSize, height: sealSize, opacity: 0.92 });
+    const sealSize = 32;
+    const sealGap = 22;
+    const sealX = Math.min(
+      margin + Math.max(sigDrawnW, 110) + sealGap,
+      margin + sigMaxW - sealSize,
+    );
+    page.drawImage(seal, {
+      x: sealX,
+      y: sigImageTop - sealSize,
+      width: sealSize,
+      height: sealSize,
+      opacity: 0.92,
+    });
   }
 
-  const sigTextY = sigImageTop - sigH - 12;
-  page.drawText(entity.signatoryName, { x: margin, y: sigTextY, size: 9, font: fontBold });
+  const sigTextY = sigImageTop - sigH - 10;
+  page.drawText(entity.signatoryName, {
+    x: margin,
+    y: sigTextY,
+    size: 9,
+    font: fontBold,
+  });
   page.drawText(`${entity.signatoryDesignation} / Authorised Signatory`, {
     x: margin,
     y: sigTextY - 11,
@@ -1285,7 +1397,6 @@ async function buildAuthorisedFullPage(
   });
   ctx.extracted.push(entity.signatoryName, entity.signatoryDesignation);
 
-  // Verification column — FULL verification ID, wrapped (never ellipsis).
   page.drawText('Verification ID', {
     x: verX,
     y: sigBlockTop,
@@ -1305,7 +1416,6 @@ async function buildAuthorisedFullPage(
 
   if (input.verificationUrl) {
     verY -= 3;
-    // Verification URL on one footer line — wrap if needed but keep on single line preference.
     const urlLines = wrapTextToWidth(input.verificationUrl, font, 6, verColW, 2);
     for (const urlLine of urlLines) {
       page.drawText(urlLine, {
@@ -1320,9 +1430,8 @@ async function buildAuthorisedFullPage(
     ctx.extracted.push(input.verificationUrl);
   }
 
-  // ---- FOOTER ----
-  const contentFloor = Math.min(sigTextY - 28, verY - 8);
-  ctx.y = Math.max(contentFloor, 44);
+  // Footer always below the lower of signatory text / verification block — never raised.
+  ctx.y = Math.min(sigTextY - 28, verY - 10);
   drawHLine(ctx, 0.5, 6);
   drawText(ctx, 'Authorised and issued by the employer.', { size: 7 });
   drawText(
