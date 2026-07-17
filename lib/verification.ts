@@ -9,17 +9,12 @@ export type PublicVerificationStatus = 'VALID' | 'SUPERSEDED' | 'REVOKED' | 'CAN
 
 export interface PublicVerificationPayload {
   companyLegalName: string;
-  companyLogoUrl: string | null;
   payslipNumber: string;
   employeeDisplayName: string;
-  maskedEmployeeId: string;
   salaryMonth: string;
-  actualCreditDate: string | null;
-  netSalary: number;
   documentStatus: PublicVerificationStatus;
   revisionNumber: number;
   issueDate: string;
-  verificationFingerprint: string;
   publicVerificationId: string;
 }
 
@@ -112,7 +107,8 @@ export function mapDocumentStatusToPublic(
     case 'CANCELLED':
       return 'CANCELLED';
     default:
-      return 'VALID';
+      // Unknown / draft / legacy — never advertise as VALID.
+      return 'REVOKED';
   }
 }
 

@@ -253,4 +253,26 @@ describe('authorised export wiring helpers', () => {
     expect(a.data.filename).toContain(a.data.documentNumber);
     expect(a.data.extractedText).toContain('Scheduled credit');
   });
+
+  it('does not auto-Paid from snapshot when ledger gate is unavailable', async () => {
+    const snap = sampleSnapshot({
+      actualCreditDate: '2026-08-05',
+      paymentStatus: 'PAID',
+      confirmedPaidAmount: 50000,
+      outstandingAmount: 0,
+    });
+    const result = await buildAuthorisedSalarySlipPdf({
+      snapshot: snap,
+      entity,
+      ytd,
+      paydayDayOfMonth: 5,
+      registerDocument: false,
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.data.hasActualCredit).toBe(false);
+    expect(result.data.extractedText).toContain('Scheduled credit');
+    expect(result.data.extractedText).not.toContain('Actual salary-credit date');
+    expect(result.data.extractedText).not.toContain('Payment status Paid');
+  });
 });

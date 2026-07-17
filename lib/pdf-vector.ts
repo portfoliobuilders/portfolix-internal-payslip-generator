@@ -803,7 +803,8 @@ async function buildAuthorisedFullPage(
     font: fontBold,
     color: rgb(0.1, 0.35, 0.25),
   });
-  const netStr = money(computed.netPay);
+  // Use input.netSalary (same value fingerprinted / registered) — not a second source.
+  const netStr = money(input.netSalary);
   const netW = fontBold.widthOfTextAtSize(netStr, 16);
   page.drawText(netStr, {
     x: A4_WIDTH - margin - 12 - netW,
@@ -899,22 +900,23 @@ async function buildAuthorisedFullPage(
       width: sigW,
       height: sigH,
     });
-    if (seal) {
-      const sealSize = 42;
-      page.drawImage(seal, {
-        x: margin + sigW - 18,
-        y: sigY - 6,
-        width: sealSize,
-        height: sealSize,
-        opacity: 0.9,
-      });
-    }
   } else {
     page.drawLine({
       start: { x: margin, y: sigY + 8 },
       end: { x: margin + 120, y: sigY + 8 },
       thickness: 0.5,
       color: rgb(0.7, 0.7, 0.7),
+    });
+  }
+  if (seal) {
+    const sealSize = 42;
+    const sealX = signature ? margin + 100 : margin + 80;
+    page.drawImage(seal, {
+      x: sealX,
+      y: sigY - 6,
+      width: sealSize,
+      height: sealSize,
+      opacity: 0.9,
     });
   }
 

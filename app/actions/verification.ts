@@ -1,27 +1,30 @@
 'use server';
 
-import { createClient } from '@/utils/supabase/server';
+/**
+ * Public authorised-slip verification lookup.
+ * Service-role only — never exposes PAN, bank, UTR, net salary, or fingerprint.
+ */
+
+import {
+  createServiceRoleClient,
+  SIGNATORY_SECRET_MISSING_MESSAGE,
+} from '@/utils/supabase/service-role';
 import {
   mapDocumentStatusToPublic,
-  maskEmployeeId,
   privacyControlledName,
   type PublicVerificationStatus,
 } from '@/lib/verification';
 
+/** Minimal public payload — banks verify status, not full payroll. */
 export interface PublicPayslipVerification {
   status: PublicVerificationStatus;
   companyLegalName: string;
-  companyLogoUrl: string | null;
   payslipNumber: string;
   employeeDisplayName: string;
-  maskedEmployeeId: string;
   salaryMonth: string;
-  actualCreditDate: string | null;
-  netSalary: number | null;
   documentStatus: string;
   revisionNumber: number;
   issueDate: string | null;
-  verificationFingerprint: string | null;
 }
 
 export type VerificationResult =
@@ -30,7 +33,8 @@ export type VerificationResult =
 
 /**
  * Public verification lookup — returns only controlled fields.
- * Never exposes PAN, bank, UTR, evidence, audit, or residential address.
+ * Never exposes PAN, bank, UTR, evidence, audit, residential address,
+ * net salary, credit date, masked employee id, or fingerprint.
  */
 export async function fetchPublicPayslipVerification(
   publicVerificationId: string,
@@ -40,10 +44,20 @@ export async function fetchPublicPayslipVerification(
       return { ok: false, error: 'Invalid verification identifier.', status: 'NOT_FOUND' };
     }
 
-    const supabase = await createClient();
+    const supabase = createServiceRoleClient();
+    if (!supabase) {
+      return {
+        ok: false,
+        error: SIGNATORY_SECRET_MISSING_MESSAGE,
+        status: 'NOT_FOUND',
+      };
+    }
+
     const { data, error } = await supabase
       .from('payroll_issued_documents')
-      .select('*')
+      .select(
+        'document_number, document_status, revision_number, issue_date, salary_month, snapshot_json, public_verification_id',
+      )
       .eq('public_verification_id', publicVerificationId)
       .maybeSingle();
 
@@ -65,22 +79,12 @@ export async function fetchPublicPayslipVerification(
         companyLegalName: String(
           company.legalName ?? 'PORTFOLIX ENTREPRISE PRIVATE LIMITED',
         ),
-        companyLogoUrl: null, // signed URL resolved separately when needed — never raw permanent storage URL
         payslipNumber: String(data.document_number),
         employeeDisplayName: privacyControlledName(String(employee.fullName ?? 'Employee')),
-        maskedEmployeeId: maskEmployeeId(String(employee.empId ?? '****')),
         salaryMonth: String(data.salary_month),
-        actualCreditDate: data.actual_credit_date
-          ? String(data.actual_credit_date)
-          : null,
-        netSalary:
-          data.net_salary != null ? Number(data.net_salary) : null,
         documentStatus: String(data.document_status),
         revisionNumber: Number(data.revision_number ?? 1),
         issueDate: data.issue_date ? String(data.issue_date) : null,
-        verificationFingerprint: data.verification_fingerprint
-          ? String(data.verification_fingerprint)
-          : null,
       },
     };
   } catch (err) {

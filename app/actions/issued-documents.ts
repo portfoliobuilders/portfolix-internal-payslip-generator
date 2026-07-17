@@ -1,6 +1,9 @@
 'use server';
 
-import { createClient } from '@/utils/supabase/server';
+import {
+  createServiceRoleClient,
+  SIGNATORY_SECRET_MISSING_MESSAGE,
+} from '@/utils/supabase/service-role';
 import {
   buildVerificationFingerprint,
   buildVerificationUrl,
@@ -23,10 +26,26 @@ export interface IssuedAuthorisedDocument {
   issueDate: string;
 }
 
+function requireServiceClient(): ActionResult<
+  NonNullable<ReturnType<typeof createServiceRoleClient>>
+> {
+  const client = createServiceRoleClient();
+  if (!client) {
+    return {
+      ok: false,
+      error:
+        SIGNATORY_SECRET_MISSING_MESSAGE +
+        ' Authorised slip registry requires SUPABASE_SECRET_KEY.',
+    };
+  }
+  return { ok: true, data: client };
+}
+
 /**
  * Register an issued AUTHORISED salary slip with a secure verification ID.
- * Reprints reuse the existing ISSUED document (never invent a second active number).
- * Payslip number is generated ONCE via generateAuthorisedPayslipNumber and stored.
+ * Reprints reuse the existing ISSUED document for this payroll_record_id.
+ * On payroll supersede (new slip id, same ASL number): mark prior ISSUED as
+ * SUPERSEDED and insert a new ISSUED row with revision_number + 1.
  */
 export async function issueAuthorisedSalarySlipDocument(input: {
   snapshot: SlipSnapshot;
@@ -45,9 +64,19 @@ export async function issueAuthorisedSalarySlipDocument(input: {
   issueDate?: string;
 }): Promise<ActionResult<IssuedAuthorisedDocument>> {
   try {
-    const supabase = await createClient();
+    const service = requireServiceClient();
+    if (!service.ok) return service;
+    const supabase = service.data;
 
-    const { data: existing } = await supabase
+    const documentNumber = generateAuthorisedPayslipNumber(
+      input.snapshot.employee.empId,
+      input.snapshot.monthYear,
+    );
+    const issueDate =
+      input.issueDate ?? input.snapshot.generatedAt.slice(0, 10);
+
+    // 1) Reuse active ISSUED for this exact payroll slip (reprint).
+    const { data: existingForSlip } = await supabase
       .from('payroll_issued_documents')
       .select('*')
       .eq('payroll_record_id', input.snapshot.id)
@@ -55,38 +84,58 @@ export async function issueAuthorisedSalarySlipDocument(input: {
       .eq('document_status', 'ISSUED')
       .maybeSingle();
 
-    if (existing) {
-      const publicVerificationId = String(existing.public_verification_id);
+    if (existingForSlip) {
+      const publicVerificationId = String(existingForSlip.public_verification_id);
       return {
         ok: true,
         data: {
-          documentNumber: String(existing.document_number),
+          documentNumber: String(existingForSlip.document_number),
           publicVerificationId,
           verificationUrl: buildVerificationUrl(
             input.verificationBaseUrl,
             publicVerificationId,
           ),
-          verificationFingerprint: existing.verification_fingerprint
-            ? String(existing.verification_fingerprint)
+          verificationFingerprint: existingForSlip.verification_fingerprint
+            ? String(existingForSlip.verification_fingerprint)
             : '',
-          revisionNumber: Number(existing.revision_number ?? 1),
+          revisionNumber: Number(existingForSlip.revision_number ?? 1),
           reused: true,
-          issueDate: String(
-            existing.issue_date ??
-              input.issueDate ??
-              input.snapshot.generatedAt.slice(0, 10),
-          ),
+          issueDate: String(existingForSlip.issue_date ?? issueDate),
         },
       };
     }
 
+    // 2) Supersede any other active ISSUED row that already holds this ASL number
+    //    (prior final for same employee+month after payroll supersede).
+    const { data: priorActive } = await supabase
+      .from('payroll_issued_documents')
+      .select('id, revision_number, public_verification_id')
+      .eq('document_number', documentNumber)
+      .eq('document_type', 'AUTHORISED_SALARY_SLIP')
+      .eq('document_status', 'ISSUED')
+      .maybeSingle();
+
+    let revisionNumber = input.revisionNumber ?? input.snapshot.revisionNumber ?? 1;
+    let supersedesDocumentId: string | null = null;
+
+    if (priorActive) {
+      supersedesDocumentId = String(priorActive.id);
+      revisionNumber = Math.max(
+        Number(priorActive.revision_number ?? 1) + 1,
+        revisionNumber,
+      );
+      const { error: supersedeError } = await supabase
+        .from('payroll_issued_documents')
+        .update({
+          document_status: 'SUPERSEDED',
+          correction_reason: 'Superseded by newer authorised salary slip revision.',
+        })
+        .eq('id', priorActive.id)
+        .eq('document_status', 'ISSUED');
+      if (supersedeError) return { ok: false, error: supersedeError.message };
+    }
+
     const publicVerificationId = generatePublicVerificationId();
-    const revisionNumber =
-      input.revisionNumber ?? input.snapshot.revisionNumber ?? 1;
-    const documentNumber = generateAuthorisedPayslipNumber(
-      input.snapshot.employee.empId,
-      input.snapshot.monthYear,
-    );
     const fingerprint = buildVerificationFingerprint({
       documentNumber,
       publicVerificationId,
@@ -95,9 +144,6 @@ export async function issueAuthorisedSalarySlipDocument(input: {
       actualCreditDate: input.actualCreditDate,
       revisionNumber,
     });
-    const issueDate =
-      input.issueDate ??
-      input.snapshot.generatedAt.slice(0, 10);
 
     const { error } = await supabase.from('payroll_issued_documents').insert({
       payroll_record_id: input.snapshot.id,
@@ -114,6 +160,7 @@ export async function issueAuthorisedSalarySlipDocument(input: {
       net_salary: input.netSalary,
       actual_credit_date: input.actualCreditDate,
       issue_date: issueDate,
+      supersedes_document_id: supersedesDocumentId,
       signatory_name: input.signatoryName ?? null,
       signatory_designation: input.signatoryDesignation ?? null,
       snapshot_json: {
