@@ -732,7 +732,7 @@ export default function HistoryView({ slipHistory, loading, error, onRefresh }: 
               </button>
             </div>
             <p className="mb-2 rounded-md border border-hairline bg-paper px-3 py-1.5 text-[11px] text-muted">
-              Exact pdf-lib bank copy · {bankCopyPreview.pdf.documentNumber}
+              Authorised bank copy · {bankCopyPreview.pdf.documentNumber}
             </p>
             <AuthorisedSlip pdfUrl={bankCopyPreview.pdfUrl} />
           </div>

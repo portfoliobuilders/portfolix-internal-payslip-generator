@@ -472,6 +472,8 @@ export default function GeneratorView({
         employmentStatus: employee.employmentStatus,
         paymentType: employee.paymentType,
         compensationAmount: employee.compensationAmount,
+        bankName: employee.bankName,
+        bankAccountNumber: employee.bankAccountNumber,
         bankLast4: employee.bankLast4,
         panMasked: employee.panMasked,
       },
@@ -990,7 +992,7 @@ export default function GeneratorView({
           ) : authorisedBundle && entity ? (
             <div className="space-y-2">
               <p className="rounded-md border border-hairline bg-surface px-3 py-1.5 text-[11px] font-medium text-muted">
-                Exact pdf-lib bank copy for {formatMonthYear(existingFinal.monthYear)} ·{' '}
+                Authorised bank copy for {formatMonthYear(existingFinal.monthYear)} ·{' '}
                 {authorisedBundle.pdf.documentNumber}
               </p>
               <AuthorisedSlip pdfUrl={authorisedBundle.pdfUrl} />

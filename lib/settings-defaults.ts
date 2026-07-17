@@ -49,6 +49,7 @@ export const SEED_SETTINGS: Settings = {
   payrollContact: 'payroll@portfolix.tech',
   reviewDeadlineTime: '6:00 PM',
   ptDeductionMonths: [8, 2],
+  defaultPtHalfYearly: 0,
   authorizedSignatoryName: 'Authorized Signatory',
   authorizedSignatoryTitle: 'HR & Payroll',
   bankVerificationEnabledByDefault: false,
@@ -128,6 +129,12 @@ export function mergeSettings(stored: Partial<Settings> | null | undefined): Set
     payrollContact: coalesceText(stored.payrollContact, SEED_SETTINGS.payrollContact),
     reviewDeadlineTime: coalesceText(stored.reviewDeadlineTime, SEED_SETTINGS.reviewDeadlineTime),
     ptDeductionMonths: normalizePtMonths(stored.ptDeductionMonths),
+    defaultPtHalfYearly: Math.max(
+      0,
+      Number.isFinite(Number(stored.defaultPtHalfYearly))
+        ? Number(stored.defaultPtHalfYearly)
+        : SEED_SETTINGS.defaultPtHalfYearly,
+    ),
     authorizedSignatoryName:
       stored.authorizedSignatoryName ?? SEED_SETTINGS.authorizedSignatoryName,
     authorizedSignatoryTitle:

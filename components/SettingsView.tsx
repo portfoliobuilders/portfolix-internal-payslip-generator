@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { AlertTriangle, CheckCircle2, Loader2 } from 'lucide-react';
 import type { EntityCode } from '@/lib/types';
+import { applyPtHalfYearlyToAll } from '@/app/actions/payroll';
 import { useAppSettings } from '@/hooks/useAppSettings';
 import { useHRStore } from '@/store/useHRStore';
 import { Field, Input, NumberInput, Textarea, btnPrimary, btnSecondary } from '@/components/ui';
@@ -37,6 +38,8 @@ export default function SettingsView() {
 
   const previewMonth = currentMonthKey();
   const [selectedEntity, setSelectedEntity] = useState<EntityCode>('PX');
+  const [ptApplyBusy, setPtApplyBusy] = useState(false);
+  const [ptApplyMessage, setPtApplyMessage] = useState<string | null>(null);
   const { creditDate, reviewDeadline } = payrollCycleDates(
     previewMonth,
     settings.paydayDayOfMonth,
@@ -45,6 +48,22 @@ export default function SettingsView() {
 
   async function handleSave() {
     await save();
+  }
+
+  async function handleApplyPtToAll() {
+    setPtApplyBusy(true);
+    setPtApplyMessage(null);
+    const result = await applyPtHalfYearlyToAll(settings.defaultPtHalfYearly);
+    setPtApplyBusy(false);
+    if (!result.ok) {
+      setPtApplyMessage(result.error);
+      return;
+    }
+    setPtApplyMessage(
+      result.data.count === 0
+        ? 'No employees on the roster yet.'
+        : `Updated Professional Tax to ₹${result.data.amount.toFixed(0)} for ${result.data.count} employee${result.data.count === 1 ? '' : 's'}.`,
+    );
   }
 
   if (settingsLoading) {
@@ -153,6 +172,40 @@ export default function SettingsView() {
               }}
             />
           </Field>
+          <Field
+            label="Default PT half-yearly (₹)"
+            hint="Suggested amount for new employees. Use Apply below to set everyone."
+          >
+            <NumberInput
+              value={settings.defaultPtHalfYearly}
+              min={0}
+              step={1}
+              onChange={(e) => {
+                const amount = Math.max(0, Math.round(Number(e.target.value) || 0));
+                updateSettings({ defaultPtHalfYearly: amount });
+              }}
+            />
+          </Field>
+        </div>
+        <div className="mt-4 flex flex-wrap items-center gap-3">
+          <button
+            type="button"
+            className={btnSecondary}
+            disabled={ptApplyBusy}
+            onClick={() => void handleApplyPtToAll()}
+          >
+            {ptApplyBusy ? (
+              <>
+                <Loader2 size={14} className="animate-spin" />
+                Applying…
+              </>
+            ) : (
+              `Apply ₹${settings.defaultPtHalfYearly.toFixed(0)} PT to everyone`
+            )}
+          </button>
+          {ptApplyMessage && (
+            <span className="text-[12px] text-muted">{ptApplyMessage}</span>
+          )}
         </div>
         <p className="mt-3 text-[12px] text-muted">
           Preview for {formatMonthYear(previewMonth)} — review queries by{' '}

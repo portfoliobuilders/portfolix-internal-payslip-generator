@@ -19,6 +19,7 @@ import type {
   WorkMode,
 } from '@/lib/types';
 import { mergeSettings, SEED_SETTINGS } from '@/lib/settings-defaults';
+import { bankLast4FromAccount, maskPan, normalizeBankAccountNumber } from './identity';
 import { defaultPaymentTypeForEngagement } from './workforce';
 import { slipStatutoryDeductions } from './payroll-calc';
 
@@ -26,6 +27,8 @@ export interface EmployeeDetailsJson {
   department: string;
   employeeAddress: string;
   paymentMode: PaymentMode;
+  bankName?: string;
+  bankAccountNumber?: string;
   bankLast4: string;
   panMasked: string;
   flexLog: FlexLogEntry[];
@@ -83,6 +86,8 @@ function emptyDetails(): EmployeeDetailsJson {
     department: '',
     employeeAddress: '',
     paymentMode: 'Bank Transfer',
+    bankName: '',
+    bankAccountNumber: '',
     bankLast4: '',
     panMasked: '',
     flexLog: [],
@@ -132,8 +137,12 @@ export function rowToEmployee(row: EmployeeRow): Employee {
     agreementType: details.agreementType ?? 'offer_letter',
     documentsStatus: details.documentsStatus ?? 'pending',
     notes: details.notes ?? '',
-    bankLast4: details.bankLast4,
-    panMasked: details.panMasked,
+    bankName: (details.bankName ?? '').trim(),
+    bankAccountNumber: normalizeBankAccountNumber(details.bankAccountNumber ?? ''),
+    bankLast4:
+      bankLast4FromAccount(details.bankAccountNumber ?? '') ||
+      (details.bankLast4 ?? '').replace(/\D/g, '').slice(-4),
+    panMasked: maskPan(details.panMasked ?? ''),
     flexBankBalance: row.flex_bank_balance,
     flexLog: details.flexLog ?? [],
     tdsMonthly: Number(details.tdsMonthly ?? 0) || 0,
@@ -170,8 +179,12 @@ export function employeeToRow(
       department: employee.department,
       employeeAddress: employee.employeeAddress,
       paymentMode: employee.paymentMode,
-      bankLast4: employee.bankLast4,
-      panMasked: employee.panMasked,
+      bankName: (employee.bankName ?? '').trim(),
+      bankAccountNumber: normalizeBankAccountNumber(employee.bankAccountNumber ?? ''),
+      bankLast4:
+        bankLast4FromAccount(employee.bankAccountNumber ?? '') ||
+        (employee.bankLast4 ?? '').replace(/\D/g, '').slice(-4),
+      panMasked: maskPan(employee.panMasked ?? ''),
       flexLog: employee.flexLog,
       reportingManager: employee.reportingManager,
       workMode: employee.workMode,

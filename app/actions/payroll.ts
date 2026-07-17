@@ -107,6 +107,45 @@ export async function upsertEmployee(
   }
 }
 
+/**
+ * Sets Kerala PT half-yearly amount on every employee roster row.
+ * Use from Settings to reduce/raise PT for everyone in one step.
+ */
+export async function applyPtHalfYearlyToAll(
+  amount: number,
+): Promise<ActionResult<{ count: number; amount: number }>> {
+  const pt = Math.max(0, Number(amount) || 0);
+  if (!Number.isFinite(pt)) {
+    return { ok: false, error: 'PT amount must be 0 or more.' };
+  }
+
+  try {
+    const supabase = await getSupabase();
+    const existingResult = await supabase.from('employees').select('*');
+    if (existingResult.error) return { ok: false, error: existingResult.error.message };
+
+    const rows = (existingResult.data as EmployeeRow[]).map((row) => {
+      const employee = rowToEmployee(row);
+      return employeeToRow({ ...employee, ptHalfYearly: pt });
+    });
+
+    if (rows.length === 0) {
+      return { ok: true, data: { count: 0, amount: pt } };
+    }
+
+    const { error } = await supabase.from('employees').upsert(rows, { onConflict: 'id' });
+    if (error) return { ok: false, error: error.message };
+
+    revalidatePayrollViews();
+    return { ok: true, data: { count: rows.length, amount: pt } };
+  } catch (err) {
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : 'Failed to apply Professional Tax to roster.',
+    };
+  }
+}
+
 /** Inserts or updates many employees in one request (matched by employee_id). */
 export async function bulkUpsertEmployees(
   employees: BulkEmployeeInput[],
@@ -413,6 +452,8 @@ export async function finalizePayrollSlip(
         employmentStatus: employee.employmentStatus,
         paymentType: employee.paymentType,
         compensationAmount: employee.compensationAmount,
+        bankName: employee.bankName,
+        bankAccountNumber: employee.bankAccountNumber,
         bankLast4: employee.bankLast4,
         panMasked: employee.panMasked,
       },

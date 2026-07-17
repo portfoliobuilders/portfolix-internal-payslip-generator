@@ -3,8 +3,11 @@
 /**
  * Thin host for the authorised bank copy.
  * Layout is owned exclusively by lib/pdf-vector.ts → buildVectorPayslipPdf.
- * This component only displays the generated PDF blob (object URL).
+ * Preview uses the same ScaledPreview A4 sheet chrome as Draft/Final —
+ * not a browser PDF-viewer chrome modal.
  */
+
+import { useEffect, useRef, useState } from 'react';
 
 interface AuthorisedSlipProps {
   /** Object URL for the canonical pdf-lib blob. */
@@ -13,6 +16,38 @@ interface AuthorisedSlipProps {
   emptyMessage?: string;
   className?: string;
   title?: string;
+}
+
+/** Same A4 scaling used by Generator Draft/Final live preview. */
+function ScaledA4({ children }: { children: React.ReactNode }) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [scale, setScale] = useState(0.5);
+  const SHEET_PX = 794; // 210mm at 96dpi
+
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const observer = new ResizeObserver(() => {
+      setScale(Math.min(el.clientWidth / SHEET_PX, 1));
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
+  return (
+    <div ref={containerRef} className="w-full overflow-hidden">
+      <div
+        style={{
+          transform: `scale(${scale})`,
+          transformOrigin: 'top left',
+          width: SHEET_PX,
+          height: 1123 * scale, // 297mm at 96dpi
+        }}
+      >
+        {children}
+      </div>
+    </div>
+  );
 }
 
 export default function AuthorisedSlip({
@@ -24,24 +59,29 @@ export default function AuthorisedSlip({
   if (!pdfUrl) {
     return (
       <div
-        className={`flex h-[min(80vh,842px)] items-center justify-center rounded-lg border border-dashed border-hairline bg-paper text-sm text-muted ${className}`}
+        className={`flex h-96 items-center justify-center rounded-lg border border-dashed border-hairline bg-paper text-sm text-muted ${className}`}
       >
         {emptyMessage}
       </div>
     );
   }
 
+  // Hide browser PDF toolbar/nav so preview matches Draft/Final sheet chrome.
+  const embedSrc = pdfUrl.includes('#') ? pdfUrl : `${pdfUrl}#toolbar=0&navpanes=0&scrollbar=0`;
+
   return (
-    <div
-      className={`mx-auto overflow-hidden rounded-lg border border-hairline bg-paper shadow-lg ${className}`}
-      style={{ width: '100%', maxWidth: '210mm' }}
-    >
-      <iframe
-        src={pdfUrl}
-        title={title}
-        className="h-[min(80vh,842px)] w-full bg-paper"
-      />
-    </div>
+    <ScaledA4>
+      <div
+        className={`slip-sheet relative mx-auto box-border overflow-hidden bg-paper text-ink shadow-lg ${className}`}
+        style={{ width: '210mm', height: '297mm' }}
+      >
+        <iframe
+          src={embedSrc}
+          title={title}
+          className="h-full w-full border-0 bg-paper"
+        />
+      </div>
+    </ScaledA4>
   );
 }
 

@@ -11,7 +11,7 @@ alwaysApply: false
 - The client is UNTRUSTED. All payroll computation, validation, and persistence happen server-side. Never accept computed figures (netPay, lopDeduction, deferredClosing, snapshots) from the browser — accept raw inputs only and recompute on the server.
 - `lib/payroll-calc.ts` and `lib/amount-in-words.ts` remain dependency-free pure modules and are the ONLY place payroll math exists. Server actions call them; UI renders stored results.
 - Fail closed: missing env, failed auth, or a failed guard throws immediately. No mock Supabase clients outside tests.
-- Only masked PAN and last-4 bank digits are ever stored or accepted. Reject full identity/account numbers at validation.
+- Only masked PAN is ever stored (full PAN is auto-masked on save). Full bank account number and bank name may be stored for authorised bank copies; prefer full account on slips when present.
 - Allowed dependencies now include: @supabase/ssr, @supabase/supabase-js, zod. Do not add other packages without asking.
 
 ## Payroll math

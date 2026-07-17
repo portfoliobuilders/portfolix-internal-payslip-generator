@@ -86,8 +86,10 @@ function sampleSnapshot(overrides: Partial<SlipSnapshot> = {}): SlipSnapshot {
       department: 'Ops',
       joiningDate: '2024-01-15',
       employeeAddress: '',
-      panMasked: 'ABCDE****F',
-      bankLast4: '1234',
+      panMasked: 'ABXXXXXX1F',
+      bankName: 'HDFC Bank',
+      bankAccountNumber: '50100123456789',
+      bankLast4: '6789',
       paymentMode: 'Bank Transfer',
       entityCode: 'PX',
       paymentType: 'salary',
@@ -196,6 +198,10 @@ describe('authorised export wiring helpers', () => {
     expect(result.extractedText).toContain('Scheduled credit: 05 Aug 2026');
     expect(result.extractedText).not.toContain('Actual salary-credit date');
     expect(result.extractedText).toContain('Verification ID');
+    expect(result.extractedText).toContain('HDFC Bank');
+    expect(result.extractedText).toContain('50100123456789');
+    expect(result.extractedText).toContain('ABXXXXXX1F');
+    expect(result.extractedText).not.toContain('····1234');
     expect(result.sizeBytes).toBeLessThan(1_000_000);
   });
 
