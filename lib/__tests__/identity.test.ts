@@ -82,4 +82,18 @@ describe('identity helpers', () => {
     expect(result.ifsc).toBe('HDFC0001234');
     expect(result.bankAccount).toBe('50100123456789');
   });
+
+  it('accepts and repairs legacy 5-X masked PAN so roster save is not blocked', () => {
+    const result = validateIdentityFields({ pan: 'RFXXXXX5H' });
+    expect(result.ok).toBe(true);
+    expect(result.pan).toBe('');
+    expect(result.panMasked).toBe('RFXXXXXX5H');
+  });
+
+  it('accepts standard masked PAN without requiring the full value', () => {
+    const result = validateIdentityFields({ pan: 'DLXXXXXX9H' });
+    expect(result.ok).toBe(true);
+    expect(result.pan).toBe('');
+    expect(result.panMasked).toBe('DLXXXXXX9H');
+  });
 });

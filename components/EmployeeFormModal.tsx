@@ -200,7 +200,17 @@ export default function EmployeeFormModal({
 
   async function handleSave() {
     setTouchedSave(true);
-    if (Object.keys(errors).length > 0) return;
+    const currentErrors = validate(draft);
+    if (Object.keys(currentErrors).length > 0) {
+      const messages = Object.values(currentErrors).filter(Boolean) as string[];
+      const summary =
+        messages.length === 1
+          ? messages[0]!
+          : `Please fix ${messages.length} fields: ${messages.slice(0, 3).join(' ')}`;
+      setSaveError(summary);
+      onSaveFailed?.(summary);
+      return;
+    }
 
     setSaving(true);
     setSaveError(null);
@@ -266,7 +276,7 @@ export default function EmployeeFormModal({
         ? identity.bankAccount.slice(-4)
         : employee?.bankLast4 ?? '',
       pan: identity.pan,
-      panMasked: identity.panMasked,
+      panMasked: identity.panMasked || employee?.panMasked || '',
       ifsc: identity.ifsc,
       workLocation: draft.workLocation.trim(),
       salaryComponents: components.length ? components : undefined,

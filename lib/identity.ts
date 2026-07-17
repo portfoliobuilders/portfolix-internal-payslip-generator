@@ -12,6 +12,12 @@ const FULL_PAN_RE = /^[A-Z]{5}[0-9]{4}[A-Z]$/;
 /** Masked form: keep first 2 + last 2, X out the middle 6. e.g. ABXXXXXX1F */
 const MASKED_PAN_RE = /^[A-Z]{2}X{6}[A-Z0-9]{2}$/i;
 
+/**
+ * Legacy typo: 5 X's instead of 6 (e.g. RFXXXXX5H). Repair by inserting the
+ * missing X so roster edits are not blocked on corrupted historical masks.
+ */
+const LEGACY_FIVE_X_MASK_RE = /^([A-Z]{2})X{5}([A-Z0-9]{2})$/;
+
 /** IFSC: 4 letters + 0 + 6 alphanumeric. */
 const IFSC_RE = /^[A-Z]{4}0[A-Z0-9]{6}$/;
 
@@ -26,11 +32,32 @@ export function isMaskedPan(value: string): boolean {
   return MASKED_PAN_RE.test(value.trim());
 }
 
+/**
+ * Accept / repair historical masked PAN values that are not a full PAN and
+ * not Aadhaar-shaped. Returns the stored mask (repaired when possible), or null.
+ */
+export function normalizeLegacyMaskedPan(raw: string): string | null {
+  const cleaned = raw.trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+  if (!cleaned || FULL_PAN_RE.test(cleaned) || AADHAAR_SHAPED_RE.test(cleaned)) {
+    return null;
+  }
+  if (MASKED_PAN_RE.test(cleaned)) return cleaned;
+  const fiveX = cleaned.match(LEGACY_FIVE_X_MASK_RE);
+  if (fiveX) return `${fiveX[1]}XXXXXX${fiveX[2]}`;
+  // Other legacy masks that clearly used X-masking (not a mistyped full PAN).
+  if (cleaned.length >= 8 && cleaned.length <= 12 && /X/.test(cleaned)) {
+    return cleaned;
+  }
+  return null;
+}
+
 /** Uppercase-normalize and validate full PAN. Returns null when invalid. */
 export function normalizePan(raw: string): string | null {
   const cleaned = raw.trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
   if (!cleaned) return null;
   if (isMaskedPan(cleaned)) return cleaned.toUpperCase();
+  const legacy = normalizeLegacyMaskedPan(cleaned);
+  if (legacy) return legacy;
   if (FULL_PAN_RE.test(cleaned)) return cleaned;
   return null;
 }
@@ -159,17 +186,18 @@ export function validateIdentityFields(input: IdentityValidationInput): Identity
   let pan = '';
   let panMasked = '';
   if (panRaw) {
-    const normalized = normalizePan(panRaw);
-    if (!normalized || isMaskedPan(normalized)) {
-      // Accept legacy masked-only records; prefer full PAN when provided.
-      if (isMaskedPan(panRaw)) {
-        panMasked = maskPan(panRaw);
+    const cleaned = panRaw.toUpperCase().replace(/[^A-Z0-9]/g, '');
+    if (FULL_PAN_RE.test(cleaned)) {
+      pan = cleaned;
+      panMasked = maskPan(cleaned);
+    } else {
+      // Accept legacy masked-only records (including corrupted 5-X masks).
+      const legacy = normalizeLegacyMaskedPan(panRaw);
+      if (legacy) {
+        panMasked = legacy;
       } else {
         errors.push('PAN must match AAAAA9999A (uppercase).');
       }
-    } else {
-      pan = normalized;
-      panMasked = maskPan(normalized);
     }
   }
 
