@@ -305,6 +305,16 @@ export interface SlipSnapshot {
   revisionNumber?: number | null;
   internalDocumentNumber?: string | null;
   payrollBatchId?: string | null;
+  /**
+   * When true this snapshot is the authoritative (non-superseded) final for its month.
+   * Loaded from the payroll_slips.active_final column when available.
+   */
+  activeFinal?: boolean | null;
+  /**
+   * Workflow status from payroll_slips table (e.g. 'ISSUED', 'SUPERSEDED').
+   * Used by YTD aggregation to exclude superseded duplicates.
+   */
+  workflowStatus?: string | null;
 }
 
 /** Signatory fields frozen into authorised_slip_log at bank-copy generation. */
@@ -335,4 +345,12 @@ export interface AuthorisedSlipYtd {
   tds: number;
   otherDeductions: number;
   totalDeductions: number;
+  /**
+   * Per-component YTD totals keyed by component label.
+   * Populated when salary components are present on snapshots.
+   * Pre-component snapshots attribute everything to "Basic".
+   */
+  components?: Record<string, number>;
+  /** Net pay YTD (grossEarnings − totalDeductions across finalized months). */
+  netPay?: number;
 }
