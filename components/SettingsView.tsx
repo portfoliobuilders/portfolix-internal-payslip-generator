@@ -218,7 +218,7 @@ export default function SettingsView() {
       </div>
 
       <div className="rounded-lg border border-hairline bg-paper p-5 shadow-card">
-        <h3 className="mb-4 text-sm font-semibold text-ink">Authorized slip for bank verification</h3>
+        <h3 className="mb-4 text-sm font-semibold text-ink">Authorised slip for bank verification</h3>
         <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
           <Field label="Enable by default in Generator">
             <select
@@ -232,13 +232,13 @@ export default function SettingsView() {
               <option value="yes">Yes</option>
             </select>
           </Field>
-          <Field label="Authorized signatory name (internal slip banner)">
+          <Field label="Authorised signatory name (internal slip banner)">
             <Input
               value={settings.authorizedSignatoryName}
               onChange={(e) => updateSettings({ authorizedSignatoryName: e.target.value })}
             />
           </Field>
-          <Field label="Authorized signatory title (internal slip banner)">
+          <Field label="Authorised signatory title (internal slip banner)">
             <Input
               value={settings.authorizedSignatoryTitle}
               onChange={(e) => updateSettings({ authorizedSignatoryTitle: e.target.value })}
