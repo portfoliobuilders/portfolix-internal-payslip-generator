@@ -61,24 +61,47 @@ function resolveAttendance(snapshot: SlipSnapshot): {
 }
 
 /**
- * Vercel preview host pattern — these are ephemeral deployments and must NOT be
- * used as canonical verification URLs (links will break when the preview expires).
- * Matches: git-<hash>-<team>.vercel.app  and  <project>-<hash>-<team>.vercel.app
+ * Stable production host used when NEXT_PUBLIC_APP_URL is not configured yet.
+ * Prefer setting NEXT_PUBLIC_APP_URL (or a custom domain) in Vercel — this is a
+ * fail-open default for the known production deployment only.
  */
-const VERCEL_PREVIEW_PATTERN = /^https?:\/\/[^/]+-[a-z0-9]+-[^/]+\.vercel\.app/i;
+export const DEFAULT_CANONICAL_APP_URL =
+  'https://portfolix-internal-payslip-generato.vercel.app';
 
 /**
- * Resolve the canonical app URL from NEXT_PUBLIC_APP_URL (the only authoritative source).
- * Never use window.location.origin — preview deployments produce non-stable URLs.
- * Block bank-copy when the env var is unset or points at a Vercel preview host.
- * NOTE: Switch to custom domain before going live; set NEXT_PUBLIC_APP_URL accordingly.
+ * Vercel *preview* hosts only (git-branch / deployment URLs).
+ * Stable production `{project}.vercel.app` is allowed until a custom domain is set.
+ * Live-print defect: QR pointed at …-git-8ac69a-….vercel.app which dies with the branch.
  */
-export function resolveCanonicalAppUrl():
-  | { ok: true; url: string }
-  | { ok: false; error: string } {
-  const raw =
+export function isVercelPreviewAppUrl(url: string): boolean {
+  let host: string;
+  try {
+    host = new URL(url).hostname.toLowerCase();
+  } catch {
+    return true;
+  }
+  if (!host.endsWith('.vercel.app')) return false;
+  // Branch previews always contain -git-
+  if (host.includes('-git-')) return true;
+  // Deployment previews: {project}-{deploymentId}-{team}.vercel.app
+  // deploymentId is typically a long alphanumeric token (not a normal project-name word).
+  const sub = host.slice(0, -'.vercel.app'.length);
+  return /-[a-z0-9]{10,}-[a-z0-9-]+$/i.test(sub);
+}
+
+/**
+ * Resolve the canonical app URL for QR / verification links.
+ * Order: NEXT_PUBLIC_APP_URL → optional settings override → stable production default.
+ * Never use window.location.origin (preview deployments produce non-stable URLs).
+ * NOTE: Switch NEXT_PUBLIC_APP_URL to your custom domain when it is finalized.
+ */
+export function resolveCanonicalAppUrl(
+  settingsOverride?: string | null,
+): { ok: true; url: string } | { ok: false; error: string } {
+  const fromEnv =
     (typeof process !== 'undefined' ? process.env.NEXT_PUBLIC_APP_URL : undefined) ?? '';
-  const url = raw.trim().replace(/\/$/, '');
+  const raw = (fromEnv || settingsOverride || DEFAULT_CANONICAL_APP_URL).trim();
+  const url = raw.replace(/\/$/, '');
   if (!url) {
     return {
       ok: false,
@@ -86,10 +109,10 @@ export function resolveCanonicalAppUrl():
         'NEXT_PUBLIC_APP_URL is not set. Set it to your production domain (e.g. https://pay.yourcompany.com) before generating authorised slips.',
     };
   }
-  if (VERCEL_PREVIEW_PATTERN.test(url)) {
+  if (isVercelPreviewAppUrl(url)) {
     return {
       ok: false,
-      error: `NEXT_PUBLIC_APP_URL points at a Vercel preview host (${url}). Set it to your stable production domain — preview URLs expire and break QR verification.`,
+      error: `Canonical app URL points at a Vercel preview host (${url}). Set NEXT_PUBLIC_APP_URL to your stable production domain — preview URLs expire and break QR verification.`,
     };
   }
   return { ok: true, url };
