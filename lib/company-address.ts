@@ -7,9 +7,10 @@
  * Normalize a legal company name:
  * - Trim leading/trailing whitespace
  * - Collapse internal runs of whitespace to a single space
+ * - Collapse duplicate / trailing commas (live prints showed "Portfolix Hub,,")
  */
 export function normalizeLegalName(name: string): string {
-  return name.trim().replace(/\s+/g, ' ');
+  return normalizeAddressText(name);
 }
 
 /**

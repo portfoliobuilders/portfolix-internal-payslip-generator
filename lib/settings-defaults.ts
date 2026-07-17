@@ -2,6 +2,7 @@ import {
   COMPANY_ENTITIES,
   PAYROLL_CONTACT,
 } from '@/lib/constants/company';
+import { normalizeAddressText, normalizeLegalName } from '@/lib/company-address';
 import type { EntityCode, EntityInfo, Settings } from '@/lib/types';
 
 const ENTITY_CODES: EntityCode[] = ['PX', 'PB', 'PT', 'PH'];
@@ -36,7 +37,7 @@ function buildEntity(code: EntityCode): EntityInfo {
     registeredAddress: addressLines.join(', '),
     phone: PAYROLL_CONTACT,
     payrollEmail: 'payroll@portfolix.tech',
-    signatoryName: 'Authorized Signatory',
+    signatoryName: 'Authorised Signatory',
     signatoryDesignation: 'HR & Payroll',
     signatureAssetPath: null,
     sealAssetPath: null,
@@ -50,7 +51,7 @@ export const SEED_SETTINGS: Settings = {
   reviewDeadlineTime: '6:00 PM',
   ptDeductionMonths: [8, 2],
   defaultPtHalfYearly: 0,
-  authorizedSignatoryName: 'Authorized Signatory',
+  authorizedSignatoryName: 'Authorised Signatory',
   authorizedSignatoryTitle: 'HR & Payroll',
   bankVerificationEnabledByDefault: false,
   entities: {
@@ -92,15 +93,24 @@ function mergeEntityBranding(
     const patch = stored[code];
     if (patch) {
       const { contactPhone, ...rest } = patch;
+      const name = normalizeLegalName(coalesceText(patch.name, merged[code].name));
+      const registeredAddress = normalizeAddressText(
+        coalesceText(patch.registeredAddress, merged[code].registeredAddress),
+      );
+      const addressLines = coalesceAddressLines(
+        patch.addressLines,
+        merged[code].addressLines,
+      ).map(normalizeAddressText).filter(Boolean);
+
       merged[code] = {
         ...merged[code],
         ...rest,
-        name: coalesceText(patch.name, merged[code].name),
+        name,
         legalLine: patch.legalLine === undefined ? merged[code].legalLine : patch.legalLine,
-        addressLines: coalesceAddressLines(patch.addressLines, merged[code].addressLines),
+        addressLines,
         contact: coalesceText(patch.contact, merged[code].contact),
         cin: coalesceText(patch.cin, merged[code].cin),
-        registeredAddress: coalesceText(patch.registeredAddress, merged[code].registeredAddress),
+        registeredAddress,
         phone: coalesceText(patch.phone ?? contactPhone, merged[code].phone),
         payrollEmail: coalesceText(patch.payrollEmail, merged[code].payrollEmail),
         signatoryName: coalesceText(patch.signatoryName, merged[code].signatoryName),
@@ -120,9 +130,27 @@ function mergeEntityBranding(
   return merged;
 }
 
+/**
+ * One-off cleanup of live-print defects (e.g. "Portfolix Hub,," / "Puthiya Road,,").
+ * Applied on every merge so stored jsonb is sanitized when loaded, and again on save.
+ */
+export function cleanupStoredEntityText(entity: EntityInfo): EntityInfo {
+  return {
+    ...entity,
+    name: normalizeLegalName(entity.name ?? ''),
+    registeredAddress: normalizeAddressText(entity.registeredAddress ?? ''),
+    addressLines: (entity.addressLines ?? []).map(normalizeAddressText).filter(Boolean),
+  };
+}
+
 /** Merges stored DB values over SEED_SETTINGS so missing keys keep their defaults. */
 export function mergeSettings(stored: Partial<Settings> | null | undefined): Settings {
   if (!stored) return structuredClone(SEED_SETTINGS);
+
+  const entities = mergeEntityBranding(stored.entities, SEED_SETTINGS.entities);
+  for (const code of ENTITY_CODES) {
+    entities[code] = cleanupStoredEntityText(entities[code]!);
+  }
 
   return {
     paydayDayOfMonth: stored.paydayDayOfMonth ?? SEED_SETTINGS.paydayDayOfMonth,
@@ -142,7 +170,7 @@ export function mergeSettings(stored: Partial<Settings> | null | undefined): Set
     bankVerificationEnabledByDefault:
       stored.bankVerificationEnabledByDefault ??
       SEED_SETTINGS.bankVerificationEnabledByDefault,
-    entities: mergeEntityBranding(stored.entities, SEED_SETTINGS.entities),
+    entities,
   };
 }
 
@@ -174,7 +202,7 @@ export function isGenericSignatoryName(name: string | null | undefined): boolean
  * Returns a human-readable reason listing missing company/signatory fields,
  * or null when the entity is complete enough to generate a bank copy.
  * Fail-closed: missing signatureBytes/sealBytes at build time → reject.
- * Generic seed names (e.g. "Authorized Signatory") are treated as incomplete.
+ * Generic seed names (e.g. "Authorised Signatory") are treated as incomplete.
  */
 export function signatoryIncompleteReason(entity: EntityInfo): string | null {
   const missing: string[] = [];
