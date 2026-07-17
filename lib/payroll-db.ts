@@ -26,6 +26,9 @@ export interface EmployeeDetailsJson {
   department: string;
   employeeAddress: string;
   paymentMode: PaymentMode;
+  bankName?: string;
+  ifsc?: string | null;
+  bankDetailsVerified?: boolean;
   bankLast4: string;
   panMasked: string;
   flexLog: FlexLogEntry[];
@@ -83,6 +86,9 @@ function emptyDetails(): EmployeeDetailsJson {
     department: '',
     employeeAddress: '',
     paymentMode: 'Bank Transfer',
+    bankName: '',
+    ifsc: null,
+    bankDetailsVerified: false,
     bankLast4: '',
     panMasked: '',
     flexLog: [],
@@ -132,6 +138,9 @@ export function rowToEmployee(row: EmployeeRow): Employee {
     agreementType: details.agreementType ?? 'offer_letter',
     documentsStatus: details.documentsStatus ?? 'pending',
     notes: details.notes ?? '',
+    bankName: details.bankName ?? '',
+    ifsc: details.ifsc ?? null,
+    bankDetailsVerified: details.bankDetailsVerified === true,
     bankLast4: details.bankLast4,
     panMasked: details.panMasked,
     flexBankBalance: row.flex_bank_balance,
@@ -170,6 +179,9 @@ export function employeeToRow(
       department: employee.department,
       employeeAddress: employee.employeeAddress,
       paymentMode: employee.paymentMode,
+      bankName: employee.bankName ?? '',
+      ifsc: employee.ifsc ?? null,
+      bankDetailsVerified: employee.bankDetailsVerified === true,
       bankLast4: employee.bankLast4,
       panMasked: employee.panMasked,
       flexLog: employee.flexLog,

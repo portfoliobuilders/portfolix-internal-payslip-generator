@@ -9,6 +9,7 @@
 
 import { createHash } from 'node:crypto';
 import { assertAuthorisedSlipPaymentGate } from '@/app/actions/salary-payment';
+import { fetchAuthorisedSlipYtd } from '@/app/actions/payroll';
 import {
   attachIssuedPdfArtifact,
   fetchIssuedAuthorisedPdf,
@@ -21,12 +22,18 @@ import {
   type LoadedImageAsset,
 } from '@/lib/documents/load-company-asset';
 import { authorisedSlipFilename } from '@/lib/format';
-import { lopCalculationBasisDisplayText } from '@/lib/calculation-method';
 import {
   computeAttendancePeriod,
   DEFAULT_PAYROLL_CYCLE_METHOD,
 } from '@/lib/payroll-cycle';
-import { buildVectorPayslipPdf } from '@/lib/pdf-vector';
+import { buildBankReadyAuthorisedPdf } from '@/lib/authorised-pdf-layout';
+import {
+  assertExtractedTextClean,
+  companyIdentityGate,
+  resolvePayableDays,
+  validateAuthorisedChronology,
+} from '@/lib/authorised-slip-policy';
+import { buildVerificationQrPng } from '@/lib/qr-png';
 import { signatoryIncompleteReason } from '@/lib/settings-defaults';
 import type { EntityInfo, SlipSnapshot } from '@/lib/types';
 import {
@@ -176,6 +183,41 @@ export async function generateAuthorisedSalarySlipPdfAction(input: {
 
     const issueDate = new Date().toISOString().slice(0, 10);
     const attendance = resolveAttendance(input.snapshot);
+    if (input.snapshot.status !== 'final') {
+      return { ok: false, error: 'Payroll is not finalised.' };
+    }
+    const identityError = companyIdentityGate(input.entity);
+    if (identityError) return { ok: false, error: identityError };
+    if (!input.snapshot.employee.bankName?.trim()) {
+      return { ok: false, error: 'Bank name is required for an authorised salary slip.' };
+    }
+    if (input.snapshot.employee.bankDetailsVerified !== true) {
+      return { ok: false, error: 'Employee bank details must be verified by HR before issuance.' };
+    }
+    if (!/^\d{4}$/.test(input.snapshot.employee.bankLast4)) {
+      return { ok: false, error: 'Verified masked bank account is required.' };
+    }
+    const payableDays = resolvePayableDays(input.snapshot);
+    if (payableDays == null) {
+      return { ok: false, error: 'Payable days could not be derived from the final payroll record.' };
+    }
+    const chronology = validateAuthorisedChronology({
+      attendancePeriodEnd: attendance.end,
+      payrollFinalisedAt: input.snapshot.generatedAt,
+      issueDate,
+      actualCreditDate: paymentGate.data.actualCreditDate,
+    });
+    if (!chronology.ok) return { ok: false, error: chronology.error };
+    const ytdResult = await fetchAuthorisedSlipYtd(
+      input.snapshot.employeeId,
+      input.snapshot.monthYear,
+    );
+    if (!ytdResult.ok || !ytdResult.data) {
+      return {
+        ok: false,
+        error: ytdResult.ok ? 'YTD could not be reconciled.' : ytdResult.error,
+      };
+    }
 
     const issued = await issueAuthorisedSalarySlipDocument({
       snapshot: {
@@ -230,36 +272,47 @@ export async function generateAuthorisedSalarySlipPdfAction(input: {
     const mode = input.entity.authorisationMode ?? 'SIGNATURE_AND_SEAL';
     const drawSignatoryBlock = mode === 'SIGNATURE_AND_SEAL';
 
-    const pdf = await buildVectorPayslipPdf({
-      documentType: 'AUTHORISED_SALARY_SLIP',
+    const qrPng = await buildVerificationQrPng(issued.data.verificationUrl);
+    const pdf = await buildBankReadyAuthorisedPdf({
       legalCompanyName: input.entity.name,
+      cin: input.entity.cin,
+      registeredAddress: input.entity.registeredAddress,
+      payrollEmail: input.entity.payrollEmail,
+      verificationPhone: input.entity.phone,
       employeeName: input.snapshot.employee.fullName,
       employeeId: input.snapshot.employee.empId,
       salaryMonth: input.snapshot.monthYear,
       attendancePeriodStart: attendance.start,
       attendancePeriodEnd: attendance.end,
+      payrollFinalisedAt: input.snapshot.generatedAt,
+      issueDate,
       netSalary: paymentGate.data.netSalaryPayable,
       documentNumber: issued.data.documentNumber,
-      paymentStatus: 'Paid',
+      revisionNumber: issued.data.revisionNumber,
       verificationId: issued.data.publicVerificationId,
       verificationUrl: issued.data.verificationUrl,
       actualCreditDate: paymentGate.data.actualCreditDate,
       confirmedPaidAmount: paymentGate.data.confirmedPaidAmount,
       outstandingAmount: paymentGate.data.outstandingAmount,
-      cin: input.entity.cin,
-      issueDate,
+      paymentMode: input.snapshot.employee.paymentMode,
+      bankName: input.snapshot.employee.bankName,
+      bankLast4: input.snapshot.employee.bankLast4,
+      ifsc: input.snapshot.employee.ifsc,
+      payableDays,
+      lopDays: input.snapshot.computed.lopDays,
+      department: input.snapshot.employee.department,
+      designation: input.snapshot.employee.designation,
+      joiningDate: input.snapshot.employee.joiningDate,
+      panMasked: input.snapshot.employee.panMasked,
       signatoryName: input.entity.signatoryName,
       signatoryDesignation: input.entity.signatoryDesignation,
-      drawSignatoryBlock,
+      snapshot: input.snapshot,
+      ytd: ytdResult.data,
+      qrPng,
       assets: {
         signature: assetsResult.signature,
         seal: assetsResult.seal,
       },
-      lopDivisorLabel:
-        input.snapshot.calculationMethodLabel ??
-        lopCalculationBasisDisplayText(
-          input.snapshot.calculationMethodCode ?? 'FIXED_25_DAY_DIVISOR',
-        ),
     });
 
     if (drawSignatoryBlock && (!pdf.embedded.signature || !pdf.embedded.seal)) {
@@ -277,6 +330,16 @@ export async function generateAuthorisedSalarySlipPdfAction(input: {
         error:
           'Authorised salary slip cannot be issued because the authorised signatory configuration is incomplete.',
       };
+    }
+    const cleanText = assertExtractedTextClean(pdf.extractedText);
+    if (!cleanText.ok) {
+      return {
+        ok: false,
+        error: `Authorised PDF contains forbidden content: ${cleanText.found.join(', ')}.`,
+      };
+    }
+    if (pdf.bytes.byteLength > 1_000_000) {
+      return { ok: false, error: 'Authorised PDF exceeds the 1 MB size limit.' };
     }
 
     const contentHash = createHash('sha256').update(pdf.bytes).digest('hex');
@@ -303,7 +366,7 @@ export async function generateAuthorisedSalarySlipPdfAction(input: {
         publicVerificationId: issued.data.publicVerificationId,
         verificationUrl: issued.data.verificationUrl,
         filename,
-        sizeBytes: pdf.sizeBytes,
+        sizeBytes: pdf.bytes.byteLength,
         pdfBase64: Buffer.from(pdf.bytes).toString('base64'),
         reusedImmutablePdf: false,
         embedded: pdf.embedded,

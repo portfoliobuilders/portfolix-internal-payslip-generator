@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { format } from 'date-fns';
-import { AlertTriangle, Download, Printer } from 'lucide-react';
+import { AlertTriangle, Download, Maximize2, Minus, Plus, Printer } from 'lucide-react';
 import { computePayroll, derivePtThisMonth, validateVariablePaid } from '@/lib/payroll-calc';
 import {
   formatINR,
@@ -15,6 +15,7 @@ import { exportAuthorisedSalarySlipPdf } from '@/lib/authorised-export';
 import { exportElementToPdf } from '@/lib/pdf-export';
 import { finalizePayrollSlip, savePayrollSlip, fetchAuthorisedSlipYtd, logAuthorisedSlipGeneration } from '@/app/actions/payroll';
 import { createSignatorySignedUrls, getSignatoryStorageStatus } from '@/app/actions/signatory-assets';
+import { assertAuthorisedSlipPaymentGate } from '@/app/actions/salary-payment';
 import { computeAuthorisedYtd } from '@/lib/authorised-slip';
 import type { AuthorisedSlipYtd, Employee, EntityInfo, SlipSnapshot, SlipStatus } from '@/lib/types';
 import { generateId } from '@/lib/payroll-db';
@@ -84,26 +85,59 @@ function nonNegative(value: string, label: string): string | null {
 function ScaledPreview({ children }: { children: React.ReactNode }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [scale, setScale] = useState(0.5);
+  const [manualScale, setManualScale] = useState<number | null>(null);
   const SHEET_PX = 794; // 210mm at 96dpi
+  const SHEET_HEIGHT_PX = 1123;
 
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
     const observer = new ResizeObserver(() => {
-      setScale(Math.min(el.clientWidth / SHEET_PX, 1));
+      if (manualScale == null) setScale(Math.min(el.clientWidth / SHEET_PX, 1));
     });
     observer.observe(el);
     return () => observer.disconnect();
-  }, []);
+  }, [manualScale]);
+
+  function fitWidth() {
+    const width = containerRef.current?.clientWidth ?? SHEET_PX;
+    setManualScale(null);
+    setScale(Math.min(width / SHEET_PX, 1));
+  }
+
+  function fitPage() {
+    const width = containerRef.current?.clientWidth ?? SHEET_PX;
+    const availableHeight = Math.max(420, window.innerHeight - 210);
+    const next = Math.min(width / SHEET_PX, availableHeight / SHEET_HEIGHT_PX, 1);
+    setManualScale(next);
+    setScale(next);
+  }
 
   return (
     <div ref={containerRef} className="w-full overflow-hidden">
+      <div className="no-print mb-2 flex flex-wrap items-center justify-end gap-1">
+        <button type="button" className={btnSecondary} onClick={fitWidth}>Fit width</button>
+        <button type="button" className={btnSecondary} onClick={fitPage}>Fit page</button>
+        <button type="button" aria-label="Zoom out" className={btnSecondary} onClick={() => {
+          const next = Math.max(0.25, scale - 0.1);
+          setManualScale(next);
+          setScale(next);
+        }}><Minus size={14} /></button>
+        <button type="button" aria-label="Zoom in" className={btnSecondary} onClick={() => {
+          const next = Math.min(1.5, scale + 0.1);
+          setManualScale(next);
+          setScale(next);
+        }}><Plus size={14} /></button>
+        <button type="button" aria-label="Full screen" className={btnSecondary} onClick={() => {
+          void containerRef.current?.requestFullscreen?.();
+        }}><Maximize2 size={14} /></button>
+      </div>
       <div
         style={{
           transform: `scale(${scale})`,
           transformOrigin: 'top left',
           width: SHEET_PX,
-          height: 1123 * scale, // 297mm at 96dpi
+          height: SHEET_HEIGHT_PX * scale, // 297mm at 96dpi
         }}
       >
         {children}
@@ -148,6 +182,9 @@ export default function GeneratorView({
     ytd: AuthorisedSlipYtd;
     signatureUrl: string | null;
     sealUrl: string | null;
+    actualCreditDate: string;
+    confirmedPaidAmount: number;
+    outstandingAmount: number;
   } | null>(null);
   const [authorisedLoading, setAuthorisedLoading] = useState(false);
   const [authorisedError, setAuthorisedError] = useState<string | null>(null);
@@ -248,18 +285,24 @@ export default function GeneratorView({
 
     void (async () => {
       try {
-        const [ytdResult, urlsResult] = await Promise.all([
+        const [ytdResult, urlsResult, paymentResult] = await Promise.all([
           fetchAuthorisedSlipYtd(existingFinal.employeeId, existingFinal.monthYear),
           createSignatorySignedUrls({
             signatureAssetPath: entityInfo.signatureAssetPath,
             sealAssetPath: entityInfo.sealAssetPath,
           }),
+          assertAuthorisedSlipPaymentGate(existingFinal.id),
         ]);
 
         if (cancelled) return;
 
         if (!ytdResult.ok) {
           setAuthorisedError(ytdResult.error);
+          setAuthorisedBundle(null);
+          return;
+        }
+        if (!paymentResult.ok) {
+          setAuthorisedError(paymentResult.error);
           setAuthorisedBundle(null);
           return;
         }
@@ -291,6 +334,9 @@ export default function GeneratorView({
           ytd,
           signatureUrl,
           sealUrl,
+          actualCreditDate: paymentResult.data.actualCreditDate,
+          confirmedPaidAmount: paymentResult.data.confirmedPaidAmount,
+          outstandingAmount: paymentResult.data.outstandingAmount,
         });
       } catch (err) {
         if (cancelled) return;
@@ -449,6 +495,9 @@ export default function GeneratorView({
         employmentStatus: employee.employmentStatus,
         paymentType: employee.paymentType,
         compensationAmount: employee.compensationAmount,
+        bankName: employee.bankName ?? '',
+        ifsc: employee.ifsc ?? null,
+        bankDetailsVerified: employee.bankDetailsVerified === true,
         bankLast4: employee.bankLast4,
         panMasked: employee.panMasked,
       },
@@ -969,7 +1018,10 @@ export default function GeneratorView({
                   sealUrl={authorisedBundle.sealUrl}
                   signatureAssetPath={entity.signatureAssetPath}
                   sealAssetPath={entity.sealAssetPath}
-                  actualCreditDate={existingFinal.generatedAt.slice(0, 10)}
+                  actualCreditDate={authorisedBundle.actualCreditDate}
+                  confirmedPaidAmount={authorisedBundle.confirmedPaidAmount}
+                  outstandingBalance={authorisedBundle.outstandingAmount}
+                  payrollFinalisedDate={existingFinal.generatedAt}
                   documentNumber={`ASL-${existingFinal.employee.empId}-${existingFinal.monthYear}`}
                   verificationId={existingFinal.id.replace(/-/g, '').slice(0, 24)}
                 />
@@ -1042,7 +1094,10 @@ export default function GeneratorView({
                 settings.entities[(existingFinal ?? authorisedBundle.snapshot).employee.entityCode]
                   ?.sealAssetPath ?? null
               }
-              actualCreditDate={(existingFinal ?? authorisedBundle.snapshot).generatedAt.slice(0, 10)}
+              actualCreditDate={authorisedBundle.actualCreditDate}
+              confirmedPaidAmount={authorisedBundle.confirmedPaidAmount}
+              outstandingBalance={authorisedBundle.outstandingAmount}
+              payrollFinalisedDate={(existingFinal ?? authorisedBundle.snapshot).generatedAt}
               documentNumber={`ASL-${(existingFinal ?? authorisedBundle.snapshot).employee.empId}-${(existingFinal ?? authorisedBundle.snapshot).monthYear}`}
               verificationId={(existingFinal ?? authorisedBundle.snapshot).id.replace(/-/g, '').slice(0, 24)}
             />

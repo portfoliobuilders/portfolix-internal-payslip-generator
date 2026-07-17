@@ -131,6 +131,12 @@ export interface Employee {
   agreementType: AgreementType;
   documentsStatus: DocumentsStatus;
   notes: string;
+  /** Bank name for salary credit (e.g. HDFC Bank). Never invent. */
+  bankName?: string;
+  /** Optional verified IFSC — omit when unverified. */
+  ifsc?: string | null;
+  /** Explicit HR confirmation that bank name/account details were verified. */
+  bankDetailsVerified?: boolean;
   /** Only the last 4 digits are ever stored. */
   bankLast4: string;
   /** Masked PAN, e.g. 'ABXXXXXX1F'. Never store the full number. */
@@ -216,6 +222,9 @@ export interface SlipEmployeeInfo {
   employmentStatus: EmploymentStatus;
   paymentType: PaymentType;
   compensationAmount: number;
+  bankName?: string;
+  ifsc?: string | null;
+  bankDetailsVerified?: boolean;
   bankLast4: string;
   panMasked: string;
 }

@@ -54,6 +54,9 @@ type Draft = {
   agreementType: AgreementType;
   documentsStatus: DocumentsStatus;
   notes: string;
+  bankName: string;
+  ifsc: string;
+  bankDetailsVerified: boolean;
   bankLast4: string;
   panMasked: string;
   flexBankBalance: string;
@@ -90,6 +93,9 @@ function toDraft(e: Employee | null): Draft {
     agreementType: e?.agreementType ?? 'offer_letter',
     documentsStatus: e?.documentsStatus ?? 'pending',
     notes: e?.notes ?? '',
+    bankName: e?.bankName ?? '',
+    ifsc: e?.ifsc ?? '',
+    bankDetailsVerified: e?.bankDetailsVerified === true,
     bankLast4: e?.bankLast4 ?? '',
     panMasked: e?.panMasked ?? '',
     flexBankBalance: e ? String(e.flexBankBalance) : '0',
@@ -190,6 +196,9 @@ export default function EmployeeFormModal({
       agreementType: draft.agreementType,
       documentsStatus: draft.documentsStatus,
       notes: draft.notes.trim(),
+      bankName: draft.bankName.trim(),
+      ifsc: draft.ifsc.trim().toUpperCase() || null,
+      bankDetailsVerified: draft.bankDetailsVerified,
       bankLast4: draft.bankLast4.trim(),
       panMasked: draft.panMasked.trim().toUpperCase(),
       flexBankBalance: Number(draft.flexBankBalance),
@@ -291,6 +300,16 @@ export default function EmployeeFormModal({
             ))}
           </select>
         </Field>
+        <Field label="Bank name">
+          <input className={inputCls} value={draft.bankName} onChange={(e) => set('bankName', e.target.value)} placeholder="Verified salary-credit bank" />
+        </Field>
+        <Field label="IFSC (optional, verified only)">
+          <input className={inputCls} maxLength={11} value={draft.ifsc} onChange={(e) => set('ifsc', e.target.value.toUpperCase())} placeholder="ABCD0123456" />
+        </Field>
+        <label className="col-span-2 flex items-center gap-2 text-sm">
+          <input type="checkbox" checked={draft.bankDetailsVerified} onChange={(e) => set('bankDetailsVerified', e.target.checked)} />
+          HR has verified the salary-credit bank details
+        </label>
         <Field label="Bank a/c — last 4 digits only" error={err('bankLast4')}>
           <input className={inputCls} maxLength={4} value={draft.bankLast4} onChange={(e) => set('bankLast4', e.target.value.replace(/\D/g, ''))} placeholder="4821" />
         </Field>

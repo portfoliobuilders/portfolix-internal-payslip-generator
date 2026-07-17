@@ -15,6 +15,8 @@ import {
   formatSalaryAttendanceCycle,
 } from '@/lib/format';
 import { slipStatutoryDeductions } from '@/lib/payroll-calc';
+import { resolvePayableDays } from '@/lib/authorised-slip-policy';
+import { formatRegisteredAddress } from '@/lib/company-address';
 import type { AuthorisedSlipYtd, EntityInfo, SlipSnapshot } from '@/lib/types';
 import EntityLogo from '@/components/EntityLogo';
 import { createSignatorySignedUrl } from '@/app/actions/signatory-assets';
@@ -50,10 +52,6 @@ interface AuthorisedSlipProps {
 
 function MoneyCell({ amount }: { amount: number }) {
   return <td className="amount whitespace-nowrap px-2 py-1 text-right tabular-nums">{formatAmount(amount)}</td>;
-}
-
-function DeductionNote({ children }: { children: React.ReactNode }) {
-  return <span className="mt-0.5 block text-[8.5px] font-normal italic leading-snug text-muted">{children}</span>;
 }
 
 export default function AuthorisedSlip({
@@ -95,6 +93,7 @@ export default function AuthorisedSlip({
   const grossThisMonth = inputs.baseSalary + inputs.fixedAllowance + variablePaid;
   const paidAmount = confirmedPaidAmount ?? computed.netPay;
   const issued = issueDate ?? new Date();
+  const payableDays = resolvePayableDays(snapshot);
 
   const [yStr, mStr] = snapshot.monthYear.split('-');
   const y = Number(yStr);
@@ -177,7 +176,9 @@ export default function AuthorisedSlip({
             <p className="mt-1 text-[10px] text-muted">
               CIN: <span className="amount text-ink">{entity.cin}</span>
             </p>
-            <p className="mt-0.5 text-[10px] leading-snug text-muted">{entity.registeredAddress}</p>
+            <p className="mt-0.5 max-w-[430px] whitespace-normal text-[10px] leading-snug text-muted">
+              {formatRegisteredAddress(entity.registeredAddress)}
+            </p>
             <p className="mt-1 text-[10px] text-muted">
               Tel: <span className="text-ink">{entity.phone}</span>
               {' · '}
@@ -209,7 +210,7 @@ export default function AuthorisedSlip({
         </p>
         <p className="mt-0.5 text-[10px] text-muted">
           Payroll finalised:{' '}
-          {payrollFinalisedDate ? formatDate(payrollFinalisedDate) : formatDate(snapshot.generatedAt)}
+          {payrollFinalisedDate ? formatDate(payrollFinalisedDate) : '—'}
           {' · '}
           Issue date: {formatDate(issued)}
         </p>
@@ -249,8 +250,20 @@ export default function AuthorisedSlip({
             <p className="amount">{employee.bankLast4 ? `····${employee.bankLast4}` : '—'}</p>
           </div>
           <div>
+            <p className="text-[8.5px] font-semibold uppercase tracking-wider text-muted">Bank name</p>
+            <p>{employee.bankName || '—'}</p>
+          </div>
+          <div>
             <p className="text-[8.5px] font-semibold uppercase tracking-wider text-muted">Payment mode</p>
             <p>{paymentMode ?? employee.paymentMode}</p>
+          </div>
+          <div>
+            <p className="text-[8.5px] font-semibold uppercase tracking-wider text-muted">Payable days</p>
+            <p className="amount">{payableDays == null ? '—' : payableDays.toFixed(1)}</p>
+          </div>
+          <div>
+            <p className="text-[8.5px] font-semibold uppercase tracking-wider text-muted">LOP days</p>
+            <p className="amount">{computed.lopDays.toFixed(1)}</p>
           </div>
         </div>
       </section>
@@ -263,6 +276,7 @@ export default function AuthorisedSlip({
           <thead>
             <tr className="border-b border-hairline text-[8.5px] uppercase tracking-wider text-muted">
               <th className="px-2 py-1 text-left font-semibold">Particulars</th>
+              <th className="px-2 py-1 text-right font-semibold">Monthly Rate</th>
               <th className="px-2 py-1 text-right font-semibold">This Month</th>
               <th className="px-2 py-1 text-right font-semibold">YTD (FY)</th>
             </tr>
@@ -271,20 +285,24 @@ export default function AuthorisedSlip({
             <tr className="border-b border-hairline/60">
               <td className="px-2 py-1">Basic</td>
               <MoneyCell amount={inputs.baseSalary} />
+              <MoneyCell amount={inputs.baseSalary} />
               <MoneyCell amount={ytd.basic} />
             </tr>
             <tr className="border-b border-hairline/60">
               <td className="px-2 py-1">Fixed Allowance</td>
               <MoneyCell amount={inputs.fixedAllowance} />
+              <MoneyCell amount={inputs.fixedAllowance} />
               <MoneyCell amount={ytd.fixedAllowance} />
             </tr>
             <tr className="border-b border-hairline/60">
               <td className="px-2 py-1">Incentive / Variable</td>
+              <MoneyCell amount={0} />
               <MoneyCell amount={variablePaid} />
               <MoneyCell amount={ytd.variablePaid} />
             </tr>
             <tr className="font-semibold">
               <td className="px-2 py-1.5">Gross Earnings</td>
+              <MoneyCell amount={inputs.baseSalary + inputs.fixedAllowance} />
               <MoneyCell amount={grossThisMonth} />
               <MoneyCell amount={ytd.grossEarnings} />
             </tr>
@@ -306,32 +324,17 @@ export default function AuthorisedSlip({
           </thead>
           <tbody>
             <tr className="border-b border-hairline/60 align-top">
-              <td className="px-2 py-1">
-                Loss of Pay
-                <DeductionNote>
-                  {computed.lopDays.toFixed(1)} LOP day(s) · payable days referenced for rate basis
-                </DeductionNote>
-              </td>
+              <td className="px-2 py-1">Loss of Pay</td>
               <MoneyCell amount={lop} />
               <MoneyCell amount={ytd.lopDeduction} />
             </tr>
             <tr className="border-b border-hairline/60 align-top">
-              <td className="px-2 py-1">
-                Professional Tax (Kerala)
-                {pt === 0 && (
-                  <DeductionNote>Nil for this month — not a PT deduction month</DeductionNote>
-                )}
-              </td>
+              <td className="px-2 py-1">Professional Tax</td>
               <MoneyCell amount={pt} />
               <MoneyCell amount={ytd.professionalTax} />
             </tr>
             <tr className="border-b border-hairline/60 align-top">
-              <td className="px-2 py-1">
-                TDS (Income Tax)
-                {tds === 0 && (
-                  <DeductionNote>Nil — Sec 87A rebate, new regime</DeductionNote>
-                )}
-              </td>
+              <td className="px-2 py-1">TDS</td>
               <MoneyCell amount={tds} />
               <MoneyCell amount={ytd.tds} />
             </tr>
@@ -380,7 +383,7 @@ export default function AuthorisedSlip({
         </div>
       )}
 
-      <section className="mt-8 grid grid-cols-[1fr_auto] items-end gap-6">
+      <section className="mt-8 grid grid-cols-2 items-end gap-8">
         <div>
           <p className="text-[10px]">For {entity.name}</p>
           <div className="relative mt-2 inline-block min-h-[64px] min-w-[180px]">
@@ -429,16 +432,6 @@ export default function AuthorisedSlip({
             Date: {formatDate(issued)}
           </p>
         </div>
-        <div className="text-right text-[9px] text-muted">
-          <p>Verification ID</p>
-          <p className="amount font-semibold text-ink">{verificationId ?? '—'}</p>
-          {verificationFingerprint && (
-            <>
-              <p className="mt-1">Fingerprint</p>
-              <p className="amount break-all text-[8px]">{verificationFingerprint}</p>
-            </>
-          )}
-        </div>
         <div className="flex flex-col items-center gap-1 text-center">
           <div className="flex h-20 w-20 items-center justify-center rounded border border-hairline bg-surface text-[8px] text-muted">
             {verificationUrl ? 'QR' : 'Verification QR'}
@@ -448,22 +441,16 @@ export default function AuthorisedSlip({
               ID: <span className="amount text-ink">{verificationId}</span>
             </p>
           )}
-          {verificationUrl && (
-            <p className="max-w-[120px] break-all text-[7.5px] text-muted">{verificationUrl}</p>
-          )}
+          {verificationUrl && <p className="text-[7.5px] text-muted">Verify through the official payroll portal</p>}
         </div>
       </section>
 
       <footer className="mt-auto border-t border-hairline pt-3 text-[8.5px] leading-relaxed text-muted">
-        <p>Authorised and issued by the employer.</p>
         <p>
-          Authorised and issued by the employer. This computer-generated authorised salary slip may
-          be verified through the QR code and verification ID
-          {verificationUrl ? ` at ${verificationUrl}` : ''}.
+          This authorised salary slip may be verified through the QR code and verification ID.
         </p>
         <p>
-          For employer verification contact {entity.payrollEmail} / {entity.phone}. Do not treat a
-          pasted signature image as a cryptographic digital signature.
+          For employer verification, contact {entity.payrollEmail} or {entity.phone}.
         </p>
       </footer>
     </div>

@@ -1,5 +1,6 @@
 import {
   COMPANY_ENTITIES,
+  LEGAL_COMPANY_NAME_CANONICAL,
   PAYROLL_CONTACT,
 } from '@/lib/constants/company';
 import type { EntityCode, EntityInfo, Settings } from '@/lib/types';
@@ -27,7 +28,8 @@ function buildEntity(code: EntityCode): EntityInfo {
   const company = ENTITY_COMPANY_MAP[code];
   const addressLines = addressLinesFrom(company.address);
   return {
-    name: company.displayName,
+    // Parent legal entity always uses the registered spelling — never alternate.
+    name: code === 'PX' ? LEGAL_COMPANY_NAME_CANONICAL : company.displayName,
     legalLine: code === 'PX' ? '' : company.legalLine,
     addressLines,
     contact: PAYROLL_CONTACT,
@@ -35,9 +37,9 @@ function buildEntity(code: EntityCode): EntityInfo {
     cin: SETTINGS_PLACEHOLDER,
     registeredAddress: addressLines.join(', '),
     phone: PAYROLL_CONTACT,
-    payrollEmail: 'payroll@portfolix.tech',
-    signatoryName: 'Authorized Signatory',
-    signatoryDesignation: 'HR & Payroll',
+    payrollEmail: 'payroll@portfolixentreprise.com',
+    signatoryName: SETTINGS_PLACEHOLDER,
+    signatoryDesignation: SETTINGS_PLACEHOLDER,
     signatureAssetPath: null,
     sealAssetPath: null,
     authorisationMode: 'SIGNATURE_AND_SEAL',
@@ -50,11 +52,11 @@ function buildEntity(code: EntityCode): EntityInfo {
 /** Default payroll settings and entity branding used on first run. */
 export const SEED_SETTINGS: Settings = {
   paydayDayOfMonth: 5,
-  payrollContact: 'payroll@portfolix.tech',
+  payrollContact: 'payroll@portfolixentreprise.com',
   reviewDeadlineTime: '6:00 PM',
   ptDeductionMonths: [8, 2],
-  authorizedSignatoryName: 'Authorized Signatory',
-  authorizedSignatoryTitle: 'HR & Payroll',
+  authorizedSignatoryName: SETTINGS_PLACEHOLDER,
+  authorizedSignatoryTitle: SETTINGS_PLACEHOLDER,
   bankVerificationEnabledByDefault: false,
   entities: {
     PX: buildEntity('PX'),
