@@ -11,7 +11,11 @@ import {
   formatMonthYear,
   slipFilename,
 } from '@/lib/format';
-import { exportAuthorisedSalarySlipPdf } from '@/lib/authorised-export';
+import {
+  buildAuthorisedSalarySlipPdf,
+  exportAuthorisedSalarySlipPdf,
+  type AuthorisedPdfBundle,
+} from '@/lib/authorised-export';
 import { exportElementToPdf } from '@/lib/pdf-export';
 import { finalizePayrollSlip, savePayrollSlip, fetchAuthorisedSlipYtd, logAuthorisedSlipGeneration } from '@/app/actions/payroll';
 import { createSignatorySignedUrls, getSignatoryStorageStatus } from '@/app/actions/signatory-assets';
@@ -23,7 +27,7 @@ import { useHRStore } from '@/store/useHRStore';
 import { useUIStore } from '@/store/useUIStore';
 import { signatoryIncompleteReason } from '@/lib/settings-defaults';
 import { COMPANY_ENTITIES, PAYROLL_CONTACT } from '@/lib/constants/company';
-import AuthorisedSlip from './AuthorisedSlip';
+import AuthorisedSlip, { printPdfBlobUrl } from './AuthorisedSlip';
 import SalarySlip from './SalarySlip';
 import Toast from './Toast';
 import { Field, Modal, btnPrimary, btnSecondary, inputAmountCls, inputCls } from './ui';
@@ -148,6 +152,8 @@ export default function GeneratorView({
     ytd: AuthorisedSlipYtd;
     signatureUrl: string | null;
     sealUrl: string | null;
+    pdf: AuthorisedPdfBundle;
+    pdfUrl: string;
   } | null>(null);
   const [authorisedLoading, setAuthorisedLoading] = useState(false);
   const [authorisedError, setAuthorisedError] = useState<string | null>(null);
@@ -225,10 +231,13 @@ export default function GeneratorView({
     ? existingFinal.inputs.flexBankBalanceBefore
     : employee?.flexBankBalance ?? 0;
 
-  // Authorised preview NEVER uses live form inputs — only a stored FINAL snapshot.
+  // Authorised preview = the exact pdf-lib blob (never a parallel DOM layout).
   useEffect(() => {
     if (mode !== 'authorised' || !existingFinal || !employee) {
-      setAuthorisedBundle(null);
+      setAuthorisedBundle((prev) => {
+        if (prev?.pdfUrl) URL.revokeObjectURL(prev.pdfUrl);
+        return null;
+      });
       setAuthorisedError(null);
       setAuthorisedLoading(false);
       return;
@@ -253,7 +262,10 @@ export default function GeneratorView({
 
         if (!ytdResult.ok) {
           setAuthorisedError(ytdResult.error);
-          setAuthorisedBundle(null);
+          setAuthorisedBundle((prev) => {
+            if (prev?.pdfUrl) URL.revokeObjectURL(prev.pdfUrl);
+            return null;
+          });
           return;
         }
 
@@ -261,23 +273,54 @@ export default function GeneratorView({
           ytdResult.data ??
           computeAuthorisedYtd(slipHistory, existingFinal.employeeId, existingFinal.monthYear);
 
-        // Signed URLs may fail when the secret key is missing — still show the
-        // slip preview; download stays disabled with the specific reason.
         const signatureUrl = urlsResult.ok ? urlsResult.data.signatureUrl : null;
         const sealUrl = urlsResult.ok ? urlsResult.data.sealUrl : null;
 
-        setAuthorisedBundle({
+        const built = await buildAuthorisedSalarySlipPdf({
           snapshot: existingFinal,
+          entity: entityInfo,
           ytd,
+          paydayDayOfMonth: settings.paydayDayOfMonth,
           signatureUrl,
           sealUrl,
+          history: slipHistory,
+        });
+
+        if (cancelled) return;
+
+        if (!built.ok) {
+          setAuthorisedError(built.error);
+          setAuthorisedBundle((prev) => {
+            if (prev?.pdfUrl) URL.revokeObjectURL(prev.pdfUrl);
+            return null;
+          });
+          return;
+        }
+
+        const copy = new Uint8Array(built.data.bytes.byteLength);
+        copy.set(built.data.bytes);
+        const pdfUrl = URL.createObjectURL(new Blob([copy], { type: 'application/pdf' }));
+
+        setAuthorisedBundle((prev) => {
+          if (prev?.pdfUrl) URL.revokeObjectURL(prev.pdfUrl);
+          return {
+            snapshot: existingFinal,
+            ytd,
+            signatureUrl,
+            sealUrl,
+            pdf: built.data,
+            pdfUrl,
+          };
         });
       } catch (err) {
         if (cancelled) return;
         setAuthorisedError(
           err instanceof Error ? err.message : 'Failed to load authorised bank copy.',
         );
-        setAuthorisedBundle(null);
+        setAuthorisedBundle((prev) => {
+          if (prev?.pdfUrl) URL.revokeObjectURL(prev.pdfUrl);
+          return null;
+        });
       } finally {
         if (!cancelled) setAuthorisedLoading(false);
       }
@@ -286,7 +329,7 @@ export default function GeneratorView({
     return () => {
       cancelled = true;
     };
-  }, [mode, existingFinal, employee, settings.entities, slipHistory]);
+  }, [mode, existingFinal, employee, settings.entities, settings.paydayDayOfMonth, slipHistory]);
 
   useEffect(() => {
     // Re-seed the chained opening whenever employee or month changes.
@@ -522,15 +565,22 @@ export default function GeneratorView({
   ]);
 
   async function doAuthorisedExport() {
-    if (!employee || !entity || !existingFinal || authorisedDisableReason) return;
+    if (!employee || !entity || !existingFinal || authorisedDisableReason || !authorisedBundle) {
+      return;
+    }
 
     setExporting(true);
     setAuthorisedError(null);
     try {
-      // Production bank PDF: text/vector + verification registry (not html2canvas).
+      // Same bytes as the preview iframe — never a second renderer.
       const exported = await exportAuthorisedSalarySlipPdf({
         snapshot: existingFinal,
         entity,
+        ytd: authorisedBundle.ytd,
+        paydayDayOfMonth: settings.paydayDayOfMonth,
+        signatureUrl: authorisedBundle.signatureUrl,
+        sealUrl: authorisedBundle.sealUrl,
+        bundle: authorisedBundle.pdf,
       });
       if (!exported.ok) {
         setAuthorisedError(exported.error);
@@ -547,6 +597,9 @@ export default function GeneratorView({
         registeredAddress: entity.registeredAddress,
         phone: entity.phone,
         payrollEmail: entity.payrollEmail,
+        documentNumber: exported.data.documentNumber,
+        revisionNumber: exported.data.revisionNumber,
+        publicVerificationId: exported.data.publicVerificationId,
       });
     } catch (err) {
       setAuthorisedError(err instanceof Error ? err.message : 'Failed to generate bank copy.');
@@ -828,15 +881,22 @@ export default function GeneratorView({
                 <button
                   type="button"
                   className={btnSecondary}
-                  disabled={!authorisedBundle || !!authorisedDisableReason}
-                  onClick={() => window.print()}
+                  disabled={!authorisedBundle?.pdfUrl || !!authorisedDisableReason}
+                  onClick={() => {
+                    if (authorisedBundle?.pdfUrl) printPdfBlobUrl(authorisedBundle.pdfUrl);
+                  }}
                 >
                   <Printer size={14} /> Print
                 </button>
                 <button
                   type="button"
                   className={btnPrimary}
-                  disabled={!!authorisedDisableReason || exporting || authorisedLoading}
+                  disabled={
+                    !authorisedBundle ||
+                    !!authorisedDisableReason ||
+                    exporting ||
+                    authorisedLoading
+                  }
                   title={authorisedDisableReason ?? undefined}
                   onClick={() => void doAuthorisedExport()}
                 >
@@ -930,21 +990,10 @@ export default function GeneratorView({
           ) : authorisedBundle && entity ? (
             <div className="space-y-2">
               <p className="rounded-md border border-hairline bg-surface px-3 py-1.5 text-[11px] font-medium text-muted">
-                Rendered from the finalized slip for {formatMonthYear(existingFinal.monthYear)}.
+                Exact pdf-lib bank copy for {formatMonthYear(existingFinal.monthYear)} ·{' '}
+                {authorisedBundle.pdf.documentNumber}
               </p>
-              <ScaledPreview>
-                <AuthorisedSlip
-                  snapshot={authorisedBundle.snapshot}
-                  entity={entity}
-                  ytd={authorisedBundle.ytd}
-                  paydayDayOfMonth={settings.paydayDayOfMonth}
-                  signatureUrl={authorisedBundle.signatureUrl}
-                  sealUrl={authorisedBundle.sealUrl}
-                  actualCreditDate={existingFinal.generatedAt.slice(0, 10)}
-                  documentNumber={`ASL-${existingFinal.employee.empId}-${existingFinal.monthYear}`}
-                  verificationId={existingFinal.id.replace(/-/g, '').slice(0, 24)}
-                />
-              </ScaledPreview>
+              <AuthorisedSlip pdfUrl={authorisedBundle.pdfUrl} />
             </div>
           ) : (
             <div className="flex h-96 items-center justify-center rounded-lg border border-dashed border-hairline bg-paper text-sm text-muted">
@@ -987,27 +1036,6 @@ export default function GeneratorView({
               ledgerMismatch={ledgerMismatch}
               authorizedSignatoryName={settings.authorizedSignatoryName}
               authorizedSignatoryTitle={settings.authorizedSignatoryTitle}
-            />
-          </div>,
-          document.body,
-        )}
-
-      {mode === 'authorised' &&
-        authorisedBundle &&
-        entity &&
-        typeof document !== 'undefined' &&
-        createPortal(
-          <div id="slip-print-root" ref={exportRef}>
-            <AuthorisedSlip
-              snapshot={authorisedBundle.snapshot}
-              entity={entity}
-              ytd={authorisedBundle.ytd}
-              paydayDayOfMonth={settings.paydayDayOfMonth}
-              signatureUrl={authorisedBundle.signatureUrl}
-              sealUrl={authorisedBundle.sealUrl}
-              actualCreditDate={(existingFinal ?? authorisedBundle.snapshot).generatedAt.slice(0, 10)}
-              documentNumber={`ASL-${(existingFinal ?? authorisedBundle.snapshot).employee.empId}-${(existingFinal ?? authorisedBundle.snapshot).monthYear}`}
-              verificationId={(existingFinal ?? authorisedBundle.snapshot).id.replace(/-/g, '').slice(0, 24)}
             />
           </div>,
           document.body,

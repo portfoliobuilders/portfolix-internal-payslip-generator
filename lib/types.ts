@@ -287,6 +287,10 @@ export interface SignatorySnapshot {
   registeredAddress: string;
   phone: string;
   payrollEmail: string;
+  /** Canonical payslip number — stored once, reused on every re-download. */
+  documentNumber?: string;
+  revisionNumber?: number;
+  publicVerificationId?: string;
 }
 
 /** Per-line YTD totals for an Indian financial year, derived from FINAL snapshots only. */

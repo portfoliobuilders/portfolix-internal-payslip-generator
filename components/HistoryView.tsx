@@ -6,10 +6,19 @@ import { Download, Eye, FileBadge2, Printer, Trash2, Wallet, X } from 'lucide-re
 import {
   logAuthorisedSlipGeneration,
   deletePayrollSlip,
+  fetchAuthorisedSlipYtd,
 } from '@/app/actions/payroll';
 import { fetchPaymentObligationsForHistory } from '@/app/actions/salary-payment';
-import { getSignatoryStorageStatus } from '@/app/actions/signatory-assets';
-import { exportAuthorisedSalarySlipPdf } from '@/lib/authorised-export';
+import {
+  createSignatorySignedUrls,
+  getSignatoryStorageStatus,
+} from '@/app/actions/signatory-assets';
+import {
+  buildAuthorisedSalarySlipPdf,
+  exportAuthorisedSalarySlipPdf,
+  type AuthorisedPdfBundle,
+} from '@/lib/authorised-export';
+import { computeAuthorisedYtd } from '@/lib/authorised-slip';
 import {
   formatDate,
   formatINR,
@@ -21,8 +30,9 @@ import { formatAttendanceCycleRange } from '@/lib/payroll-cycle';
 import { exportElementToPdf } from '@/lib/pdf-export';
 import { signatoryIncompleteReason } from '@/lib/settings-defaults';
 import type { SalaryPaymentObligation, DocumentLifecycleStatus } from '@/lib/salary-payment-types';
-import type { SlipSnapshot } from '@/lib/types';
+import type { AuthorisedSlipYtd, SlipSnapshot } from '@/lib/types';
 import { useHRStore } from '@/store/useHRStore';
+import AuthorisedSlip, { printPdfBlobUrl } from './AuthorisedSlip';
 import PaymentLedgerDrawer from './PaymentLedgerDrawer';
 import SalarySlip from './SalarySlip';
 import Toast from './Toast';
@@ -52,6 +62,14 @@ export default function HistoryView({ slipHistory, loading, error, onRefresh }: 
   const [bankCopyPending, setBankCopyPending] = useState<SlipSnapshot | null>(null);
   const [bankCopyBusy, setBankCopyBusy] = useState(false);
   const [bankCopyError, setBankCopyError] = useState<string | null>(null);
+  const [bankCopyPreview, setBankCopyPreview] = useState<{
+    snapshot: SlipSnapshot;
+    ytd: AuthorisedSlipYtd;
+    signatureUrl: string | null;
+    sealUrl: string | null;
+    pdf: AuthorisedPdfBundle;
+    pdfUrl: string;
+  } | null>(null);
   const [signatoryStorageConfigured, setSignatoryStorageConfigured] = useState(true);
   const [signatoryStorageMessage, setSignatoryStorageMessage] = useState<string | null>(null);
   const [obligationsByPayrollId, setObligationsByPayrollId] = useState<
@@ -175,16 +193,44 @@ export default function HistoryView({ slipHistory, loading, error, onRefresh }: 
     setBankCopyBusy(true);
     setBankCopyError(null);
     try {
-      // Production bank PDF: text/vector + verification registry (not html2canvas).
-      const exported = await exportAuthorisedSalarySlipPdf({ snapshot, entity });
-      if (!exported.ok) {
-        setBankCopyError(exported.error);
+      const [ytdResult, urlsResult] = await Promise.all([
+        fetchAuthorisedSlipYtd(snapshot.employeeId, snapshot.monthYear),
+        createSignatorySignedUrls({
+          signatureAssetPath: entity.signatureAssetPath,
+          sealAssetPath: entity.sealAssetPath,
+        }),
+      ]);
+      const ytd =
+        ytdResult.ok
+          ? ytdResult.data
+          : computeAuthorisedYtd(slipHistory, snapshot.employeeId, snapshot.monthYear);
+      const signatureUrl = urlsResult.ok ? urlsResult.data.signatureUrl : null;
+      const sealUrl = urlsResult.ok ? urlsResult.data.sealUrl : null;
+
+      const built = await buildAuthorisedSalarySlipPdf({
+        snapshot,
+        entity,
+        ytd,
+        paydayDayOfMonth: settings.paydayDayOfMonth,
+        signatureUrl,
+        sealUrl,
+        history: slipHistory,
+      });
+      if (!built.ok) {
+        setBankCopyError(built.error);
         return;
       }
 
+      const copy = new Uint8Array(built.data.bytes.byteLength);
+      copy.set(built.data.bytes);
+      const pdfUrl = URL.createObjectURL(new Blob([copy], { type: 'application/pdf' }));
+
+      setBankCopyPreview((prev) => {
+        if (prev?.pdfUrl) URL.revokeObjectURL(prev.pdfUrl);
+        return { snapshot, ytd, signatureUrl, sealUrl, pdf: built.data, pdfUrl };
+      });
       setBankCopyPending(null);
 
-      // Reprints are logged, never blocked — log after successful PDF.
       await logAuthorisedSlipGeneration(snapshot.id, {
         signatoryName: entity.signatoryName,
         signatoryDesignation: entity.signatoryDesignation,
@@ -195,12 +241,29 @@ export default function HistoryView({ slipHistory, loading, error, onRefresh }: 
         registeredAddress: entity.registeredAddress,
         phone: entity.phone,
         payrollEmail: entity.payrollEmail,
+        documentNumber: built.data.documentNumber,
+        revisionNumber: built.data.revisionNumber,
+        publicVerificationId: built.data.publicVerificationId,
       });
     } catch (err) {
       setBankCopyError(err instanceof Error ? err.message : 'Failed to generate bank copy.');
     } finally {
       setBankCopyBusy(false);
     }
+  }
+
+  async function downloadBankCopyPreview() {
+    if (!bankCopyPreview) return;
+    const entity = settings.entities[bankCopyPreview.snapshot.employee.entityCode];
+    await exportAuthorisedSalarySlipPdf({
+      snapshot: bankCopyPreview.snapshot,
+      entity,
+      ytd: bankCopyPreview.ytd,
+      paydayDayOfMonth: settings.paydayDayOfMonth,
+      signatureUrl: bankCopyPreview.signatureUrl,
+      sealUrl: bankCopyPreview.sealUrl,
+      bundle: bankCopyPreview.pdf,
+    });
   }
 
   function InternalDocBadge({ status }: { status?: DocumentLifecycleStatus }) {
@@ -296,20 +359,11 @@ export default function HistoryView({ slipHistory, loading, error, onRefresh }: 
     if (snapshot.status !== 'final') return null;
     const entity = settings.entities[snapshot.employee.entityCode];
     const settingsReason = signatoryIncompleteReason(entity);
-    const obligation = obligationsByPayrollId.get(snapshot.id);
-    const paymentReason =
-      obligation &&
-      (obligation.paymentStatus !== 'PAID' || obligation.outstandingAmount > 0)
-        ? 'Authorised salary slip blocked until payment is PAID and fully reconciled.'
-        : !obligation
-          ? 'Authorised salary slip blocked until payment obligation is PAID and fully reconciled.'
-          : null;
-    const reason =
-      paymentReason ??
-      (!signatoryStorageConfigured
-        ? signatoryStorageMessage ??
-          'Server key not configured (SUPABASE_SECRET_KEY). Bank copy cannot embed signature/seal.'
-        : settingsReason);
+    // Payment no longer blocks generation — unpaid slips show Scheduled credit.
+    const reason = !signatoryStorageConfigured
+      ? signatoryStorageMessage ??
+        'Server key not configured (SUPABASE_SECRET_KEY). Bank copy cannot embed signature/seal.'
+      : settingsReason;
     const disabled = !!reason || bankCopyBusy;
 
     if (compact) {
@@ -641,6 +695,48 @@ export default function HistoryView({ slipHistory, loading, error, onRefresh }: 
             </button>
           </div>
         </Modal>
+      )}
+
+      {bankCopyPreview && (
+        <div
+          className="no-print fixed inset-0 z-50 overflow-auto bg-ink/50 p-3 backdrop-blur-[2px] sm:p-6"
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget) {
+              URL.revokeObjectURL(bankCopyPreview.pdfUrl);
+              setBankCopyPreview(null);
+            }
+          }}
+        >
+          <div className="mx-auto w-full max-w-[210mm]">
+            <div className="mb-2 flex flex-wrap justify-end gap-2">
+              <button
+                className={`${btnSecondary} bg-paper`}
+                onClick={() => printPdfBlobUrl(bankCopyPreview.pdfUrl)}
+              >
+                <Printer size={14} /> Print
+              </button>
+              <button
+                className={`${btnSecondary} bg-paper`}
+                onClick={() => void downloadBankCopyPreview()}
+              >
+                <Download size={14} /> Download PDF
+              </button>
+              <button
+                className={`${btnSecondary} bg-paper`}
+                onClick={() => {
+                  URL.revokeObjectURL(bankCopyPreview.pdfUrl);
+                  setBankCopyPreview(null);
+                }}
+              >
+                <X size={14} /> Close
+              </button>
+            </div>
+            <p className="mb-2 rounded-md border border-hairline bg-paper px-3 py-1.5 text-[11px] text-muted">
+              Exact pdf-lib bank copy · {bankCopyPreview.pdf.documentNumber}
+            </p>
+            <AuthorisedSlip pdfUrl={bankCopyPreview.pdfUrl} />
+          </div>
+        </div>
       )}
 
       {deleteTarget && deleteTarget.status === 'final' && (

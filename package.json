@@ -13,6 +13,7 @@
     "setup:agent": "npm ci --cache ~/.npm --prefer-offline && npm run typecheck && npm run build"
   },
   "dependencies": {
+    "@pdf-lib/fontkit": "^1.1.1",
     "@supabase/ssr": "^0.12.0",
     "@supabase/supabase-js": "^2.110.0",
     "date-fns": "^4.1.0",
@@ -21,6 +22,7 @@
     "lucide-react": "^0.525.0",
     "next": "^14.2.30",
     "pdf-lib": "^1.17.1",
+    "qrcode": "^1.5.4",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "xlsx": "^0.18.5",
@@ -28,6 +30,7 @@
   },
   "devDependencies": {
     "@types/node": "^20.19.4",
+    "@types/qrcode": "^1.5.6",
     "@types/react": "^18.3.23",
     "@types/react-dom": "^18.3.7",
     "autoprefixer": "^10.4.21",
