@@ -8,6 +8,7 @@ import {
   computeVerificationFingerprint,
   generateAuthorisedPayslipNumber,
   generatePublicVerificationId,
+  mapDocumentStatusToPublic,
   maskEmployeeId,
   privacyControlledName,
 } from '../verification';
@@ -26,6 +27,14 @@ describe('verification helpers', () => {
     expect(generateAuthorisedPayslipNumber('PX-2024-001', '2026-07')).toBe(
       'ASL-PX-2024-001-2026-07',
     );
+  });
+
+  it('mapDocumentStatusToPublic never defaults unknown to VALID', () => {
+    expect(mapDocumentStatusToPublic('ISSUED')).toBe('VALID');
+    expect(mapDocumentStatusToPublic('SUPERSEDED')).toBe('SUPERSEDED');
+    expect(mapDocumentStatusToPublic('DRAFT')).toBe('REVOKED');
+    expect(mapDocumentStatusToPublic('LEGACY_UNVERIFIED')).toBe('REVOKED');
+    expect(mapDocumentStatusToPublic(null)).toBe('REVOKED');
   });
 
   it('masks employee id and privacy-controls name', () => {
