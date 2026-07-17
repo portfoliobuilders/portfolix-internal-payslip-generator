@@ -124,12 +124,26 @@ export interface Employee {
   notes: string;
   /** Bank name printed on slips / authorised PDF (e.g. 'HDFC Bank'). */
   bankName: string;
-  /** Full bank account number for bank copies. */
+  /** Full bank account number — Authorised renders full; Final masks at render. */
   bankAccountNumber: string;
   /** Last 4 digits — derived from bankAccountNumber when present (legacy snapshots). */
   bankLast4: string;
-  /** Masked PAN, e.g. 'ABXXXXXX1F'. Never store the full number. */
+  /**
+   * Full PAN when known (may be empty for legacy). Authorised renders full;
+   * Final slip masks via maskPan at render time.
+   */
+  pan: string;
+  /** Derived masked PAN, e.g. 'ABXXXXXX1F' — kept for legacy + Final display. */
   panMasked: string;
+  /** IFSC code (11 chars); empty when unknown. */
+  ifsc: string;
+  /** Work location printed on Authorised slip when present. */
+  workLocation: string;
+  /**
+   * Optional earnings breakdown; when absent, render treats base salary as a
+   * single "Basic" line. When present, amounts must sum to baseSalary.
+   */
+  salaryComponents?: { label: string; amount: number }[];
   /** Flex-bank balance in minutes. */
   flexBankBalance: number;
   flexLog: FlexLogEntry[];
@@ -212,9 +226,15 @@ export interface SlipEmployeeInfo {
   paymentType: PaymentType;
   compensationAmount: number;
   bankName?: string;
+  /** Full account — Authorised only; Final masks at render. */
   bankAccountNumber?: string;
   bankLast4: string;
+  /** Full PAN when known — Authorised only; Final masks at render. */
+  pan?: string;
   panMasked: string;
+  ifsc?: string;
+  workLocation?: string;
+  salaryComponents?: { label: string; amount: number }[];
 }
 
 export interface PaymentStatementMeta {

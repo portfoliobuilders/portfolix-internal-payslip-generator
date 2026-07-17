@@ -13,12 +13,8 @@ import type {
   WorkMode,
 } from '@/lib/types';
 import { upsertEmployee } from '@/app/actions/payroll';
-import {
-  bankLast4FromAccount,
-  isFullPan,
-  maskPan,
-  normalizeBankAccountNumber,
-} from '@/lib/identity';
+import { validateIdentityFields } from '@/lib/identity';
+import { validateSalaryComponentsSum } from '@/lib/salary-components';
 import { useHRStore } from '@/store/useHRStore';
 import { Field, Modal, btnPrimary, btnSecondary, inputAmountCls, inputCls } from './ui';
 import { compensationLabelForPaymentType, defaultPaymentTypeForEngagement } from '@/lib/workforce';
@@ -31,6 +27,8 @@ const PAYMENT_TYPES: PaymentType[] = ['salary', 'stipend', 'professional_fee', '
 const WORK_MODES: WorkMode[] = ['office', 'remote', 'hybrid'];
 const AGREEMENT_TYPES: AgreementType[] = ['offer_letter', 'internship_offer', 'freelancer_agreement', 'consultancy_agreement', 'contract_agreement', 'apprenticeship_contract'];
 const DOCUMENT_STATUSES: DocumentsStatus[] = ['pending', 'partially_collected', 'completed'];
+
+type ComponentDraft = { label: string; amount: string };
 
 type Draft = {
   fullName: string;
@@ -62,7 +60,10 @@ type Draft = {
   notes: string;
   bankName: string;
   bankAccountNumber: string;
-  panMasked: string;
+  pan: string;
+  ifsc: string;
+  workLocation: string;
+  salaryComponents: ComponentDraft[];
   flexBankBalance: string;
   tdsMonthly: string;
   ptHalfYearly: string;
@@ -99,15 +100,27 @@ function toDraft(e: Employee | null): Draft {
     notes: e?.notes ?? '',
     bankName: e?.bankName ?? '',
     bankAccountNumber: e?.bankAccountNumber ?? '',
-    panMasked: e?.panMasked ?? '',
+    pan: e?.pan || e?.panMasked || '',
+    ifsc: e?.ifsc ?? '',
+    workLocation: e?.workLocation ?? '',
+    salaryComponents: (e?.salaryComponents ?? []).map((c) => ({
+      label: c.label,
+      amount: String(c.amount),
+    })),
     flexBankBalance: e ? String(e.flexBankBalance) : '0',
     tdsMonthly: e ? String(e.tdsMonthly) : '0',
     ptHalfYearly: e ? String(e.ptHalfYearly) : '0',
   };
 }
 
-function validate(d: Draft): Partial<Record<keyof Draft, string>> {
-  const errors: Partial<Record<keyof Draft, string>> = {};
+function parseComponents(draft: Draft): { label: string; amount: number }[] {
+  return draft.salaryComponents
+    .filter((c) => c.label.trim() || c.amount.trim())
+    .map((c) => ({ label: c.label.trim(), amount: Number(c.amount) || 0 }));
+}
+
+function validate(d: Draft): Partial<Record<keyof Draft | 'salaryComponentsSum', string>> {
+  const errors: Partial<Record<keyof Draft | 'salaryComponentsSum', string>> = {};
   if (!d.fullName.trim()) errors.fullName = 'Name is required.';
   if (!d.empId.trim()) errors.empId = 'Employee ID is required.';
   else if (!d.empId.trim().toUpperCase().startsWith(d.entityCode))
@@ -124,17 +137,27 @@ function validate(d: Draft): Partial<Record<keyof Draft, string>> {
   if ((d.employmentStatus === 'offboarded' || d.employmentStatus === 'completed') && !d.offboardingDate && !d.noticeEndDate && !d.contractEndDate && !d.internshipEndDate) {
     errors.offboardingDate = 'Offboarding/end date is required for offboarded/completed status.';
   }
-  const account = normalizeBankAccountNumber(d.bankAccountNumber);
-  if (d.bankAccountNumber.trim() && (account.length < 9 || account.length > 18)) {
-    errors.bankAccountNumber = 'Enter a full account number (9–18 digits).';
-  }
-  const pan = d.panMasked.trim();
-  if (pan && pan.length > 0) {
-    const masked = maskPan(pan);
-    if (masked.length !== 10) {
-      errors.panMasked = 'PAN must be 10 characters (full PAN is auto-masked on save).';
+
+  const identity = validateIdentityFields({
+    pan: d.pan,
+    bankAccount: d.bankAccountNumber,
+    ifsc: d.ifsc,
+    bankName: d.bankName,
+  });
+  if (!identity.ok) {
+    for (const msg of identity.errors) {
+      if (msg.startsWith('PAN')) errors.pan = msg;
+      else if (msg.startsWith('Bank account')) errors.bankAccountNumber = msg;
+      else if (msg.startsWith('IFSC')) errors.ifsc = msg;
+      else if (msg.startsWith('Bank name')) errors.bankName = msg;
+      else errors.pan = errors.pan ?? msg;
     }
   }
+
+  const components = parseComponents(d);
+  const sumCheck = validateSalaryComponentsSum(components.length ? components : undefined, salary || 0);
+  if (!sumCheck.ok) errors.salaryComponentsSum = sumCheck.error;
+
   const flex = Number(d.flexBankBalance);
   if (!Number.isFinite(flex) || flex < 0) errors.flexBankBalance = 'Minutes must be 0 or more.';
   const tds = Number(d.tdsMonthly);
@@ -183,7 +206,31 @@ export default function EmployeeFormModal({
     setSaveError(null);
     onSaveStart?.();
 
-    const account = normalizeBankAccountNumber(draft.bankAccountNumber);
+    const identity = validateIdentityFields({
+      pan: draft.pan,
+      bankAccount: draft.bankAccountNumber,
+      ifsc: draft.ifsc,
+      bankName: draft.bankName,
+    });
+    if (!identity.ok) {
+      setSaving(false);
+      setSaveError(identity.errors.join(' '));
+      onSaveFailed?.(identity.errors.join(' '));
+      return;
+    }
+
+    const components = parseComponents(draft);
+    const sumCheck = validateSalaryComponentsSum(
+      components.length ? components : undefined,
+      Number(draft.baseSalary),
+    );
+    if (!sumCheck.ok) {
+      setSaving(false);
+      setSaveError(sumCheck.error ?? 'Invalid salary components.');
+      onSaveFailed?.(sumCheck.error ?? 'Invalid salary components.');
+      return;
+    }
+
     const payload = {
       ...(employee ? { id: employee.id, flexLog: employee.flexLog } : { flexLog: [] as Employee['flexLog'] }),
       fullName: draft.fullName.trim(),
@@ -213,10 +260,16 @@ export default function EmployeeFormModal({
       agreementType: draft.agreementType,
       documentsStatus: draft.documentsStatus,
       notes: draft.notes.trim(),
-      bankName: draft.bankName.trim(),
-      bankAccountNumber: account,
-      bankLast4: bankLast4FromAccount(account),
-      panMasked: maskPan(draft.panMasked),
+      bankName: identity.bankName,
+      bankAccountNumber: identity.bankAccount,
+      bankLast4: identity.bankAccount
+        ? identity.bankAccount.slice(-4)
+        : employee?.bankLast4 ?? '',
+      pan: identity.pan,
+      panMasked: identity.panMasked,
+      ifsc: identity.ifsc,
+      workLocation: draft.workLocation.trim(),
+      salaryComponents: components.length ? components : undefined,
       flexBankBalance: Number(draft.flexBankBalance),
       tdsMonthly: Number(draft.tdsMonthly) || 0,
       ptHalfYearly: Number(draft.ptHalfYearly) || 0,
@@ -235,10 +288,14 @@ export default function EmployeeFormModal({
     onClose();
   }
 
-  const err = (k: keyof Draft) => (touchedSave ? errors[k] ?? null : null);
-  const panHint = isFullPan(draft.panMasked)
-    ? `Will save as ${maskPan(draft.panMasked)}`
-    : 'e.g. ABXXXXXX1F — full PAN is auto-masked on save';
+  const err = (k: keyof Draft | 'salaryComponentsSum') => (touchedSave ? errors[k] ?? null : null);
+
+  function setComponent(index: number, patch: Partial<ComponentDraft>) {
+    setDraft((d) => ({
+      ...d,
+      salaryComponents: d.salaryComponents.map((c, i) => (i === index ? { ...c, ...patch } : c)),
+    }));
+  }
 
   return (
     <Modal title={employee ? `Edit — ${employee.fullName}` : 'Add employee'} onClose={onClose} wide>
@@ -319,40 +376,126 @@ export default function EmployeeFormModal({
             ))}
           </select>
         </Field>
-        <Field label="Bank name">
-          <input
-            className={inputCls}
-            value={draft.bankName}
-            onChange={(e) => set('bankName', e.target.value)}
-            placeholder="HDFC Bank"
-          />
-        </Field>
-        <Field
-          label="Bank account number (full)"
-          error={err('bankAccountNumber')}
-          hint="Full account number for authorised bank copies"
-        >
-          <input
-            className={inputCls}
-            inputMode="numeric"
-            maxLength={18}
-            value={draft.bankAccountNumber}
-            onChange={(e) => set('bankAccountNumber', e.target.value.replace(/\D/g, '').slice(0, 18))}
-            placeholder="123456789012"
-          />
-        </Field>
-        <Field label="PAN (masked)" error={err('panMasked')} hint={panHint}>
-          <input
-            className={inputCls}
-            maxLength={10}
-            value={draft.panMasked}
-            onChange={(e) => set('panMasked', e.target.value.toUpperCase().replace(/[^A-Z0-9]/gi, '').slice(0, 10))}
-            onBlur={() => {
-              if (draft.panMasked.trim()) set('panMasked', maskPan(draft.panMasked));
-            }}
-            placeholder="ABXXXXXX1F"
-          />
-        </Field>
+
+        <div className="sm:col-span-2 border-t border-hairline pt-4">
+          <p className="mb-3 text-[11px] font-semibold uppercase tracking-[0.08em] text-muted">
+            Identity &amp; Bank
+          </p>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <Field
+              label="PAN (full)"
+              error={err('pan')}
+              hint="AAAAA9999A — stored full; Final slip masks at render"
+            >
+              <input
+                className={inputCls}
+                maxLength={10}
+                value={draft.pan}
+                onChange={(e) =>
+                  set('pan', e.target.value.toUpperCase().replace(/[^A-Z0-9]/gi, '').slice(0, 10))
+                }
+                placeholder="ABCDE1234F"
+              />
+            </Field>
+            <Field label="Bank name" error={err('bankName')}>
+              <input
+                className={inputCls}
+                value={draft.bankName}
+                onChange={(e) => set('bankName', e.target.value)}
+                placeholder="HDFC Bank"
+              />
+            </Field>
+            <Field
+              label="Bank account number"
+              error={err('bankAccountNumber')}
+              hint="9–18 digits — Authorised shows full; Final masks"
+            >
+              <input
+                className={inputCls}
+                inputMode="numeric"
+                maxLength={18}
+                value={draft.bankAccountNumber}
+                onChange={(e) => set('bankAccountNumber', e.target.value.replace(/\D/g, '').slice(0, 18))}
+                placeholder="123456789012"
+              />
+            </Field>
+            <Field label="IFSC" error={err('ifsc')} hint="e.g. HDFC0001234">
+              <input
+                className={inputCls}
+                maxLength={11}
+                value={draft.ifsc}
+                onChange={(e) =>
+                  set('ifsc', e.target.value.toUpperCase().replace(/[^A-Z0-9]/gi, '').slice(0, 11))
+                }
+                placeholder="HDFC0001234"
+              />
+            </Field>
+            <Field label="Work location">
+              <input
+                className={inputCls}
+                value={draft.workLocation}
+                onChange={(e) => set('workLocation', e.target.value)}
+                placeholder="Kochi / Remote"
+              />
+            </Field>
+          </div>
+        </div>
+
+        <div className="sm:col-span-2 border-t border-hairline pt-4">
+          <p className="mb-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-muted">
+            Salary components (optional)
+          </p>
+          <p className="mb-3 text-[11px] text-muted">
+            Leave empty to treat base salary as a single Basic line. When set, amounts must sum to base salary.
+          </p>
+          {draft.salaryComponents.map((c, i) => (
+            <div key={i} className="mb-2 grid grid-cols-[1fr_7rem_auto] gap-2">
+              <input
+                className={inputCls}
+                value={c.label}
+                onChange={(e) => setComponent(i, { label: e.target.value })}
+                placeholder="Basic / HRA / …"
+              />
+              <input
+                type="number"
+                min={0}
+                step="0.01"
+                className={inputAmountCls}
+                value={c.amount}
+                onChange={(e) => setComponent(i, { amount: e.target.value })}
+                placeholder="0"
+              />
+              <button
+                type="button"
+                className={btnSecondary}
+                onClick={() =>
+                  setDraft((d) => ({
+                    ...d,
+                    salaryComponents: d.salaryComponents.filter((_, j) => j !== i),
+                  }))
+                }
+              >
+                Remove
+              </button>
+            </div>
+          ))}
+          {err('salaryComponentsSum') && (
+            <p className="mb-2 text-[11px] font-medium text-amber-brand">{err('salaryComponentsSum')}</p>
+          )}
+          <button
+            type="button"
+            className={btnSecondary}
+            onClick={() =>
+              setDraft((d) => ({
+                ...d,
+                salaryComponents: [...d.salaryComponents, { label: '', amount: '' }],
+              }))
+            }
+          >
+            Add component
+          </button>
+        </div>
+
         <Field
           label="Professional Tax half-yearly (₹)"
           error={err('ptHalfYearly')}

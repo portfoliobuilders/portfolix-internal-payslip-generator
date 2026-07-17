@@ -475,7 +475,11 @@ export default function GeneratorView({
         bankName: employee.bankName,
         bankAccountNumber: employee.bankAccountNumber,
         bankLast4: employee.bankLast4,
+        pan: employee.pan,
         panMasked: employee.panMasked,
+        ifsc: employee.ifsc,
+        workLocation: employee.workLocation,
+        salaryComponents: employee.salaryComponents,
       },
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
