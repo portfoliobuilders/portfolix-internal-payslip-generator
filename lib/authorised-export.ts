@@ -1,18 +1,11 @@
 /**
- * Shared AUTHORISED SALARY SLIP export path.
- * Uses text/vector PDF + issued-document registry. Never fabricates payment data.
+ * Shared AUTHORISED SALARY SLIP export path (client-callable).
+ * Delegates PDF build + private asset embedding to a Node server action.
+ * Never fabricates payment data. Never embeds browser signed URLs into the PDF.
  */
 
-import { issueAuthorisedSalarySlipDocument } from '@/app/actions/issued-documents';
-import { assertAuthorisedSlipPaymentGate } from '@/app/actions/salary-payment';
+import { generateAuthorisedSalarySlipPdfAction } from '@/app/actions/authorised-pdf';
 import { downloadPdfBytes } from '@/lib/download-pdf';
-import { authorisedSlipFilename } from '@/lib/format';
-import {
-  computeAttendancePeriod,
-  DEFAULT_PAYROLL_CYCLE_METHOD,
-} from '@/lib/payroll-cycle';
-import { lopCalculationBasisDisplayText } from '@/lib/calculation-method';
-import { buildVectorPayslipPdf } from '@/lib/pdf-vector';
 import type { EntityInfo, SlipSnapshot } from '@/lib/types';
 
 export interface AuthorisedExportResult {
@@ -21,26 +14,8 @@ export interface AuthorisedExportResult {
   verificationUrl: string;
   filename: string;
   sizeBytes: number;
-}
-
-function resolveAttendance(snapshot: SlipSnapshot): {
-  start: string;
-  end: string;
-} {
-  if (snapshot.attendancePeriodStart && snapshot.attendancePeriodEnd) {
-    return {
-      start: snapshot.attendancePeriodStart,
-      end: snapshot.attendancePeriodEnd,
-    };
-  }
-  const period = computeAttendancePeriod({
-    salaryMonth: snapshot.salaryMonth ?? snapshot.monthYear,
-    method: DEFAULT_PAYROLL_CYCLE_METHOD,
-  });
-  return {
-    start: period.attendancePeriodStart,
-    end: period.attendancePeriodEnd,
-  };
+  reusedImmutablePdf: boolean;
+  embedded: { signature: boolean; seal: boolean };
 }
 
 function verificationBaseUrl(): string {
@@ -50,9 +25,17 @@ function verificationBaseUrl(): string {
   return 'https://portfolix-internal-payslip-generato.vercel.app';
 }
 
+function base64ToUint8Array(b64: string): Uint8Array {
+  const binary = atob(b64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return bytes;
+}
+
 /**
- * Gate → issue/reuse verification document → build vector PDF → download.
- * Caller should still log authorised_slip_log separately if desired.
+ * Gate → issue/reuse verification document → build vector PDF with embedded
+ * signature/seal (server-side) → download. Historical reprints return the
+ * frozen issued PDF when available.
  */
 export async function exportAuthorisedSalarySlipPdf(input: {
   snapshot: SlipSnapshot;
@@ -61,68 +44,25 @@ export async function exportAuthorisedSalarySlipPdf(input: {
   | { ok: true; data: AuthorisedExportResult }
   | { ok: false; error: string }
 > {
-  const paymentGate = await assertAuthorisedSlipPaymentGate(input.snapshot.id);
-  if (!paymentGate.ok) return { ok: false, error: paymentGate.error };
-
-  const attendance = resolveAttendance(input.snapshot);
-  const issued = await issueAuthorisedSalarySlipDocument({
-    snapshot: {
-      ...input.snapshot,
-      attendancePeriodStart: attendance.start,
-      attendancePeriodEnd: attendance.end,
-    },
-    obligationId: paymentGate.data.obligationId,
-    netSalary: paymentGate.data.netSalaryPayable,
-    actualCreditDate: paymentGate.data.actualCreditDate,
-    legalCompanyName: input.entity.name,
-    cin: input.entity.cin,
-    signatoryName: input.entity.signatoryName,
-    signatoryDesignation: input.entity.signatoryDesignation,
+  const generated = await generateAuthorisedSalarySlipPdfAction({
+    snapshot: input.snapshot,
+    entity: input.entity,
     verificationBaseUrl: verificationBaseUrl(),
-    issuedBy: 'hr-export',
   });
-  if (!issued.ok) return { ok: false, error: issued.error };
+  if (!generated.ok) return generated;
 
-  const pdf = await buildVectorPayslipPdf({
-    documentType: 'AUTHORISED_SALARY_SLIP',
-    legalCompanyName: input.entity.name,
-    employeeName: input.snapshot.employee.fullName,
-    employeeId: input.snapshot.employee.empId,
-    salaryMonth: input.snapshot.monthYear,
-    attendancePeriodStart: attendance.start,
-    attendancePeriodEnd: attendance.end,
-    netSalary: paymentGate.data.netSalaryPayable,
-    documentNumber: issued.data.documentNumber,
-    paymentStatus: 'Paid',
-    verificationId: issued.data.publicVerificationId,
-    verificationUrl: issued.data.verificationUrl,
-    actualCreditDate: paymentGate.data.actualCreditDate,
-    confirmedPaidAmount: paymentGate.data.confirmedPaidAmount,
-    outstandingAmount: paymentGate.data.outstandingAmount,
-    cin: input.entity.cin,
-    issueDate: new Date().toISOString().slice(0, 10),
-    lopDivisorLabel:
-      input.snapshot.calculationMethodLabel ??
-      lopCalculationBasisDisplayText(
-        input.snapshot.calculationMethodCode ?? 'FIXED_25_DAY_DIVISOR',
-      ),
-  });
-
-  const filename = authorisedSlipFilename(
-    input.snapshot.monthYear,
-    input.snapshot.employee.empId,
-    issued.data.documentNumber,
-  );
-  downloadPdfBytes(pdf.bytes, filename);
+  downloadPdfBytes(base64ToUint8Array(generated.data.pdfBase64), generated.data.filename);
 
   return {
     ok: true,
     data: {
-      documentNumber: issued.data.documentNumber,
-      publicVerificationId: issued.data.publicVerificationId,
-      verificationUrl: issued.data.verificationUrl,
-      filename,
-      sizeBytes: pdf.sizeBytes,
+      documentNumber: generated.data.documentNumber,
+      publicVerificationId: generated.data.publicVerificationId,
+      verificationUrl: generated.data.verificationUrl,
+      filename: generated.data.filename,
+      sizeBytes: generated.data.sizeBytes,
+      reusedImmutablePdf: generated.data.reusedImmutablePdf,
+      embedded: generated.data.embedded,
     },
   };
 }

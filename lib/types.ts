@@ -26,6 +26,20 @@ export interface EntityInfo {
   signatureAssetPath: string | null;
   /** Private storage path in the signatory-assets bucket (never a public URL). */
   sealAssetPath: string | null;
+  /**
+   * How authorised slips prove authenticity.
+   * SIGNATURE_AND_SEAL requires both visual assets — never auto-falls back.
+   */
+  authorisationMode?:
+    | 'SIGNATURE_AND_SEAL'
+    | 'COMPUTER_GENERATED_VERIFICATION'
+    | 'CRYPTOGRAPHIC_DIGITAL_SIGNATURE';
+  /** ISO date — authority window start (inclusive). Null = no start constraint. */
+  authorityEffectiveFrom?: string | null;
+  /** ISO date — authority window end (inclusive). Null = open-ended. */
+  authorityEffectiveTo?: string | null;
+  /** When false, authorised issuance is blocked. */
+  signatoryActive?: boolean;
 }
 
 export interface Settings {

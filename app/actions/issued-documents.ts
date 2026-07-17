@@ -7,6 +7,10 @@ import {
   generatePublicVerificationId,
 } from '@/lib/verification';
 import type { SlipSnapshot } from '@/lib/types';
+import {
+  createServiceRoleClient,
+} from '@/utils/supabase/service-role';
+import { ISSUED_DOCUMENTS_BUCKET } from '@/lib/signatory-assets';
 
 export type ActionResult<T> =
   | { ok: true; data: T }
@@ -19,6 +23,7 @@ export interface IssuedAuthorisedDocument {
   verificationFingerprint: string;
   revisionNumber: number;
   reused: boolean;
+  pdfStoragePath?: string | null;
 }
 
 /**
@@ -37,6 +42,9 @@ export async function issueAuthorisedSalarySlipDocument(input: {
   signatoryDesignation?: string | null;
   verificationBaseUrl: string;
   issuedBy?: string;
+  signatureAssetPath?: string | null;
+  sealAssetPath?: string | null;
+  authorisationMode?: string | null;
 }): Promise<ActionResult<IssuedAuthorisedDocument>> {
   try {
     if (!input.actualCreditDate) {
@@ -71,6 +79,9 @@ export async function issueAuthorisedSalarySlipDocument(input: {
             : '',
           revisionNumber: Number(existing.revision_number ?? 1),
           reused: true,
+          pdfStoragePath: existing.pdf_storage_path
+            ? String(existing.pdf_storage_path)
+            : null,
         },
       };
     }
@@ -105,6 +116,9 @@ export async function issueAuthorisedSalarySlipDocument(input: {
       issue_date: issueDate,
       signatory_name: input.signatoryName ?? null,
       signatory_designation: input.signatoryDesignation ?? null,
+      signature_asset_path: input.signatureAssetPath ?? null,
+      seal_asset_path: input.sealAssetPath ?? null,
+      authorisation_mode: input.authorisationMode ?? 'SIGNATURE_AND_SEAL',
       snapshot_json: {
         employee: {
           fullName: input.snapshot.employee.fullName,
@@ -113,6 +127,12 @@ export async function issueAuthorisedSalarySlipDocument(input: {
         company: {
           legalName: input.legalCompanyName,
           cin: input.cin ?? null,
+        },
+        signatory: {
+          name: input.signatoryName ?? null,
+          designation: input.signatoryDesignation ?? null,
+          signatureAssetPath: input.signatureAssetPath ?? null,
+          sealAssetPath: input.sealAssetPath ?? null,
         },
       },
       issued_by: input.issuedBy ?? 'system',
@@ -133,12 +153,90 @@ export async function issueAuthorisedSalarySlipDocument(input: {
         verificationFingerprint: fingerprint,
         revisionNumber,
         reused: false,
+        pdfStoragePath: null,
       },
     };
   } catch (err) {
     return {
       ok: false,
       error: err instanceof Error ? err.message : 'Failed to issue authorised document.',
+    };
+  }
+}
+
+/** Persist immutable PDF path + asset hashes after generation. */
+export async function attachIssuedPdfArtifact(input: {
+  documentNumber: string;
+  pdfStoragePath: string | null;
+  contentHash: string;
+  signatureAssetPath?: string | null;
+  sealAssetPath?: string | null;
+  signatureAssetHash?: string | null;
+  sealAssetHash?: string | null;
+  authorisationMode?: string | null;
+}): Promise<ActionResult<{ updated: true }>> {
+  try {
+    const supabase = await createClient();
+    const { error } = await supabase
+      .from('payroll_issued_documents')
+      .update({
+        pdf_storage_path: input.pdfStoragePath,
+        content_hash: input.contentHash,
+        signature_asset_path: input.signatureAssetPath ?? null,
+        seal_asset_path: input.sealAssetPath ?? null,
+        signature_asset_hash: input.signatureAssetHash ?? null,
+        seal_asset_hash: input.sealAssetHash ?? null,
+        authorisation_mode: input.authorisationMode ?? null,
+      })
+      .eq('document_number', input.documentNumber)
+      .eq('document_type', 'AUTHORISED_SALARY_SLIP');
+
+    if (error) return { ok: false, error: error.message };
+    return { ok: true, data: { updated: true } };
+  } catch (err) {
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : 'Failed to attach issued PDF artifact.',
+    };
+  }
+}
+
+/** Download the frozen issued PDF bytes (service role). Never returns a public URL. */
+export async function fetchIssuedAuthorisedPdf(
+  documentNumber: string,
+): Promise<ActionResult<{ pdfBytes: Uint8Array | null; pdfStoragePath: string | null }>> {
+  try {
+    const supabase = await createClient();
+    const { data: row, error } = await supabase
+      .from('payroll_issued_documents')
+      .select('pdf_storage_path')
+      .eq('document_number', documentNumber)
+      .eq('document_type', 'AUTHORISED_SALARY_SLIP')
+      .maybeSingle();
+
+    if (error) return { ok: false, error: error.message };
+    const path = row?.pdf_storage_path ? String(row.pdf_storage_path) : null;
+    if (!path) return { ok: true, data: { pdfBytes: null, pdfStoragePath: null } };
+
+    const service = createServiceRoleClient();
+    if (!service) {
+      return { ok: true, data: { pdfBytes: null, pdfStoragePath: path } };
+    }
+
+    const { data: blob, error: dlError } = await service.storage
+      .from(ISSUED_DOCUMENTS_BUCKET)
+      .download(path);
+
+    if (dlError || !blob) {
+      return { ok: true, data: { pdfBytes: null, pdfStoragePath: path } };
+    }
+
+    const pdfBytes = new Uint8Array(await blob.arrayBuffer());
+    return { ok: true, data: { pdfBytes, pdfStoragePath: path } };
+  } catch (err) {
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : 'Failed to fetch issued PDF.',
     };
   }
 }

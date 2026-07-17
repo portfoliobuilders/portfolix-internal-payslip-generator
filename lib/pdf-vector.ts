@@ -6,9 +6,11 @@
  */
 
 import { jsPDF } from 'jspdf';
-import { PDFDocument, StandardFonts, rgb, degrees } from 'pdf-lib';
+import { PDFDocument, StandardFonts, rgb, degrees, type PDFImage, type PDFPage } from 'pdf-lib';
 import { formatAmount, formatINR, formatMonthYear, formatSalaryAttendanceCycle } from './format';
 import { formatAttendanceCycleRange } from './payroll-cycle';
+import type { LoadedImageAsset } from './documents/load-company-asset';
+import { logAssetFailure } from './documents/load-company-asset';
 
 export interface VectorInternalSlipInput {
   legalCompanyName: string;
@@ -223,6 +225,13 @@ function pdfMoney(amount: number): string {
   return `INR ${formatAmount(amount)}`;
 }
 
+/** Image bytes for PDF embedding — never signed URLs. */
+export type AuthorisedPdfAssets = {
+  logo?: LoadedImageAsset | null;
+  signature?: LoadedImageAsset | null;
+  seal?: LoadedImageAsset | null;
+};
+
 export interface VectorPayslipPdfInput {
   documentType: 'INTERNAL_PAY_SLIP' | 'AUTHORISED_SALARY_SLIP';
   legalCompanyName: string;
@@ -243,14 +252,160 @@ export interface VectorPayslipPdfInput {
   outstandingAmount?: number | null;
   cin?: string | null;
   issueDate?: string | null;
+  /** Required for SIGNATURE_AND_SEAL authorised slips. */
+  signatoryName?: string | null;
+  signatoryDesignation?: string | null;
+  assets?: AuthorisedPdfAssets | null;
+  /** When true (default for authorised SIGNATURE_AND_SEAL), draw visual signatory block. */
+  drawSignatoryBlock?: boolean;
 }
 
 const MAX_VECTOR_BYTES = 1024 * 1024;
 
+const PAGE_WIDTH = 595.28;
+const PAGE_HEIGHT = 841.89;
+
+/** Signature ~90–110 pt wide; seal ~55–70 pt; seal overlaps lower-right ~12%. */
+const SIG_MAX_W = 100;
+const SIG_MAX_H = 48;
+const SEAL_MAX_W = 62;
+const SEAL_MAX_H = 62;
+const SEAL_OVERLAP_FRAC = 0.12;
+
+async function embedAssetImage(
+  pdf: PDFDocument,
+  asset: LoadedImageAsset,
+  assetType: string,
+): Promise<PDFImage> {
+  try {
+    if (asset.mimeType === 'image/png') {
+      return await pdf.embedPng(asset.bytes);
+    }
+    return await pdf.embedJpg(asset.bytes);
+  } catch (err) {
+    logAssetFailure({
+      documentType: 'AUTHORISED_SALARY_SLIP',
+      assetType,
+      storagePath: asset.storagePath,
+      category: 'PDF_EMBED_FAILED',
+      detail: err instanceof Error ? err.message : 'embed failed',
+    });
+    throw new Error(
+      `Failed to embed ${assetType} in PDF: ${err instanceof Error ? err.message : 'unknown error'}`,
+    );
+  }
+}
+
+function fitImage(img: PDFImage, maxW: number, maxH: number): { w: number; h: number } {
+  const scale = Math.min(maxW / img.width, maxH / img.height, 1);
+  return { w: img.width * scale, h: img.height * scale };
+}
+
+/**
+ * Draw signatory block: signature → seal (overlap) → name/designation text.
+ * Coordinates are deterministic page points; seal must not cover name/QR.
+ */
+function drawSignatoryBlock(
+  page: PDFPage,
+  opts: {
+    companyName: string;
+    signatoryName: string;
+    signatoryDesignation: string;
+    issueDate: string;
+    signature?: PDFImage | null;
+    seal?: PDFImage | null;
+    font: Awaited<ReturnType<PDFDocument['embedFont']>>;
+    fontBold: Awaited<ReturnType<PDFDocument['embedFont']>>;
+    leftX: number;
+    /** Baseline y for the top of the signatory section (points from bottom). */
+    topY: number;
+  },
+): number {
+  const { leftX, topY, font, fontBold } = opts;
+  let y = topY;
+
+  page.drawText(`For ${opts.companyName}`, {
+    x: leftX,
+    y,
+    size: 9,
+    font,
+    color: rgb(0.15, 0.15, 0.15),
+  });
+  y -= 14;
+
+  const sigSize = opts.signature ? fitImage(opts.signature, SIG_MAX_W, SIG_MAX_H) : { w: SIG_MAX_W, h: 36 };
+  const sealSize = opts.seal ? fitImage(opts.seal, SEAL_MAX_W, SEAL_MAX_H) : null;
+
+  const sigX = leftX;
+  const sigY = y - sigSize.h;
+
+  // 1) Signature first (under seal)
+  if (opts.signature) {
+    page.drawImage(opts.signature, {
+      x: sigX,
+      y: sigY,
+      width: sigSize.w,
+      height: sigSize.h,
+    });
+  }
+
+  // 2) Seal overlaps lower-right of signature (~12%)
+  if (opts.seal && sealSize) {
+    const overlapX = sigSize.w * SEAL_OVERLAP_FRAC;
+    const overlapY = sigSize.h * SEAL_OVERLAP_FRAC;
+    const sealX = Math.min(
+      sigX + sigSize.w - overlapX,
+      PAGE_WIDTH - 48 - sealSize.w,
+    );
+    const sealY = Math.max(48, sigY - sealSize.h + overlapY);
+    page.drawImage(opts.seal, {
+      x: sealX,
+      y: sealY,
+      width: sealSize.w,
+      height: sealSize.h,
+    });
+  }
+
+  // 3) Name / designation below images (never covered by seal)
+  const textY = Math.min(sigY, opts.seal && sealSize ? sigY - sealSize.h * 0.35 : sigY) - 14;
+  y = textY;
+
+  page.drawText(opts.signatoryName, {
+    x: leftX,
+    y,
+    size: 10,
+    font: fontBold,
+    color: rgb(0.1, 0.1, 0.1),
+  });
+  y -= 12;
+  page.drawText(`${opts.signatoryDesignation} / Authorised Signatory`, {
+    x: leftX,
+    y,
+    size: 9,
+    font,
+    color: rgb(0.35, 0.35, 0.35),
+  });
+  y -= 14;
+  page.drawText(`Place: Kochi  ·  Issue Date: ${opts.issueDate}`, {
+    x: leftX,
+    y,
+    size: 8,
+    font,
+    color: rgb(0.4, 0.4, 0.4),
+  });
+
+  return y - 8;
+}
+
 /** Production pdf-lib text/vector builder used by authorised export. */
 export async function buildVectorPayslipPdf(
   input: VectorPayslipPdfInput,
-): Promise<{ bytes: Uint8Array; sizeBytes: number; extractedText: string }> {
+): Promise<{
+  bytes: Uint8Array;
+  sizeBytes: number;
+  extractedText: string;
+  embedded: { signature: boolean; seal: boolean };
+}> {
   const pdf = await PDFDocument.create();
   pdf.setTitle(
     input.documentType === 'AUTHORISED_SALARY_SLIP'
@@ -262,7 +417,7 @@ export async function buildVectorPayslipPdf(
   pdf.setCreator('Portfolix SlipGen');
   pdf.setProducer('Portfolix SlipGen pdf-lib');
 
-  const page = pdf.addPage([595.28, 841.89]); // A4 points
+  const page = pdf.addPage([PAGE_WIDTH, PAGE_HEIGHT]);
   const font = await pdf.embedFont(StandardFonts.Helvetica);
   const fontBold = await pdf.embedFont(StandardFonts.HelveticaBold);
 
@@ -315,13 +470,17 @@ export async function buildVectorPayslipPdf(
   }
   if (input.issueDate) line(`Issue date: ${input.issueDate}`, 10);
 
+  let embeddedSignature = false;
+  let embeddedSeal = false;
+
   if (input.documentType === 'AUTHORISED_SALARY_SLIP') {
     y -= 8;
     line(`Verification ID: ${input.verificationId ?? '—'}`, 10);
     if (input.verificationUrl) {
       line(`Verification URL: ${input.verificationUrl}`, 8);
+      // QR placeholder — bottom-right, clear of signatory block
       page.drawRectangle({
-        x: 595.28 - margin - 72,
+        x: PAGE_WIDTH - margin - 72,
         y: 72,
         width: 64,
         height: 64,
@@ -329,17 +488,45 @@ export async function buildVectorPayslipPdf(
         borderWidth: 1,
       });
       page.drawText('QR', {
-        x: 595.28 - margin - 52,
+        x: PAGE_WIDTH - margin - 52,
         y: 98,
         size: 10,
         font: fontBold,
         rotate: degrees(0),
       });
     }
+
+    const drawVisual = input.drawSignatoryBlock !== false;
+    if (drawVisual && (input.assets?.signature || input.assets?.seal)) {
+      const sigImg = input.assets?.signature
+        ? await embedAssetImage(pdf, input.assets.signature, 'signature')
+        : null;
+      const sealImg = input.assets?.seal
+        ? await embedAssetImage(pdf, input.assets.seal, 'seal')
+        : null;
+      embeddedSignature = Boolean(sigImg);
+      embeddedSeal = Boolean(sealImg);
+
+      // Keep signatory block above QR area (QR sits near y=72)
+      const blockTop = Math.min(y - 10, 280);
+      y = drawSignatoryBlock(page, {
+        companyName: input.legalCompanyName,
+        signatoryName: input.signatoryName?.trim() || 'Authorised Signatory',
+        signatoryDesignation: input.signatoryDesignation?.trim() || '',
+        issueDate: input.issueDate ?? new Date().toISOString().slice(0, 10),
+        signature: sigImg,
+        seal: sealImg,
+        font,
+        fontBold,
+        leftX: margin,
+        topY: blockTop,
+      });
+    }
+
     y = Math.min(y, 150);
     line('Authorised and issued by the employer.', 8);
     line(
-      'This computer-generated authorised salary slip may be verified through the QR code and verification ID.',
+      'This authorised salary slip may be verified through the QR code and verification ID.',
       8,
     );
   } else {
@@ -352,10 +539,33 @@ export async function buildVectorPayslipPdf(
       'It is not an authorised income certificate and must not be used for bank, loan, visa or third-party verification purposes.',
       8,
     );
-    line(
-      'This is a computer-generated internal payroll document and does not require a physical signature.',
-      8,
-    );
+
+    // Optional internal signatory when assets are supplied and draw is enabled
+    if (input.drawSignatoryBlock && input.assets?.signature) {
+      const sigImg = await embedAssetImage(pdf, input.assets.signature, 'signature');
+      const sealImg = input.assets.seal
+        ? await embedAssetImage(pdf, input.assets.seal, 'seal')
+        : null;
+      embeddedSignature = true;
+      embeddedSeal = Boolean(sealImg);
+      y = drawSignatoryBlock(page, {
+        companyName: input.legalCompanyName,
+        signatoryName: input.signatoryName?.trim() || 'Authorised Signatory',
+        signatoryDesignation: input.signatoryDesignation?.trim() || '',
+        issueDate: input.issueDate ?? new Date().toISOString().slice(0, 10),
+        signature: sigImg,
+        seal: sealImg,
+        font,
+        fontBold,
+        leftX: margin,
+        topY: Math.min(y - 10, 220),
+      });
+    } else {
+      line(
+        'This is a computer-generated internal payroll document and does not require a physical signature.',
+        8,
+      );
+    }
   }
 
   const bytes = await pdf.save();
@@ -376,11 +586,18 @@ export async function buildVectorPayslipPdf(
     input.documentNumber,
     input.paymentStatus,
     input.verificationId ?? '',
+    input.signatoryName ?? '',
+    input.signatoryDesignation ?? '',
   ]
     .filter(Boolean)
     .join('\n');
 
-  return { bytes, sizeBytes: bytes.byteLength, extractedText };
+  return {
+    bytes,
+    sizeBytes: bytes.byteLength,
+    extractedText,
+    embedded: { signature: embeddedSignature, seal: embeddedSeal },
+  };
 }
 
 /** Extract text-ish payload for automated assertions without a full PDF parser. */

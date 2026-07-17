@@ -40,6 +40,10 @@ function buildEntity(code: EntityCode): EntityInfo {
     signatoryDesignation: 'HR & Payroll',
     signatureAssetPath: null,
     sealAssetPath: null,
+    authorisationMode: 'SIGNATURE_AND_SEAL',
+    authorityEffectiveFrom: null,
+    authorityEffectiveTo: null,
+    signatoryActive: true,
   };
 }
 
@@ -113,6 +117,19 @@ function mergeEntityBranding(
             : patch.signatureAssetPath,
         sealAssetPath:
           patch.sealAssetPath === undefined ? merged[code].sealAssetPath : patch.sealAssetPath,
+        authorisationMode: patch.authorisationMode ?? merged[code].authorisationMode,
+        authorityEffectiveFrom:
+          patch.authorityEffectiveFrom === undefined
+            ? merged[code].authorityEffectiveFrom
+            : patch.authorityEffectiveFrom,
+        authorityEffectiveTo:
+          patch.authorityEffectiveTo === undefined
+            ? merged[code].authorityEffectiveTo
+            : patch.authorityEffectiveTo,
+        signatoryActive:
+          patch.signatoryActive === undefined
+            ? merged[code].signatoryActive
+            : patch.signatoryActive,
       };
     }
   }
@@ -149,7 +166,15 @@ export function isSettingsPlaceholder(value: string | null | undefined): boolean
  * Returns a human-readable reason listing missing company/signatory fields,
  * or null when the entity is complete enough to generate a bank copy.
  */
-export function signatoryIncompleteReason(entity: EntityInfo): string | null {
+export function signatoryIncompleteReason(
+  entity: EntityInfo,
+  issueDate?: string | null,
+): string | null {
+  if (entity.signatoryActive === false) {
+    return 'Authorised salary slip cannot be issued because the authorised signatory configuration is incomplete.';
+  }
+
+  const mode = entity.authorisationMode ?? 'SIGNATURE_AND_SEAL';
   const missing: string[] = [];
   if (isSettingsPlaceholder(entity.name)) missing.push('legal name');
   if (isSettingsPlaceholder(entity.cin)) missing.push('CIN');
@@ -158,8 +183,29 @@ export function signatoryIncompleteReason(entity: EntityInfo): string | null {
   if (isSettingsPlaceholder(entity.payrollEmail)) missing.push('payroll email');
   if (isSettingsPlaceholder(entity.signatoryName)) missing.push('signatory name');
   if (isSettingsPlaceholder(entity.signatoryDesignation)) missing.push('signatory designation');
-  if (!entity.signatureAssetPath?.trim()) missing.push('signature image');
-  if (!entity.sealAssetPath?.trim()) missing.push('company seal image');
-  if (missing.length === 0) return null;
-  return `Complete Company & Signatory settings first (${missing.join(', ')}).`;
+
+  if (mode === 'SIGNATURE_AND_SEAL') {
+    if (!entity.signatureAssetPath?.trim()) missing.push('signature image');
+    if (!entity.sealAssetPath?.trim()) missing.push('company seal image');
+  }
+
+  if (missing.length > 0) {
+    return 'Authorised salary slip cannot be issued because the authorised signatory configuration is incomplete.';
+  }
+
+  const day = (issueDate ?? new Date().toISOString().slice(0, 10)).slice(0, 10);
+  const from = entity.authorityEffectiveFrom?.trim() || null;
+  const to = entity.authorityEffectiveTo?.trim() || null;
+  if (from && day < from) {
+    return 'Authorised salary slip cannot be issued because the authorised signatory configuration is incomplete.';
+  }
+  if (to && day > to) {
+    return 'Authorised salary slip cannot be issued because the authorised signatory configuration is incomplete.';
+  }
+
+  if (mode === 'CRYPTOGRAPHIC_DIGITAL_SIGNATURE') {
+    return 'Cryptographic digital signature mode is not configured for issuance yet.';
+  }
+
+  return null;
 }

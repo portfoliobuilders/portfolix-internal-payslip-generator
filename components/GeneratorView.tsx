@@ -269,9 +269,22 @@ export default function GeneratorView({
           computeAuthorisedYtd(slipHistory, existingFinal.employeeId, existingFinal.monthYear);
 
         // Signed URLs may fail when the secret key is missing — still show the
-        // slip preview; download stays disabled with the specific reason.
+        // slip preview with an explicit warning; download stays gated.
         const signatureUrl = urlsResult.ok ? urlsResult.data.signatureUrl : null;
         const sealUrl = urlsResult.ok ? urlsResult.data.sealUrl : null;
+        if (!urlsResult.ok) {
+          setAuthorisedError(
+            urlsResult.error ||
+              'Signature image could not be loaded from company settings.',
+          );
+        } else if (
+          entityInfo.signatureAssetPath &&
+          !signatureUrl
+        ) {
+          setAuthorisedError('Signature image could not be loaded from company settings.');
+        } else if (entityInfo.sealAssetPath && !sealUrl) {
+          setAuthorisedError('Company seal is missing.');
+        }
 
         setAuthorisedBundle({
           snapshot: existingFinal,
@@ -954,6 +967,8 @@ export default function GeneratorView({
                   paydayDayOfMonth={settings.paydayDayOfMonth}
                   signatureUrl={authorisedBundle.signatureUrl}
                   sealUrl={authorisedBundle.sealUrl}
+                  signatureAssetPath={entity.signatureAssetPath}
+                  sealAssetPath={entity.sealAssetPath}
                   actualCreditDate={existingFinal.generatedAt.slice(0, 10)}
                   documentNumber={`ASL-${existingFinal.employee.empId}-${existingFinal.monthYear}`}
                   verificationId={existingFinal.id.replace(/-/g, '').slice(0, 24)}
@@ -1019,6 +1034,14 @@ export default function GeneratorView({
               paydayDayOfMonth={settings.paydayDayOfMonth}
               signatureUrl={authorisedBundle.signatureUrl}
               sealUrl={authorisedBundle.sealUrl}
+              signatureAssetPath={
+                settings.entities[(existingFinal ?? authorisedBundle.snapshot).employee.entityCode]
+                  ?.signatureAssetPath ?? null
+              }
+              sealAssetPath={
+                settings.entities[(existingFinal ?? authorisedBundle.snapshot).employee.entityCode]
+                  ?.sealAssetPath ?? null
+              }
               actualCreditDate={(existingFinal ?? authorisedBundle.snapshot).generatedAt.slice(0, 10)}
               documentNumber={`ASL-${(existingFinal ?? authorisedBundle.snapshot).employee.empId}-${(existingFinal ?? authorisedBundle.snapshot).monthYear}`}
               verificationId={(existingFinal ?? authorisedBundle.snapshot).id.replace(/-/g, '').slice(0, 24)}

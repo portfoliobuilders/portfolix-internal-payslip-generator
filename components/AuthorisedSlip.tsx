@@ -6,6 +6,7 @@
  * payment is fully PAID and reconciled. Never invents credit dates.
  */
 
+import { useEffect, useState } from 'react';
 import {
   formatAmount,
   formatDate,
@@ -16,6 +17,7 @@ import {
 import { slipStatutoryDeductions } from '@/lib/payroll-calc';
 import type { AuthorisedSlipYtd, EntityInfo, SlipSnapshot } from '@/lib/types';
 import EntityLogo from '@/components/EntityLogo';
+import { createSignatorySignedUrl } from '@/app/actions/signatory-assets';
 
 interface AuthorisedSlipProps {
   snapshot: SlipSnapshot;
@@ -25,6 +27,8 @@ interface AuthorisedSlipProps {
   paydayDayOfMonth?: number;
   signatureUrl: string | null;
   sealUrl: string | null;
+  signatureAssetPath?: string | null;
+  sealAssetPath?: string | null;
   issueDate?: Date | string;
   actualCreditDate: string;
   paymentMode?: string;
@@ -40,6 +44,8 @@ interface AuthorisedSlipProps {
   payrollFinalisedDate?: string | null;
   qrDataUrl?: string | null;
   financialYearLabel?: string | null;
+  /** Called when preview images finish loading (success or failure). */
+  onAssetsReady?: (ready: boolean) => void;
 }
 
 function MoneyCell({ amount }: { amount: number }) {
@@ -54,8 +60,10 @@ export default function AuthorisedSlip({
   snapshot,
   entity,
   ytd,
-  signatureUrl,
-  sealUrl,
+  signatureUrl: initialSignatureUrl,
+  sealUrl: initialSealUrl,
+  signatureAssetPath = null,
+  sealAssetPath = null,
   issueDate,
   actualCreditDate,
   paymentMode,
@@ -71,6 +79,7 @@ export default function AuthorisedSlip({
   payrollFinalisedDate = null,
   qrDataUrl = null,
   financialYearLabel = null,
+  onAssetsReady,
 }: AuthorisedSlipProps) {
   const { inputs, computed, employee } = snapshot;
   const attendanceCycle = formatSalaryAttendanceCycle(snapshot.monthYear, 'PREVIOUS_25_TO_CURRENT_24', {
@@ -94,12 +103,70 @@ export default function AuthorisedSlip({
     financialYearLabel ??
     (m >= 4 ? `FY ${y}-${String(y + 1).slice(-2)}` : `FY ${y - 1}-${String(y).slice(-2)}`);
 
+  const [signatureUrl, setSignatureUrl] = useState(initialSignatureUrl);
+  const [sealUrl, setSealUrl] = useState(initialSealUrl);
+  const [signatureError, setSignatureError] = useState<string | null>(null);
+  const [sealError, setSealError] = useState<string | null>(null);
+  const [signatureLoaded, setSignatureLoaded] = useState(!initialSignatureUrl);
+  const [sealLoaded, setSealLoaded] = useState(!initialSealUrl);
+
+  useEffect(() => {
+    setSignatureUrl(initialSignatureUrl);
+    setSealUrl(initialSealUrl);
+    setSignatureError(null);
+    setSealError(null);
+    setSignatureLoaded(!initialSignatureUrl);
+    setSealLoaded(!initialSealUrl);
+  }, [initialSignatureUrl, initialSealUrl]);
+
+  useEffect(() => {
+    if (!signatureAssetPath?.trim() && !sealAssetPath?.trim()) {
+      onAssetsReady?.(true);
+      return;
+    }
+    onAssetsReady?.(signatureLoaded && sealLoaded && !signatureError && !sealError);
+  }, [
+    signatureLoaded,
+    sealLoaded,
+    signatureError,
+    sealError,
+    signatureAssetPath,
+    sealAssetPath,
+    onAssetsReady,
+  ]);
+
+  async function refreshSignedUrl(
+    path: string | null | undefined,
+    kind: 'signature' | 'seal',
+  ) {
+    if (!path?.trim()) return;
+    const result = await createSignatorySignedUrl(path);
+    if (!result.ok || !result.data.signedUrl) {
+      if (kind === 'signature') {
+        setSignatureError('Signature image could not be loaded from company settings.');
+        setSignatureLoaded(true);
+      } else {
+        setSealError('Company seal is missing.');
+        setSealLoaded(true);
+      }
+      return;
+    }
+    if (kind === 'signature') {
+      setSignatureUrl(result.data.signedUrl);
+      setSignatureError(null);
+      setSignatureLoaded(false);
+    } else {
+      setSealUrl(result.data.signedUrl);
+      setSealError(null);
+      setSealLoaded(false);
+    }
+  }
+
   return (
     <div
       className="slip-sheet relative mx-auto box-border flex flex-col bg-paper text-ink shadow-lg"
       style={{ width: '210mm', minHeight: '297mm', padding: '14mm 16mm' }}
     >
-      {/* ---------- Letterhead ---------- */}
       <header className="flex items-start justify-between gap-4 border-b-2 border-ink pb-3">
         <div className="flex min-w-0 flex-1 items-start gap-3">
           <div className="flex h-14 w-28 shrink-0 items-center justify-center overflow-hidden rounded bg-ink p-1.5">
@@ -127,7 +194,6 @@ export default function AuthorisedSlip({
         )}
       </header>
 
-      {/* ---------- Title + period ---------- */}
       <div className="mt-4 text-center">
         <p className="text-[16px] font-bold uppercase tracking-[0.14em]">Authorised Salary Slip</p>
         <p className="mt-1 text-[11px] font-medium">
@@ -142,7 +208,8 @@ export default function AuthorisedSlip({
           Status: ISSUED
         </p>
         <p className="mt-0.5 text-[10px] text-muted">
-          Payroll finalised: {payrollFinalisedDate ? formatDate(payrollFinalisedDate) : formatDate(snapshot.generatedAt)}
+          Payroll finalised:{' '}
+          {payrollFinalisedDate ? formatDate(payrollFinalisedDate) : formatDate(snapshot.generatedAt)}
           {' · '}
           Issue date: {formatDate(issued)}
         </p>
@@ -151,7 +218,6 @@ export default function AuthorisedSlip({
         </p>
       </div>
 
-      {/* ---------- Employee block (no residential address by default) ---------- */}
       <section className="mt-4 rounded border border-hairline px-3 py-2.5">
         <div className="grid grid-cols-4 gap-x-4 gap-y-2 text-[10.5px]">
           <div className="col-span-2">
@@ -189,7 +255,6 @@ export default function AuthorisedSlip({
         </div>
       </section>
 
-      {/* ---------- Earnings ---------- */}
       <section className="mt-4">
         <h3 className="mb-1 border-b border-ink/70 pb-1 text-[10.5px] font-bold uppercase tracking-[0.08em]">
           Earnings
@@ -227,7 +292,6 @@ export default function AuthorisedSlip({
         </table>
       </section>
 
-      {/* ---------- Deductions ---------- */}
       <section className="mt-4">
         <h3 className="mb-1 border-b border-ink/70 pb-1 text-[10.5px] font-bold uppercase tracking-[0.08em]">
           Deductions
@@ -285,7 +349,6 @@ export default function AuthorisedSlip({
         </table>
       </section>
 
-      {/* ---------- Net + payment confirmation ---------- */}
       <section className="slip-net-band mt-5 rounded border px-4 py-3">
         <div className="flex items-baseline justify-between gap-4">
           <p className="text-[10px] font-bold uppercase tracking-[0.15em]">Net Salary</p>
@@ -310,27 +373,51 @@ export default function AuthorisedSlip({
         </div>
       </section>
 
-      {/* ---------- Signatory + seal (seal overlaps lower-right of signature ~15%) ---------- */}
+      {(signatureError || sealError) && (
+        <div className="no-print mt-3 space-y-1 rounded border border-amber-edge bg-amber-tint px-3 py-2 text-[11px] font-medium text-amber-brand">
+          {signatureError && <p>{signatureError}</p>}
+          {sealError && <p>{sealError}</p>}
+        </div>
+      )}
+
       <section className="mt-8 grid grid-cols-[1fr_auto] items-end gap-6">
         <div>
           <p className="text-[10px]">For {entity.name}</p>
-          <div className="relative mt-2 inline-block">
+          <div className="relative mt-2 inline-block min-h-[64px] min-w-[180px]">
             {signatureUrl ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img
                 src={signatureUrl}
                 alt="Authorised signature"
-                className="max-h-16 max-w-[180px] object-contain"
+                className="relative z-0 max-h-16 max-w-[180px] object-contain"
+                onLoad={() => {
+                  setSignatureLoaded(true);
+                  setSignatureError(null);
+                }}
+                onError={() => {
+                  setSignatureLoaded(true);
+                  setSignatureError('Signature image could not be loaded from company settings.');
+                  void refreshSignedUrl(signatureAssetPath, 'signature');
+                }}
               />
-            ) : (
-              <div className="h-12 w-40 border-b border-hairline" />
-            )}
+            ) : signatureAssetPath ? (
+              <p className="no-print text-[10px] text-amber-brand">Loading signature…</p>
+            ) : null}
             {sealUrl && (
               // eslint-disable-next-line @next/next/no-img-element
               <img
                 src={sealUrl}
                 alt="Company seal"
-                className="pointer-events-none absolute -bottom-2 -right-4 h-14 w-14 object-contain opacity-90"
+                className="pointer-events-none absolute -bottom-2 -right-4 z-10 h-14 w-14 object-contain"
+                onLoad={() => {
+                  setSealLoaded(true);
+                  setSealError(null);
+                }}
+                onError={() => {
+                  setSealLoaded(true);
+                  setSealError('Company seal is missing.');
+                  void refreshSignedUrl(sealAssetPath, 'seal');
+                }}
               />
             )}
           </div>
