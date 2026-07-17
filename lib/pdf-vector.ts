@@ -851,7 +851,7 @@ async function buildAuthorisedFullPage(
   const drawTableHeader = (title: string) => {
     ctx.y -= 2;
     drawText(ctx, title, { size: 9, bold: true });
-    drawHLine(ctx, 0.7, 9);
+    ctx.y -= 4;
     const headerY = ctx.y;
     page.drawText('Particulars', {
       x: colParticulars,
@@ -874,13 +874,8 @@ async function buildAuthorisedFullPage(
       font: fontBold,
       color: rgb(0.4, 0.4, 0.4),
     });
-    ctx.y -= 11;
-    page.drawLine({
-      start: { x: margin, y: ctx.y + 5 },
-      end: { x: A4_WIDTH - margin, y: ctx.y + 5 },
-      thickness: 0.35,
-      color: rgb(0.8, 0.8, 0.8),
-    });
+    // Column headers only — no rule lines (they were overlaying row text).
+    ctx.y -= 14;
   };
 
   const drawRow = (
@@ -906,10 +901,10 @@ async function buildAuthorisedFullPage(
       font: f,
     });
     ctx.extracted.push(`${label} ${formatINR(monthAmt)} ${formatINR(ytdAmt)}`);
-    ctx.y -= size + 2;
+    ctx.y -= size + 3;
     if (opts?.note) {
       const noteLines = wrapTextToWidth(opts.note, font, 6.5, particularsMaxW, 2);
-      ctx.y -= 2;
+      ctx.y -= 1;
       for (const noteLine of noteLines) {
         page.drawText(noteLine, {
           x: colParticulars + 4,
@@ -922,14 +917,8 @@ async function buildAuthorisedFullPage(
       }
       ctx.extracted.push(opts.note);
     }
-    // Hairline under each row — never crosses into amount glyphs.
-    page.drawLine({
-      start: { x: margin, y: ctx.y + 1 },
-      end: { x: A4_WIDTH - margin, y: ctx.y + 1 },
-      thickness: 0.3,
-      color: rgb(0.88, 0.88, 0.88),
-    });
-    ctx.y -= 5;
+    // Spacing only — no underlines (kept clean; avoids overlaying notes/amounts).
+    ctx.y -= 4;
   };
 
   drawTableHeader('EARNINGS');
