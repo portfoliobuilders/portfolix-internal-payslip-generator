@@ -305,6 +305,11 @@ function deterministicPdfId(seed: string): PDFHexString {
   return PDFHexString.of(deterministicHex(seed));
 }
 
+/**
+ * Draw text, stepping down font size until it fits within maxWidth.
+ * Never truncates with ellipsis — always shows full text.
+ * Minimum font size is 5pt; below that the text is rendered as-is.
+ */
 function drawClampedText(
   page: PDFPage,
   text: string,
@@ -317,32 +322,26 @@ function drawClampedText(
     maxWidth: number;
   },
 ) {
-  let shown = text;
-  while (
-    shown.length > 1 &&
-    opts.font.widthOfTextAtSize(shown, opts.size) > opts.maxWidth
-  ) {
-    shown = shown.slice(0, -1);
+  let size = opts.size;
+  const MIN_SIZE = 5;
+  while (size > MIN_SIZE && opts.font.widthOfTextAtSize(text, size) > opts.maxWidth) {
+    size -= 0.5;
   }
-  if (shown !== text) {
-    while (
-      shown.length > 1 &&
-      opts.font.widthOfTextAtSize(`${shown}…`, opts.size) > opts.maxWidth
-    ) {
-      shown = shown.slice(0, -1);
-    }
-    shown = `${shown}…`;
-  }
-  page.drawText(shown, {
+  page.drawText(text, {
     x: opts.x,
     y: opts.y,
-    size: opts.size,
+    size,
     font: opts.font,
     color: opts.color ?? rgb(0.1, 0.1, 0.1),
   });
 }
 
-/** Word-wrap text to fit maxWidth; returns lines (never empty). */
+/**
+ * Word-wrap text to fit maxWidth; returns lines (never empty).
+ * Never truncates with ellipsis — if a single word is wider than maxWidth,
+ * it is placed on its own line as-is (hard-break at character level only when
+ * the single word still overflows, stepping down size in drawClampedText).
+ */
 function wrapTextToWidth(
   text: string,
   font: PDFFont,
@@ -353,18 +352,8 @@ function wrapTextToWidth(
   const words = text.trim().split(/\s+/).filter(Boolean);
   if (words.length === 0) return ['—'];
 
-  const clampLine = (line: string): string => {
-    if (font.widthOfTextAtSize(line, size) <= maxWidth) return line;
-    let shown = line;
-    while (shown.length > 1 && font.widthOfTextAtSize(`${shown}…`, size) > maxWidth) {
-      shown = shown.slice(0, -1);
-    }
-    return shown.length < line.length ? `${shown}…` : shown;
-  };
-
   const lines: string[] = [];
   let current = '';
-  let truncated = false;
   for (let wi = 0; wi < words.length; wi += 1) {
     const word = words[wi]!;
     const trial = current ? `${current} ${word}` : word;
@@ -376,23 +365,26 @@ function wrapTextToWidth(
       lines.push(current);
       current = word;
     } else {
-      // Single word wider than the cell.
-      lines.push(clampLine(word));
+      // Single word wider than the column — place it alone and let the
+      // renderer step down font size (drawClampedText) rather than truncate.
+      lines.push(word);
       current = '';
     }
     if (lines.length >= maxLines) {
-      truncated = wi < words.length - 1 || Boolean(current);
+      // Remaining words go onto the last line (may overflow visually — preferable to ellipsis).
+      if (current || wi + 1 < words.length) {
+        const remaining = [current, ...words.slice(wi + 1)].filter(Boolean).join(' ');
+        if (remaining) {
+          lines[lines.length - 1] = `${lines[lines.length - 1]} ${remaining}`.trim();
+        }
+      }
       current = '';
       break;
     }
   }
   if (current && lines.length < maxLines) lines.push(current);
   if (lines.length === 0) lines.push('—');
-  if (truncated && lines.length > 0) {
-    const last = lines[lines.length - 1]!;
-    lines[lines.length - 1] = clampLine(last.endsWith('…') ? last : `${last}…`);
-  }
-  return lines.map(clampLine);
+  return lines;
 }
 
 function drawRightAligned(
@@ -520,8 +512,7 @@ async function buildAuthorisedFullPage(
   const ytd = input.ytd!;
   const { inputs, computed, employee } = snapshot;
   const revision = input.revisionNumber ?? snapshot.revisionNumber ?? 1;
-  const fy =
-    input.financialYearLabel ?? financialYearLabelFor(snapshot.monthYear);
+  const fy = input.financialYearLabel ?? financialYearLabelFor(snapshot.monthYear);
   const cycle = formatAttendanceCycleRange(
     input.attendancePeriodStart,
     input.attendancePeriodEnd,
@@ -529,6 +520,8 @@ async function buildAuthorisedFullPage(
   const { tds, pt } = slipStatutoryDeductions(computed, inputs);
   const other = computed.otherDeductions;
   const lop = computed.lopDeduction;
+  const lopDays = computed.lopDays;
+  const paidDays = 25 - lopDays; // FIXED_DIVISOR = 25
   const variablePaid = computed.variablePaid;
   const grossThisMonth = inputs.baseSalary + inputs.fixedAllowance + variablePaid;
   const totalDeductions = computed.totalDeductions;
@@ -552,8 +545,12 @@ async function buildAuthorisedFullPage(
       : Promise.resolve(null),
   ]);
 
-  // ---- Letterhead ----
+  // ---- LETTERHEAD ----
+  // Logo left; company name + CIN + address + contact in the middle; QR top-right.
   const letterheadTop = ctx.y;
+  const qrSize = 52;
+  const qrX = A4_WIDTH - margin - qrSize;
+
   if (logo) {
     const logoH = 36;
     const logoW = Math.min(90, (logo.width / logo.height) * logoH);
@@ -566,73 +563,153 @@ async function buildAuthorisedFullPage(
   }
 
   const textLeft = margin + (logo ? 98 : 0);
-  ctx.y = letterheadTop;
-  page.drawText(entity.name, {
+  const textMaxW = qrX - textLeft - 8;
+
+  // Company legal name — bold, wraps up to 1 line within available width.
+  const nameLines = wrapTextToWidth(entity.name, fontBold, 11, textMaxW, 1);
+  page.drawText(nameLines[0]!, {
     x: textLeft,
-    y: ctx.y - 12,
-    size: 12,
+    y: letterheadTop - 12,
+    size: 11,
     font: fontBold,
     color: rgb(0.08, 0.08, 0.08),
   });
   ctx.extracted.push(entity.name);
-  ctx.y -= 26;
+
+  // CIN on the next line.
   const cinLine = `CIN: ${entity.cin}`;
   page.drawText(cinLine, {
     x: textLeft,
-    y: ctx.y,
-    size: 8,
+    y: letterheadTop - 24,
+    size: 7.5,
     font,
     color: rgb(0.35, 0.35, 0.35),
   });
   ctx.extracted.push(cinLine);
-  ctx.y -= 11;
-  drawClampedText(page, entity.registeredAddress, {
-    x: textLeft,
-    y: ctx.y,
-    size: 8,
-    font,
-    color: rgb(0.35, 0.35, 0.35),
-    maxWidth: 280,
-  });
+
+  // Registered address — wrap up to 2 lines (no ellipsis).
+  const addrLines = wrapTextToWidth(entity.registeredAddress, font, 7.5, textMaxW, 2);
+  let addrY = letterheadTop - 35;
+  for (const addrLine of addrLines) {
+    page.drawText(addrLine, {
+      x: textLeft,
+      y: addrY,
+      size: 7.5,
+      font,
+      color: rgb(0.35, 0.35, 0.35),
+    });
+    addrY -= 10;
+  }
   ctx.extracted.push(entity.registeredAddress);
-  ctx.y -= 11;
-  const contact = `Tel: ${entity.phone} · Payroll: ${entity.payrollEmail}`;
-  drawClampedText(page, contact, {
+
+  // Tel + payroll email on the next line.
+  const contact = `Tel: ${entity.phone}  |  Payroll: ${entity.payrollEmail}`;
+  const contactLines = wrapTextToWidth(contact, font, 7.5, textMaxW, 1);
+  page.drawText(contactLines[0]!, {
     x: textLeft,
-    y: ctx.y,
-    size: 8,
+    y: addrY,
+    size: 7.5,
     font,
     color: rgb(0.35, 0.35, 0.35),
-    maxWidth: 300,
   });
   ctx.extracted.push(contact);
 
+  // QR top-right with token caption — full token, wrapped/smaller font.
   if (qr) {
-    const qrSize = 52;
     page.drawImage(qr, {
-      x: A4_WIDTH - margin - qrSize,
+      x: qrX,
       y: letterheadTop - qrSize,
       width: qrSize,
       height: qrSize,
     });
     if (input.verificationId) {
-      const idShort = input.verificationId.slice(0, 10);
-      const idW = font.widthOfTextAtSize(idShort, 6);
-      page.drawText(idShort, {
-        x: A4_WIDTH - margin - qrSize / 2 - idW / 2,
-        y: letterheadTop - qrSize - 9,
-        size: 6,
-        font,
-        color: rgb(0.4, 0.4, 0.4),
-      });
+      // Caption below QR: full verification ID, wrapped in small font (never ellipsis).
+      const captionMaxW = qrSize + 4;
+      const captionLines = wrapTextToWidth(input.verificationId, font, 5.5, captionMaxW, 3);
+      let captY = letterheadTop - qrSize - 8;
+      for (const cLine of captionLines) {
+        const cW = font.widthOfTextAtSize(cLine, 5.5);
+        page.drawText(cLine, {
+          x: qrX + (qrSize - cW) / 2,
+          y: captY,
+          size: 5.5,
+          font,
+          color: rgb(0.4, 0.4, 0.4),
+        });
+        captY -= 7;
+      }
     }
   }
 
-  ctx.y = Math.min(ctx.y, letterheadTop - 58) - 6;
-  // Thick letterhead rule — extra gap so the 13pt title cannot collide with it.
-  drawHLine(ctx, 1.2, 18);
+  // Letterhead bottom: leave enough room.
+  ctx.y = Math.min(addrY - 6, letterheadTop - 62) - 4;
+  drawHLine(ctx, 1.2, 14);
 
-  // ---- Title block ----
+  // ---- DOCUMENT DETAILS — bordered two-column grid ----
+  const docGridInnerW = A4_WIDTH - margin * 2;
+  const docGridColW = docGridInnerW / 2;
+  const docCellPadX = 8;
+  const docCellPadY = 6;
+  const docLabelSize = 6;
+  const docValueSize = 8;
+  const docLineGap = 2;
+
+  const finalisedIso = input.payrollFinalisedDate ?? snapshot.generatedAt;
+  const issueIso = input.issueDate ?? snapshot.generatedAt;
+  const creditLabel = input.actualCreditDate
+    ? `Actual: ${formatDate(input.actualCreditDate)}`
+    : (() => {
+        const scheduled = input.scheduledCreditDate ?? input.expectedPaymentDate ?? null;
+        return scheduled ? `Scheduled: ${formatDate(scheduled)}` : 'Scheduled: —';
+      })();
+  // Push canonical credit strings for programmatic assertions.
+  if (input.actualCreditDate) {
+    ctx.extracted.push(`Actual salary-credit date: ${formatDate(input.actualCreditDate)}`);
+  } else {
+    const scheduled = input.scheduledCreditDate ?? input.expectedPaymentDate ?? null;
+    ctx.extracted.push(scheduled ? `Scheduled credit: ${formatDate(scheduled)}` : 'Scheduled credit: —');
+  }
+
+  type DocRow = [string, string, string, string]; // [labelL, valueL, labelR, valueR]
+  const docRows: DocRow[] = [
+    [
+      'Salary month',
+      `${formatMonthYear(snapshot.monthYear)} — ${fy}`,
+      'Attendance cycle',
+      cycle,
+    ],
+    [
+      'Payslip no · Rev · Status',
+      `${input.documentNumber} · Rev ${revision} · ISSUED`,
+      'Payroll finalised',
+      formatDate(finalisedIso),
+    ],
+    [
+      'Issue date',
+      formatDate(issueIso),
+      'Credit date',
+      creditLabel,
+    ],
+    [
+      'LOP calculation basis',
+      input.lopDivisorLabel ?? 'Fixed 25-day divisor',
+      '',
+      '',
+    ],
+  ];
+
+  // Measure row heights from content.
+  const measuredDocRows = docRows.map(([ll, lv, rl, rv]) => {
+    const leftLines = wrapTextToWidth(lv, font, docValueSize, docGridColW - docCellPadX * 2, 2);
+    const rightLines = rv ? wrapTextToWidth(rv, font, docValueSize, docGridColW - docCellPadX * 2, 2) : [];
+    const contentH = docLabelSize + docLineGap + Math.max(leftLines.length, rightLines.length || 1) * (docValueSize + docLineGap);
+    return { ll, lv, rl, rv, leftLines, rightLines, contentH };
+  });
+
+  const docRowH = measuredDocRows.map((r) => r.contentH + docCellPadY * 2);
+  const totalDocH = docRowH.reduce((a, b) => a + b, 0);
+
+  // Draw centered title first.
   drawText(ctx, 'AUTHORISED SALARY SLIP', {
     size: 13,
     bold: true,
@@ -640,99 +717,112 @@ async function buildAuthorisedFullPage(
     x: margin,
     maxWidth: A4_WIDTH - margin * 2,
   });
-  drawText(ctx, `Salary month: ${formatMonthYear(snapshot.monthYear)} · ${fy}`, {
-    size: 9,
-    align: 'center',
-    x: margin,
-    maxWidth: A4_WIDTH - margin * 2,
-  });
-  drawText(ctx, `Attendance cycle: ${cycle}`, {
-    size: 8,
-    align: 'center',
-    x: margin,
-    maxWidth: A4_WIDTH - margin * 2,
-    color: rgb(0.35, 0.35, 0.35),
-  });
-  drawText(
-    ctx,
-    `Payslip no: ${input.documentNumber} · Rev ${revision} · Status: ISSUED`,
-    {
-      size: 8,
-      align: 'center',
-      x: margin,
-      maxWidth: A4_WIDTH - margin * 2,
-      color: rgb(0.35, 0.35, 0.35),
-    },
-  );
+  ctx.y -= 6;
 
-  const finalisedIso = input.payrollFinalisedDate ?? snapshot.generatedAt;
-  const issueIso = input.issueDate ?? snapshot.generatedAt;
-  drawText(
-    ctx,
-    `Payroll finalised: ${formatDate(finalisedIso)} · Issue date: ${formatDate(issueIso)}`,
-    {
-      size: 8,
-      align: 'center',
-      x: margin,
-      maxWidth: A4_WIDTH - margin * 2,
-      color: rgb(0.35, 0.35, 0.35),
-    },
-  );
+  const docGridTop = ctx.y;
+  const docGridBottom = docGridTop - totalDocH;
 
-  if (input.actualCreditDate) {
-    drawText(ctx, `Actual salary-credit date: ${formatDate(input.actualCreditDate)}`, {
-      size: 9,
-      bold: true,
-      align: 'center',
-      x: margin,
-      maxWidth: A4_WIDTH - margin * 2,
+  // Outer border.
+  page.drawRectangle({
+    x: margin,
+    y: docGridBottom,
+    width: docGridInnerW,
+    height: totalDocH,
+    borderColor: rgb(0.68, 0.68, 0.68),
+    borderWidth: 0.7,
+  });
+
+  // Vertical center rule.
+  page.drawLine({
+    start: { x: margin + docGridColW, y: docGridTop },
+    end: { x: margin + docGridColW, y: docGridBottom },
+    thickness: 0.45,
+    color: rgb(0.82, 0.82, 0.82),
+  });
+
+  let docRowTop = docGridTop;
+  for (let ri = 0; ri < measuredDocRows.length; ri += 1) {
+    const row = measuredDocRows[ri]!;
+    const rh = docRowH[ri]!;
+    // Horizontal rule between rows.
+    if (ri > 0) {
+      page.drawLine({
+        start: { x: margin, y: docRowTop },
+        end: { x: margin + docGridInnerW, y: docRowTop },
+        thickness: 0.45,
+        color: rgb(0.82, 0.82, 0.82),
+      });
+    }
+    const cellContentTop = docRowTop - docCellPadY;
+    // Left cell.
+    page.drawText(row.ll.toUpperCase(), {
+      x: margin + docCellPadX,
+      y: cellContentTop - docLabelSize,
+      size: docLabelSize,
+      font: fontBold,
+      color: rgb(0.45, 0.45, 0.45),
     });
-  } else {
-    const scheduled =
-      input.scheduledCreditDate ?? input.expectedPaymentDate ?? null;
-    drawText(
-      ctx,
-      scheduled
-        ? `Scheduled credit: ${formatDate(scheduled)}`
-        : 'Scheduled credit: —',
-      {
-        size: 9,
-        bold: true,
-        align: 'center',
-        x: margin,
-        maxWidth: A4_WIDTH - margin * 2,
-      },
-    );
+    let leftValY = cellContentTop - docLabelSize - docLineGap - docValueSize;
+    for (const vl of row.leftLines) {
+      page.drawText(vl, {
+        x: margin + docCellPadX,
+        y: leftValY,
+        size: docValueSize,
+        font,
+        color: rgb(0.1, 0.1, 0.1),
+      });
+      leftValY -= docValueSize + docLineGap;
+    }
+    ctx.extracted.push(`${row.ll}: ${row.lv}`);
+    // Right cell (may be empty for last row spanning both columns).
+    if (row.rl) {
+      page.drawText(row.rl.toUpperCase(), {
+        x: margin + docGridColW + docCellPadX,
+        y: cellContentTop - docLabelSize,
+        size: docLabelSize,
+        font: fontBold,
+        color: rgb(0.45, 0.45, 0.45),
+      });
+      let rightValY = cellContentTop - docLabelSize - docLineGap - docValueSize;
+      for (const vr of row.rightLines) {
+        page.drawText(vr, {
+          x: margin + docGridColW + docCellPadX,
+          y: rightValY,
+          size: docValueSize,
+          font,
+          color: rgb(0.1, 0.1, 0.1),
+        });
+        rightValY -= docValueSize + docLineGap;
+      }
+      ctx.extracted.push(`${row.rl}: ${row.rv}`);
+    }
+    docRowTop -= rh;
   }
 
-  if (input.lopDivisorLabel) {
-    drawText(ctx, input.lopDivisorLabel, {
-      size: 7.5,
-      align: 'center',
-      x: margin,
-      maxWidth: A4_WIDTH - margin * 2,
-      color: rgb(0.4, 0.4, 0.4),
-    });
-  }
+  ctx.y = docGridBottom - 10;
 
-  ctx.y -= 4;
-
-  // ---- Employee block (aligned 4×2 grid, wrap long values, no overlays) ----
-  const empPadX = 10;
-  const empPadY = 12;
-  const empLabelSize = 6.5;
-  const empValueSize = 8.5;
-  const empLabelGap = 4;
+  // ---- EMPLOYEE BLOCK — 4-column grid with extended fields ----
+  const empPadX = 8;
+  const empPadY = 10;
+  const empLabelSize = 6;
+  const empValueSize = 8;
+  const empLabelGap = 3;
   const empLineGap = 2;
-  const empColGap = 10;
+  const empColGap = 8;
   const empInnerW = A4_WIDTH - margin * 2;
   const empColW = (empInnerW - empPadX * 2 - empColGap * 3) / 4;
+
   const bankAccountDisplay = employee.bankAccountNumber?.trim()
     ? employee.bankAccountNumber.trim()
     : employee.bankLast4
-      ? `····${employee.bankLast4}`
+      ? `****${employee.bankLast4}`
       : '—';
-  const bankName = employee.bankName?.trim() || '';
+  const bankName = employee.bankName?.trim() || '—';
+  const panDisplay = (employee.pan?.trim() || employee.panMasked?.trim()) || '—';
+  const ifscDisplay = employee.ifsc?.trim() || '—';
+  const workLocDisplay = employee.workLocation?.trim() || '—';
+  const paymentModeLabel = input.paymentMode ?? employee.paymentMode ?? '';
+
   const empRows: Array<[string, string][]> = [
     [
       ['Employee name', employee.fullName],
@@ -742,16 +832,20 @@ async function buildAuthorisedFullPage(
     ],
     [
       ['Date of joining', formatDate(employee.joiningDate)],
-      ['PAN', employee.panMasked || '—'],
-      ['Bank name', bankName || '—'],
-      ['Bank a/c', bankAccountDisplay],
+      ['PAN', panDisplay],
+      ['Work location', workLocDisplay],
+      ['Payment mode', paymentModeLabel || '—'],
+    ],
+    [
+      ['Bank name', bankName],
+      ['Account number', bankAccountDisplay],
+      ['IFSC', ifscDisplay],
+      ['Paid days · LOP days', `${paidDays > 0 ? paidDays.toFixed(1).replace('.0', '') : paidDays} · ${lopDays > 0 ? lopDays.toFixed(1) : '0'}`],
     ],
   ];
-  const paymentModeLabel = input.paymentMode ?? employee.paymentMode ?? '';
-  // Payment mode is drawn as a compact line under the employee grid.
 
-  // Measure each cell so row height fits wrapped designation / long names.
-  const measuredRows = empRows.map((row, rowIdx) =>
+  // Measure each cell so row height fits wrapped values.
+  const measuredEmpRows = empRows.map((row, rowIdx) =>
     row.map((cell, i) => {
       const valueFont = i === 0 && rowIdx === 0 ? fontBold : font;
       const lines = wrapTextToWidth(cell[1]!, valueFont, empValueSize, empColW, 2);
@@ -763,10 +857,9 @@ async function buildAuthorisedFullPage(
       return { label: cell[0]!, value: cell[1]!, lines, valueFont, contentH };
     }),
   );
-  const rowHeights = measuredRows.map(
+  const rowHeights = measuredEmpRows.map(
     (cells) => Math.max(...cells.map((c) => c.contentH)) + empPadY,
   );
-  // Extra slack for top inset + inter-row rule gap used while drawing.
   const empBoxH = empPadY + rowHeights.reduce((a, b) => a + b, 0) + 8;
   const empTop = ctx.y;
   const empBottom = empTop - empBoxH;
@@ -780,26 +873,25 @@ async function buildAuthorisedFullPage(
     borderWidth: 0.7,
   });
 
-  // Vertical column rules — full box height, evenly spaced.
+  // Vertical column rules.
   for (let i = 1; i < 4; i += 1) {
     const vx = margin + empPadX + i * empColW + i * empColGap - empColGap / 2;
     page.drawLine({
       start: { x: vx, y: empTop },
       end: { x: vx, y: empBottom },
-      thickness: 0.45,
+      thickness: 0.4,
       color: rgb(0.82, 0.82, 0.82),
     });
   }
 
   let rowTop = empTop - 4;
-  measuredRows.forEach((cells, rowIdx) => {
+  measuredEmpRows.forEach((cells, rowIdx) => {
     const rowH = rowHeights[rowIdx]!;
     if (rowIdx > 0) {
-      // Horizontal rule between rows — spans full inner width.
       page.drawLine({
         start: { x: margin, y: rowTop },
         end: { x: margin + empInnerW, y: rowTop },
-        thickness: 0.45,
+        thickness: 0.4,
         color: rgb(0.82, 0.82, 0.82),
       });
       rowTop -= 4;
@@ -830,121 +922,234 @@ async function buildAuthorisedFullPage(
     rowTop -= rowH;
   });
 
-  ctx.y = empBottom - 10;
-  if (paymentModeLabel) {
-    drawText(ctx, `Payment mode: ${paymentModeLabel}`, {
-      size: 8,
-      x: margin,
-      maxWidth: empInnerW,
-      color: rgb(0.25, 0.25, 0.25),
-    });
-    ctx.extracted.push(`Payment mode: ${paymentModeLabel}`);
-    ctx.y -= 6;
-  }
+  ctx.y = empBottom - 8;
 
-  // ---- Tables (fixed column geometry, right-aligned amounts) ----
+  // ---- EARNINGS TABLE — bordered, right-aligned amounts ----
   const colParticulars = margin;
-  const colMonthRight = A4_WIDTH - margin - 100;
-  const colYtdRight = A4_WIDTH - margin - 8;
-  const particularsMaxW = colMonthRight - colParticulars - 90;
+  const colMonthRight = A4_WIDTH - margin - 95;
+  const colYtdRight = A4_WIDTH - margin - 4;
+  const particularsMaxW = colMonthRight - colParticulars - 4;
+  const tableInnerW = A4_WIDTH - margin * 2;
+  const TABLE_BORDER = rgb(0.72, 0.72, 0.72);
+  const HEADER_BG = rgb(0.94, 0.94, 0.96);
+  const ROW_RULE = rgb(0.87, 0.87, 0.87);
 
-  const drawTableHeader = (title: string) => {
-    ctx.y -= 2;
-    drawText(ctx, title, { size: 9, bold: true });
-    ctx.y -= 4;
-    const headerY = ctx.y;
-    page.drawText('Particulars', {
-      x: colParticulars,
-      y: headerY,
-      size: 7,
-      font: fontBold,
-      color: rgb(0.4, 0.4, 0.4),
-    });
-    drawRightAligned(page, 'This Month', {
-      rightX: colMonthRight,
-      y: headerY,
-      size: 7,
-      font: fontBold,
-      color: rgb(0.4, 0.4, 0.4),
-    });
-    drawRightAligned(page, 'YTD (FY)', {
-      rightX: colYtdRight,
-      y: headerY,
-      size: 7,
-      font: fontBold,
-      color: rgb(0.4, 0.4, 0.4),
-    });
-    // Column headers only — no rule lines (they were overlaying row text).
-    ctx.y -= 14;
+  // Track rows for bordered rendering.
+  type TableRowSpec = {
+    label: string;
+    monthAmt: number | null; // null for text-only / non-amount rows
+    ytdAmt: number | null;
+    bold?: boolean;
+    textNote?: string; // compact footnote for zero-reason
+    isTextRow?: boolean; // e.g. EPF/ESI "Not applicable"
+    textValue?: string;
   };
 
-  const drawRow = (
-    label: string,
-    monthAmt: number,
-    ytdAmt: number,
-    opts?: { bold?: boolean; note?: string },
-  ) => {
-    const size = opts?.bold ? 8.5 : 8;
-    const f = opts?.bold ? fontBold : font;
-    const rowTopY = ctx.y;
-    page.drawText(label, { x: colParticulars, y: rowTopY, size, font: f });
-    drawRightAligned(page, amountOnly(monthAmt), {
-      rightX: colMonthRight,
-      y: rowTopY,
-      size,
-      font: f,
-    });
-    drawRightAligned(page, amountOnly(ytdAmt), {
-      rightX: colYtdRight,
-      y: rowTopY,
-      size,
-      font: f,
-    });
-    ctx.extracted.push(`${label} ${formatINR(monthAmt)} ${formatINR(ytdAmt)}`);
-    ctx.y -= size + 3;
-    if (opts?.note) {
-      const noteLines = wrapTextToWidth(opts.note, font, 6.5, particularsMaxW, 2);
-      ctx.y -= 1;
-      for (const noteLine of noteLines) {
-        page.drawText(noteLine, {
-          x: colParticulars + 4,
-          y: ctx.y,
-          size: 6.5,
-          font,
-          color: rgb(0.45, 0.45, 0.45),
-        });
-        ctx.y -= 9;
-      }
-      ctx.extracted.push(opts.note);
+  // ---- Earnings rows ----
+  const earningsRows: TableRowSpec[] = [];
+  if (employee.salaryComponents && employee.salaryComponents.length > 0) {
+    for (const comp of employee.salaryComponents) {
+      const ytdComp = ytd.components?.[comp.label] ?? 0;
+      earningsRows.push({ label: comp.label, monthAmt: comp.amount, ytdAmt: ytdComp });
     }
-    // Spacing only — no underlines (kept clean; avoids overlaying notes/amounts).
+  } else {
+    earningsRows.push({
+      label: 'Basic',
+      monthAmt: inputs.baseSalary,
+      ytdAmt: ytd.basic,
+    });
+  }
+  earningsRows.push({ label: 'Fixed Allowance', monthAmt: inputs.fixedAllowance, ytdAmt: ytd.fixedAllowance });
+  earningsRows.push({ label: 'Incentive / Variable', monthAmt: variablePaid, ytdAmt: ytd.variablePaid });
+  earningsRows.push({ label: 'Gross Earnings', monthAmt: grossThisMonth, ytdAmt: ytd.grossEarnings, bold: true });
+
+  // ---- Deductions rows ----
+  const deductionRows: TableRowSpec[] = [
+    {
+      label: 'Loss of Pay',
+      monthAmt: lop,
+      ytdAmt: ytd.lopDeduction,
+      textNote: lop === 0 ? undefined : `${lopDays.toFixed(1)} LOP day(s)`,
+    },
+    {
+      label: 'Professional Tax (Kerala)',
+      monthAmt: pt,
+      ytdAmt: ytd.professionalTax,
+      textNote: pt === 0 ? 'Nil — not a PT deduction month' : undefined,
+    },
+    {
+      label: 'TDS (Income Tax)',
+      monthAmt: tds,
+      ytdAmt: ytd.tds,
+      textNote: tds === 0 ? 'Nil — Sec 87A rebate, new regime' : undefined,
+    },
+    {
+      label: 'EPF',
+      monthAmt: null,
+      ytdAmt: null,
+      isTextRow: true,
+      textValue: 'Not applicable — establishment below 20 employees',
+    },
+    {
+      label: 'ESI',
+      monthAmt: null,
+      ytdAmt: null,
+      isTextRow: true,
+      textValue: 'Not applicable',
+    },
+    {
+      label: 'Other Deductions',
+      monthAmt: other,
+      ytdAmt: ytd.otherDeductions,
+    },
+    {
+      label: 'Total Deductions',
+      monthAmt: totalDeductions,
+      ytdAmt: ytd.totalDeductions,
+      bold: true,
+    },
+  ];
+
+  const drawBorderedTable = (title: string, rows: TableRowSpec[]) => {
+    ctx.y -= 4;
+
+    // Header band.
+    const headerBandH = 22;
+    const headerTop = ctx.y;
+    page.drawRectangle({
+      x: margin,
+      y: headerTop - headerBandH,
+      width: tableInnerW,
+      height: headerBandH,
+      color: HEADER_BG,
+      borderColor: TABLE_BORDER,
+      borderWidth: 0.6,
+    });
+    // Title — left aligned in the header band.
+    page.drawText(title, {
+      x: colParticulars + 4,
+      y: headerTop - 12,
+      size: 8.5,
+      font: fontBold,
+      color: rgb(0.12, 0.12, 0.35),
+    });
+    ctx.extracted.push(title);
+    // Column headers — right-aligned.
+    drawRightAligned(page, 'This Month (₹)', {
+      rightX: colMonthRight,
+      y: headerTop - 12,
+      size: 7,
+      font: fontBold,
+      color: rgb(0.35, 0.35, 0.35),
+    });
+    drawRightAligned(page, 'YTD (₹)', {
+      rightX: colYtdRight,
+      y: headerTop - 12,
+      size: 7,
+      font: fontBold,
+      color: rgb(0.35, 0.35, 0.35),
+    });
+    ctx.y = headerTop - headerBandH;
+
+    for (let ri = 0; ri < rows.length; ri += 1) {
+      const row = rows[ri]!;
+      const rowSize = row.bold ? 8.5 : 8;
+      const rowFont = row.bold ? fontBold : font;
+      const noteLines: string[] = row.textNote
+        ? wrapTextToWidth(row.textNote, font, 6, particularsMaxW, 2)
+        : [];
+      const rowH = rowSize + 3 + (noteLines.length > 0 ? 2 + noteLines.length * 8 : 0) + 6;
+
+      // Row background for subtotal.
+      if (row.bold) {
+        page.drawRectangle({
+          x: margin,
+          y: ctx.y - rowH,
+          width: tableInnerW,
+          height: rowH,
+          color: rgb(0.96, 0.96, 0.98),
+        });
+      }
+
+      // Row rule (top of current row, below header for ri=0).
+      page.drawLine({
+        start: { x: margin, y: ctx.y },
+        end: { x: margin + tableInnerW, y: ctx.y },
+        thickness: 0.4,
+        color: ROW_RULE,
+      });
+
+      const rowY = ctx.y - rowSize - 2;
+      page.drawText(row.label, { x: colParticulars + 4, y: rowY, size: rowSize, font: rowFont });
+      ctx.extracted.push(row.label);
+
+      if (row.isTextRow && row.textValue) {
+        // Text-only row (EPF/ESI).
+        const textValLines = wrapTextToWidth(row.textValue, font, 7, colYtdRight - colParticulars - 60, 2);
+        for (let ti = 0; ti < textValLines.length; ti += 1) {
+          page.drawText(textValLines[ti]!, {
+            x: colParticulars + 80,
+            y: rowY - ti * 9,
+            size: 7,
+            font,
+            color: rgb(0.45, 0.45, 0.45),
+          });
+        }
+        ctx.extracted.push(row.textValue);
+        // Draw both amount columns as dash.
+        drawRightAligned(page, '—', { rightX: colMonthRight, y: rowY, size: 7, font });
+        drawRightAligned(page, '—', { rightX: colYtdRight, y: rowY, size: 7, font });
+      } else {
+        const mAmt = row.monthAmt ?? 0;
+        const yAmt = row.ytdAmt ?? 0;
+        drawRightAligned(page, amountOnly(mAmt), { rightX: colMonthRight, y: rowY, size: rowSize, font: rowFont });
+        drawRightAligned(page, amountOnly(yAmt), { rightX: colYtdRight, y: rowY, size: rowSize, font: rowFont });
+        ctx.extracted.push(`${row.label} ${formatINR(mAmt)} ${formatINR(yAmt)}`);
+      }
+
+      ctx.y -= rowSize + 3;
+      if (noteLines.length > 0) {
+        ctx.y -= 1;
+        for (const nl of noteLines) {
+          page.drawText(nl, {
+            x: colParticulars + 8,
+            y: ctx.y,
+            size: 6,
+            font,
+            color: rgb(0.5, 0.5, 0.5),
+          });
+          ctx.y -= 8;
+        }
+      }
+      ctx.y -= 4;
+    }
+
+    // Bottom border.
+    page.drawLine({
+      start: { x: margin, y: ctx.y + 4 },
+      end: { x: margin + tableInnerW, y: ctx.y + 4 },
+      thickness: 0.6,
+      color: TABLE_BORDER,
+    });
+    // Vertical column rule.
+    page.drawLine({
+      start: { x: colMonthRight + 8, y: headerTop },
+      end: { x: colMonthRight + 8, y: ctx.y + 4 },
+      thickness: 0.4,
+      color: ROW_RULE,
+    });
+    // Outer left/right borders.
+    page.drawLine({ start: { x: margin, y: headerTop }, end: { x: margin, y: ctx.y + 4 }, thickness: 0.6, color: TABLE_BORDER });
+    page.drawLine({ start: { x: margin + tableInnerW, y: headerTop }, end: { x: margin + tableInnerW, y: ctx.y + 4 }, thickness: 0.6, color: TABLE_BORDER });
     ctx.y -= 4;
   };
 
-  drawTableHeader('EARNINGS');
-  drawRow('Basic', inputs.baseSalary, ytd.basic);
-  drawRow('Fixed Allowance', inputs.fixedAllowance, ytd.fixedAllowance);
-  drawRow('Incentive / Variable', variablePaid, ytd.variablePaid);
-  drawRow('Gross Earnings', grossThisMonth, ytd.grossEarnings, { bold: true });
-  ctx.y -= 4;
-
-  drawTableHeader('DEDUCTIONS');
-  drawRow('Loss of Pay', lop, ytd.lopDeduction, {
-    note: `${computed.lopDays.toFixed(1)} LOP day(s) · payable days referenced for rate basis`,
-  });
-  drawRow('Professional Tax (Kerala)', pt, ytd.professionalTax, {
-    note: pt === 0 ? 'Nil for this month — not a PT deduction month' : undefined,
-  });
-  drawRow('TDS (Income Tax)', tds, ytd.tds, {
-    note: tds === 0 ? 'Nil — Sec 87A rebate, new regime' : undefined,
-  });
-  drawRow('Other', other, ytd.otherDeductions);
-  drawRow('Total Deductions', totalDeductions, ytd.totalDeductions, {
-    bold: true,
-  });
+  drawBorderedTable('EARNINGS', earningsRows);
+  ctx.y -= 6;
+  drawBorderedTable('DEDUCTIONS', deductionRows);
   ctx.y -= 8;
 
-  // ---- Net band (stacked rows — no overlapping text) ----
+  // ---- Net salary band ----
   const netStr = money(computed.netPay);
   const wordsLines = wrapTextToWidth(
     computed.netPayWords,
@@ -971,7 +1176,6 @@ async function buildAuthorisedFullPage(
   });
 
   let bandY = bandTop - bandPad - 6;
-  // Shared baseline for label + amount (no vertical drift).
   page.drawText('NET SALARY', {
     x: margin + 12,
     y: bandY,
@@ -1003,31 +1207,16 @@ async function buildAuthorisedFullPage(
   if (input.showPaymentBand) {
     bandY -= 4;
     const statusLabel = input.paymentStatus || 'Scheduled';
-    const paid =
-      input.confirmedPaidAmount != null
-        ? money(input.confirmedPaidAmount)
-        : money(0);
-    const outstanding =
-      input.outstandingAmount != null ? money(input.outstandingAmount) : money(0);
+    const paid = input.confirmedPaidAmount != null ? money(input.confirmedPaidAmount) : money(0);
+    const outstanding = input.outstandingAmount != null ? money(input.outstandingAmount) : money(0);
     const payCols: Array<[string, string, number]> = [
       ['Payment status', statusLabel, margin + 12],
       ['Confirmed paid', paid, margin + 170],
       ['Outstanding', outstanding, margin + 320],
     ];
     for (const [lab, val, x] of payCols) {
-      page.drawText(lab, {
-        x,
-        y: bandY,
-        size: 6.5,
-        font,
-        color: rgb(0.4, 0.4, 0.4),
-      });
-      page.drawText(val, {
-        x,
-        y: bandY - 11,
-        size: 8,
-        font: fontBold,
-      });
+      page.drawText(lab, { x, y: bandY, size: 6.5, font, color: rgb(0.4, 0.4, 0.4) });
+      page.drawText(val, { x, y: bandY - 11, size: 8, font: fontBold });
     }
     ctx.extracted.push(
       `Payment status ${statusLabel}`,
@@ -1037,33 +1226,30 @@ async function buildAuthorisedFullPage(
   }
   ctx.y = bandBottom - 14;
 
-  // ---- Signatory + verification (two clear columns, no collisions) ----
+  // ---- SIGNATORY + VERIFICATION (two clear columns) ----
   const sigBlockTop = ctx.y;
-  const verColW = 155;
+  const verColW = 160;
   const verX = A4_WIDTH - margin - verColW;
   const sigMaxW = verX - margin - 16;
 
-  drawClampedText(page, `For ${entity.name}`, {
+  // "For <legal name>" — full name, wrap/step-down, never ellipsis.
+  const forLine = `For ${entity.name}`;
+  drawClampedText(page, forLine, {
     x: margin,
     y: sigBlockTop,
     size: 8,
     font,
     maxWidth: sigMaxW,
   });
-  ctx.extracted.push(`For ${entity.name}`);
+  ctx.extracted.push(forLine);
 
-  // Signature image (or placeholder line) directly under the company line.
+  // Signature image or placeholder line.
   const sigImageTop = sigBlockTop - 8;
   const sigH = 32;
   let sigDrawnW = 100;
   if (signature) {
     const sigW = Math.min(110, (signature.width / signature.height) * sigH);
-    page.drawImage(signature, {
-      x: margin,
-      y: sigImageTop - sigH,
-      width: sigW,
-      height: sigH,
-    });
+    page.drawImage(signature, { x: margin, y: sigImageTop - sigH, width: sigW, height: sigH });
     sigDrawnW = sigW;
   } else {
     page.drawLine({
@@ -1074,26 +1260,15 @@ async function buildAuthorisedFullPage(
     });
   }
 
-  // Seal to the right of signature, still inside the left column.
+  // Seal to the right of signature.
   if (seal) {
     const sealSize = 36;
     const sealX = Math.min(margin + sigDrawnW + 8, margin + sigMaxW - sealSize);
-    page.drawImage(seal, {
-      x: sealX,
-      y: sigImageTop - sigH - 2,
-      width: sealSize,
-      height: sealSize,
-      opacity: 0.92,
-    });
+    page.drawImage(seal, { x: sealX, y: sigImageTop - sigH - 2, width: sealSize, height: sealSize, opacity: 0.92 });
   }
 
   const sigTextY = sigImageTop - sigH - 12;
-  page.drawText(entity.signatoryName, {
-    x: margin,
-    y: sigTextY,
-    size: 9,
-    font: fontBold,
-  });
+  page.drawText(entity.signatoryName, { x: margin, y: sigTextY, size: 9, font: fontBold });
   page.drawText(`${entity.signatoryDesignation} / Authorised Signatory`, {
     x: margin,
     y: sigTextY - 11,
@@ -1101,7 +1276,7 @@ async function buildAuthorisedFullPage(
     font,
     color: rgb(0.35, 0.35, 0.35),
   });
-  page.drawText(`Place: Kochi · Date: ${formatDate(issueIso)}`, {
+  page.drawText(`Place: Kochi  ·  Date: ${formatDate(issueIso)}`, {
     x: margin,
     y: sigTextY - 22,
     size: 7.5,
@@ -1110,7 +1285,7 @@ async function buildAuthorisedFullPage(
   });
   ctx.extracted.push(entity.signatoryName, entity.signatoryDesignation);
 
-  // Verification column — right side only; wrap long IDs/URLs.
+  // Verification column — FULL verification ID, wrapped (never ellipsis).
   page.drawText('Verification ID', {
     x: verX,
     y: sigBlockTop,
@@ -1119,49 +1294,45 @@ async function buildAuthorisedFullPage(
     color: rgb(0.4, 0.4, 0.4),
   });
   const verId = input.verificationId ?? '—';
-  const verIdLines = wrapTextToWidth(verId, fontBold, 7, verColW, 3);
+  const verIdLines = wrapTextToWidth(verId, fontBold, 7, verColW, 4);
   let verY = sigBlockTop - 11;
   for (const line of verIdLines) {
-    page.drawText(line, {
-      x: verX,
-      y: verY,
-      size: 7,
-      font: fontBold,
-    });
+    page.drawText(line, { x: verX, y: verY, size: 7, font: fontBold });
     verY -= 9;
   }
   ctx.extracted.push(`Verification ID: ${verId}`);
+  ctx.extracted.push(`Verification ID`);
+
   if (input.verificationUrl) {
-    verY -= 2;
-    const urlLines = wrapTextToWidth(input.verificationUrl, font, 6, verColW, 4);
+    verY -= 3;
+    // Verification URL on one footer line — wrap if needed but keep on single line preference.
+    const urlLines = wrapTextToWidth(input.verificationUrl, font, 6, verColW, 2);
     for (const urlLine of urlLines) {
       page.drawText(urlLine, {
         x: verX,
         y: verY,
         size: 6,
         font,
-        color: rgb(0.4, 0.4, 0.4),
+        color: rgb(0.3, 0.3, 0.7),
       });
       verY -= 8;
     }
     ctx.extracted.push(input.verificationUrl);
   }
 
-  // Footer — keep clear of signature / verification blocks.
+  // ---- FOOTER ----
   const contentFloor = Math.min(sigTextY - 28, verY - 8);
-  ctx.y = Math.max(contentFloor, 48);
-  drawHLine(ctx, 0.5, 8);
+  ctx.y = Math.max(contentFloor, 44);
+  drawHLine(ctx, 0.5, 6);
   drawText(ctx, 'Authorised and issued by the employer.', { size: 7 });
   drawText(
     ctx,
-    `This computer-generated authorised salary slip may be verified through the QR code and verification ID${
-      input.verificationUrl ? ` at ${input.verificationUrl}` : ''
-    }.`,
+    'Authenticity of this document may be verified via the QR code or the Verification ID above.',
     { size: 7, color: rgb(0.4, 0.4, 0.4) },
   );
   drawText(
     ctx,
-    `For employer verification contact ${entity.payrollEmail} / ${entity.phone}. Do not treat a pasted signature image as a cryptographic digital signature.`,
+    `For employer verification contact ${entity.payrollEmail} / ${entity.phone}.`,
     { size: 7, color: rgb(0.4, 0.4, 0.4) },
   );
 

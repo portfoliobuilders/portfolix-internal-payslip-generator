@@ -23,6 +23,7 @@ import {
   formatSalaryAttendanceCycle,
   payrollCycleDates,
 } from '@/lib/format';
+import { maskBankAccountForInternal, maskPan } from '@/lib/identity';
 import type { EntityInfo, SlipSnapshot } from '@/lib/types';
 import EntityLogo from '@/components/EntityLogo';
 import { statementMetaFor } from '@/lib/workforce';
@@ -265,16 +266,14 @@ export default function SalarySlip({
           <div>
             <p className="text-[8.5px] font-semibold uppercase tracking-wider text-muted">Bank a/c</p>
             <p className="amount">
-              {employee.bankAccountNumber?.trim()
-                ? employee.bankAccountNumber
-                : employee.bankLast4
-                  ? `····${employee.bankLast4}`
-                  : '—'}
+              {maskBankAccountForInternal(employee.bankAccountNumber, employee.bankLast4)}
             </p>
           </div>
           <div>
             <p className="text-[8.5px] font-semibold uppercase tracking-wider text-muted">PAN</p>
-            <p className="amount">{employee.panMasked || '—'}</p>
+            <p className="amount">
+              {maskPan(employee.pan || employee.panMasked) || '—'}
+            </p>
           </div>
           {showResidentialAddress && (
             <div>

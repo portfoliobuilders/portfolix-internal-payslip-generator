@@ -1,9 +1,10 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useTransition } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Cloud, FileClock, FilePlus2, Settings, Users } from 'lucide-react';
+import { Cloud, FileClock, FilePlus2, LogOut, Settings, Users } from 'lucide-react';
+import { signOut } from '@/app/actions/auth';
 import EntityLogo from '@/components/EntityLogo';
 import { useHRStore } from '@/store/useHRStore';
 
@@ -18,8 +19,13 @@ export default function AppHeader() {
   const pathname = usePathname();
   const pxEntity = useHRStore((s) => s.settings.entities.PX);
   const [mounted, setMounted] = useState(false);
+  const [signingOut, startSignOut] = useTransition();
 
   useEffect(() => setMounted(true), []);
+
+  if (pathname === '/login' || pathname.startsWith('/verify/') || pathname.startsWith('/auth/')) {
+    return null;
+  }
 
   return (
     <header className="no-print sticky top-0 z-40 border-b border-hairline bg-paper/90 backdrop-blur supports-[backdrop-filter]:bg-paper/80">
@@ -64,9 +70,22 @@ export default function AppHeader() {
           })}
         </nav>
 
-        <div className="ml-auto hidden shrink-0 items-center gap-1.5 text-[11px] text-muted lg:flex">
-          <Cloud size={14} className="text-emerald-brand" />
-          Supabase-backed · Employees &amp; slips synced to cloud
+        <div className="ml-auto flex shrink-0 items-center gap-3">
+          <div className="hidden items-center gap-1.5 text-[11px] text-muted lg:flex">
+            <Cloud size={14} className="text-emerald-brand" />
+            Supabase-backed · Employees &amp; slips synced to cloud
+          </div>
+          <button
+            type="button"
+            title="Sign out"
+            aria-label="Sign out"
+            disabled={signingOut}
+            onClick={() => startSignOut(() => signOut())}
+            className="inline-flex min-h-[44px] items-center gap-1.5 rounded-md px-2.5 py-1.5 text-sm text-muted hover:bg-surface hover:text-ink md:min-h-0"
+          >
+            <LogOut size={16} />
+            <span className="hidden sm:inline">{signingOut ? 'Signing out…' : 'Sign out'}</span>
+          </button>
         </div>
       </div>
     </header>

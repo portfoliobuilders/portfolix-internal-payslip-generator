@@ -1,10 +1,11 @@
 'use server';
 
+import { requirePayrollAdmin } from '@/lib/auth';
+
 /**
  * Signatory asset server actions — PRIVATE bucket only, service-role client only.
  * Do not reuse lib/logos.ts (browser → public branding bucket).
- *
- * TODO(auth session): guard with requirePayrollAdmin() alongside settings writes.
+ * Every export is gated by requirePayrollAdmin() (fail closed).
  */
 
 import { revalidatePath } from 'next/cache';
@@ -32,6 +33,10 @@ export async function getSignatoryStorageStatus(): Promise<{
   configured: boolean;
   message: string | null;
 }> {
+  const auth = await requirePayrollAdmin();
+  if (!auth.ok) {
+    return { configured: false, message: auth.error };
+  }
   if (isSignatoryStorageConfigured()) {
     return { configured: true, message: null };
   }
@@ -55,6 +60,8 @@ export async function uploadSignatoryAsset(
   kind: SignatoryAssetKind,
   formData: FormData,
 ): Promise<ActionResult<{ path: string; signedUrl: string }>> {
+  const auth = await requirePayrollAdmin();
+  if (!auth.ok) return auth;
   try {
     const service = requireServiceClient();
     if (!service.ok) return service;
@@ -127,6 +134,8 @@ export async function removeSignatoryAsset(
   entityCode: EntityCode,
   kind: SignatoryAssetKind,
 ): Promise<ActionResult<{ removed: true }>> {
+  const auth = await requirePayrollAdmin();
+  if (!auth.ok) return auth;
   try {
     const service = requireServiceClient();
     if (!service.ok) return service;
@@ -169,6 +178,8 @@ export async function removeSignatoryAsset(
 export async function createSignatorySignedUrl(
   path: string | null | undefined,
 ): Promise<ActionResult<{ signedUrl: string | null }>> {
+  const auth = await requirePayrollAdmin();
+  if (!auth.ok) return auth;
   try {
     if (!path?.trim()) return { ok: true, data: { signedUrl: null } };
 
@@ -194,6 +205,8 @@ export async function createSignatorySignedUrls(paths: {
   signatureAssetPath: string | null;
   sealAssetPath: string | null;
 }): Promise<ActionResult<{ signatureUrl: string | null; sealUrl: string | null }>> {
+  const auth = await requirePayrollAdmin();
+  if (!auth.ok) return auth;
   if (!isSignatoryStorageConfigured()) {
     return { ok: false, error: SIGNATORY_SECRET_MISSING_MESSAGE };
   }

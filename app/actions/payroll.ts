@@ -1,11 +1,10 @@
 'use server';
 
+import { requirePayrollAdmin } from '@/lib/auth';
+
 /**
  * Payroll server actions.
- *
- * TODO(auth session): wrap every mutating export with requirePayrollAdmin() —
- * also add app/actions/settings.ts and lib/logos.ts to that same guard list
- * (settings/logo writes without auth let anyone replace branding and signatory identity).
+ * Every export is gated by requirePayrollAdmin() (fail closed).
  */
 
 import { revalidatePath } from 'next/cache';
@@ -57,6 +56,8 @@ function revalidatePayrollViews() {
 
 /** Returns all employee rows from Supabase, newest first by name. */
 export async function fetchEmployees(): Promise<ActionResult<Employee[]>> {
+  const auth = await requirePayrollAdmin();
+  if (!auth.ok) return auth;
   try {
     const supabase = await getSupabase();
     const { data, error } = await supabase
@@ -80,6 +81,8 @@ export async function upsertEmployee(
     flexLog?: Employee['flexLog'];
   },
 ): Promise<ActionResult<Employee>> {
+  const auth = await requirePayrollAdmin();
+  if (!auth.ok) return auth;
   try {
     const supabase = await getSupabase();
     const id = employeeData.id || generateId();
@@ -114,6 +117,8 @@ export async function upsertEmployee(
 export async function applyPtHalfYearlyToAll(
   amount: number,
 ): Promise<ActionResult<{ count: number; amount: number }>> {
+  const auth = await requirePayrollAdmin();
+  if (!auth.ok) return auth;
   const pt = Math.max(0, Number(amount) || 0);
   if (!Number.isFinite(pt)) {
     return { ok: false, error: 'PT amount must be 0 or more.' };
@@ -150,6 +155,8 @@ export async function applyPtHalfYearlyToAll(
 export async function bulkUpsertEmployees(
   employees: BulkEmployeeInput[],
 ): Promise<ActionResult<{ count: number; employees: Employee[] }>> {
+  const auth = await requirePayrollAdmin();
+  if (!auth.ok) return auth;
   if (employees.length === 0) {
     return { ok: false, error: 'No employees to upload.' };
   }
@@ -202,6 +209,8 @@ export async function bulkUpsertEmployees(
 
 /** Removes an employee from the roster. Past slips in history are kept. */
 export async function deleteEmployee(id: string): Promise<ActionResult<{ id: string }>> {
+  const auth = await requirePayrollAdmin();
+  if (!auth.ok) return auth;
   try {
     const supabase = await getSupabase();
     const { error } = await supabase.from('employees').delete().eq('id', id);
@@ -220,6 +229,8 @@ export async function archiveEmployee(
   id: string,
   offboardingDate: string,
 ): Promise<ActionResult<{ id: string }>> {
+  const auth = await requirePayrollAdmin();
+  if (!auth.ok) return auth;
   try {
     const employeesResult = await fetchEmployees();
     if (!employeesResult.ok) return employeesResult;
@@ -242,6 +253,8 @@ export async function savePayrollSlip(
   slipData: SlipSnapshot,
   settingsSnapshot?: Settings,
 ): Promise<ActionResult<SlipSnapshot>> {
+  const auth = await requirePayrollAdmin();
+  if (!auth.ok) return auth;
   try {
     const supabase = await getSupabase();
     const row = slipToRow(slipData);
@@ -314,6 +327,8 @@ export async function savePayrollSlip(
  * When auth is configured, RLS on payroll_slips scopes rows to the logged-in user/entity.
  */
 export async function fetchPayrollHistory(): Promise<ActionResult<SlipSnapshot[]>> {
+  const auth = await requirePayrollAdmin();
+  if (!auth.ok) return auth;
   try {
     const supabase = await getSupabase();
     const { data: statementsData, error: statementsError } = await supabase
@@ -381,6 +396,8 @@ export async function finalizePayrollSlip(
     expectedPaymentDate?: string | null;
   },
 ): Promise<ActionResult<{ slip: SlipSnapshot; employee: Employee; warnings: string[] }>> {
+  const auth = await requirePayrollAdmin();
+  if (!auth.ok) return auth;
   try {
     const settings =
       settingsSnapshot ??
@@ -455,7 +472,11 @@ export async function finalizePayrollSlip(
         bankName: employee.bankName,
         bankAccountNumber: employee.bankAccountNumber,
         bankLast4: employee.bankLast4,
+        pan: employee.pan,
         panMasked: employee.panMasked,
+        ifsc: employee.ifsc,
+        workLocation: employee.workLocation,
+        salaryComponents: employee.salaryComponents,
       },
       slipId: snapshot.id && snapshot.id !== 'preview' ? snapshot.id : generateId(),
       generatedAt: new Date().toISOString(),
@@ -630,17 +651,45 @@ export async function finalizePayrollSlip(
 /**
  * YTD line items for the Authorised Slip — Indian FY, FINAL snapshots only,
  * up to and including the given slip month.
+ * Loads payroll_slips (with active_final / workflow_status) so superseded
+ * finals cannot inflate YTD.
  */
 export async function fetchAuthorisedSlipYtd(
   employeeId: string,
   throughMonthYear: string,
 ): Promise<ActionResult<AuthorisedSlipYtd>> {
-  const history = await fetchPayrollHistory();
-  if (!history.ok) return history;
-  return {
-    ok: true,
-    data: computeAuthorisedYtd(history.data, employeeId, throughMonthYear),
-  };
+  const auth = await requirePayrollAdmin();
+  if (!auth.ok) return auth;
+  try {
+    const supabase = await getSupabase();
+    const { data, error } = await supabase
+      .from('payroll_slips')
+      .select('id, employee_id, month_year, status, details_json, active_final, workflow_status')
+      .eq('employee_id', employeeId)
+      .eq('status', 'final')
+      .order('month_year', { ascending: true });
+
+    if (error) {
+      // Fallback to full history path when columns are unavailable on older DBs.
+      const history = await fetchPayrollHistory();
+      if (!history.ok) return history;
+      return {
+        ok: true,
+        data: computeAuthorisedYtd(history.data, employeeId, throughMonthYear),
+      };
+    }
+
+    const slips = (data as PayrollSlipRow[]).map(rowToSlip);
+    return {
+      ok: true,
+      data: computeAuthorisedYtd(slips, employeeId, throughMonthYear),
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : 'Failed to compute authorised YTD.',
+    };
+  }
 }
 
 /**
@@ -650,6 +699,8 @@ export async function logAuthorisedSlipGeneration(
   payrollSlipId: string,
   signatorySnapshot: SignatorySnapshot,
 ): Promise<ActionResult<{ id: string }>> {
+  const auth = await requirePayrollAdmin();
+  if (!auth.ok) return auth;
   try {
     const supabase = await getSupabase();
     const { data, error } = await supabase
@@ -676,17 +727,23 @@ export async function logAuthorisedSlipGeneration(
 
 /** Returns application settings from Supabase, seeding defaults if missing. */
 export async function getAppSettings(): Promise<ActionResult<Settings>> {
+  const auth = await requirePayrollAdmin();
+  if (!auth.ok) return auth;
   const { fetchSettings } = await import('@/app/actions/settings');
   return fetchSettings();
 }
 
 /** Inserts default settings when the singleton row does not exist. */
 export async function seedDefaultAppSettingsIfMissing(): Promise<ActionResult<Settings>> {
+  const auth = await requirePayrollAdmin();
+  if (!auth.ok) return auth;
   return getAppSettings();
 }
 
 /** Saves application settings to Supabase. */
 export async function upsertAppSettings(settings: Settings): Promise<ActionResult<Settings>> {
+  const auth = await requirePayrollAdmin();
+  if (!auth.ok) return auth;
   const { saveSettings } = await import('@/app/actions/settings');
   return saveSettings(settings);
 }
@@ -700,6 +757,8 @@ export async function deletePayrollSlip(
   id: string,
   opts?: { reason?: string; actorUserId?: string; forceCancel?: boolean },
 ): Promise<ActionResult<{ id: string; action: 'deleted' | 'cancelled' | 'revoked' }>> {
+  const auth = await requirePayrollAdmin();
+  if (!auth.ok) return auth;
   try {
     const supabase = await getSupabase();
     const { data: row, error: fetchError } = await supabase

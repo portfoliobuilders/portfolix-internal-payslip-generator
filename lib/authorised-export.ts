@@ -14,6 +14,10 @@ import {
 import { lopCalculationBasisDisplayText } from '@/lib/calculation-method';
 import { buildVectorPayslipPdf } from '@/lib/pdf-vector';
 import { computeAuthorisedYtd } from '@/lib/authorised-slip';
+import {
+  assertNoSettingsPlaceholders,
+  signatoryIncompleteReason,
+} from '@/lib/settings-defaults';
 import type { AuthorisedSlipYtd, EntityInfo, Settings, SlipSnapshot } from '@/lib/types';
 import { format, parse } from 'date-fns';
 
@@ -56,7 +60,46 @@ function resolveAttendance(snapshot: SlipSnapshot): {
   };
 }
 
+/**
+ * Vercel preview host pattern — these are ephemeral deployments and must NOT be
+ * used as canonical verification URLs (links will break when the preview expires).
+ * Matches: git-<hash>-<team>.vercel.app  and  <project>-<hash>-<team>.vercel.app
+ */
+const VERCEL_PREVIEW_PATTERN = /^https?:\/\/[^/]+-[a-z0-9]+-[^/]+\.vercel\.app/i;
+
+/**
+ * Resolve the canonical app URL from NEXT_PUBLIC_APP_URL (the only authoritative source).
+ * Never use window.location.origin — preview deployments produce non-stable URLs.
+ * Block bank-copy when the env var is unset or points at a Vercel preview host.
+ * NOTE: Switch to custom domain before going live; set NEXT_PUBLIC_APP_URL accordingly.
+ */
+export function resolveCanonicalAppUrl():
+  | { ok: true; url: string }
+  | { ok: false; error: string } {
+  const raw =
+    (typeof process !== 'undefined' ? process.env.NEXT_PUBLIC_APP_URL : undefined) ?? '';
+  const url = raw.trim().replace(/\/$/, '');
+  if (!url) {
+    return {
+      ok: false,
+      error:
+        'NEXT_PUBLIC_APP_URL is not set. Set it to your production domain (e.g. https://pay.yourcompany.com) before generating authorised slips.',
+    };
+  }
+  if (VERCEL_PREVIEW_PATTERN.test(url)) {
+    return {
+      ok: false,
+      error: `NEXT_PUBLIC_APP_URL points at a Vercel preview host (${url}). Set it to your stable production domain — preview URLs expire and break QR verification.`,
+    };
+  }
+  return { ok: true, url };
+}
+
+/** @deprecated Use resolveCanonicalAppUrl() instead. */
 function verificationBaseUrl(): string {
+  const resolved = resolveCanonicalAppUrl();
+  if (resolved.ok) return resolved.url;
+  // Fallback for legacy non-guard paths only.
   if (typeof window !== 'undefined' && window.location?.origin) {
     return window.location.origin;
   }
@@ -110,10 +153,27 @@ export async function buildAuthorisedSalarySlipPdf(input: {
   /** When false, skip registry write (tests). Default true. */
   registerDocument?: boolean;
   history?: SlipSnapshot[];
+  /**
+   * When true, skip guard checks (unit tests that do not inject real settings).
+   * NEVER set this in production paths.
+   */
+  _skipGuards?: boolean;
 }): Promise<
   | { ok: true; data: AuthorisedPdfBundle }
   | { ok: false; error: string }
 > {
+  // ---- Guards — fail-closed before touching registry or building PDF ----
+  if (!input._skipGuards) {
+    const placeholderError = assertNoSettingsPlaceholders(input.entity);
+    if (placeholderError) return { ok: false, error: placeholderError };
+
+    const sigError = signatoryIncompleteReason(input.entity);
+    if (sigError) return { ok: false, error: sigError };
+
+    const canonicalUrl = resolveCanonicalAppUrl();
+    if (!canonicalUrl.ok) return { ok: false, error: canonicalUrl.error };
+  }
+
   const attendance = resolveAttendance(input.snapshot);
   const scheduledCreditDate = scheduledCreditDateFor(
     input.snapshot.monthYear,

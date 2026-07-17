@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { authorisedSlipFilename } from '../format';
 import {
   buildAuthorisedSalarySlipPdf,
+  resolveCanonicalAppUrl,
   scheduledCreditDateFor,
 } from '../authorised-export';
 import {
@@ -12,6 +13,11 @@ import {
 import { buildVectorPayslipPdf } from '../pdf-vector';
 import { assertDocumentAllowed } from '../salary-payment';
 import { generateAuthorisedPayslipNumber } from '../verification';
+import {
+  assertNoSettingsPlaceholders,
+  signatoryIncompleteReason,
+  isGenericSignatoryName,
+} from '../settings-defaults';
 import type { AuthorisedSlipYtd, EntityInfo, SlipSnapshot } from '../types';
 
 const entity: EntityInfo = {
@@ -289,6 +295,7 @@ describe('authorised export wiring helpers', () => {
       ytd,
       paydayDayOfMonth: 5,
       registerDocument: false,
+      _skipGuards: true,
     });
     const b = await buildAuthorisedSalarySlipPdf({
       snapshot: snap,
@@ -296,6 +303,7 @@ describe('authorised export wiring helpers', () => {
       ytd,
       paydayDayOfMonth: 5,
       registerDocument: false,
+      _skipGuards: true,
     });
     expect(a.ok && b.ok).toBe(true);
     if (!a.ok || !b.ok) return;
@@ -318,6 +326,7 @@ describe('authorised export wiring helpers', () => {
       ytd,
       paydayDayOfMonth: 5,
       registerDocument: false,
+      _skipGuards: true,
     });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
@@ -325,5 +334,197 @@ describe('authorised export wiring helpers', () => {
     expect(result.data.extractedText).toContain('Scheduled credit');
     expect(result.data.extractedText).not.toContain('Actual salary-credit date');
     expect(result.data.extractedText).not.toContain('Payment status Paid');
+  });
+});
+
+describe('placeholder and signatory guards', () => {
+  const completeEntity: EntityInfo = {
+    name: 'ACME PRIVATE LIMITED',
+    legalLine: '',
+    addressLines: ['123 Main St, Kochi'],
+    contact: 'payroll@acme.in',
+    cin: 'U72900KL2024PTC999999',
+    registeredAddress: '123 Main St, Kochi, Kerala 682001',
+    phone: '+91 484 111 2222',
+    payrollEmail: 'payroll@acme.in',
+    signatoryName: 'Ranjith Kumar',
+    signatoryDesignation: 'Chief Executive Officer',
+    signatureAssetPath: 'acme/signature.png',
+    sealAssetPath: 'acme/seal.png',
+    logoDataUrl: null,
+  };
+
+  it('assertNoSettingsPlaceholders returns null for a complete entity', () => {
+    expect(assertNoSettingsPlaceholders(completeEntity)).toBeNull();
+  });
+
+  it('assertNoSettingsPlaceholders blocks when CIN is placeholder', () => {
+    const bad = { ...completeEntity, cin: 'SET-IN-SETTINGS' };
+    const err = assertNoSettingsPlaceholders(bad);
+    expect(err).not.toBeNull();
+    expect(err).toContain('CIN');
+  });
+
+  it('assertNoSettingsPlaceholders blocks when name is empty', () => {
+    const bad = { ...completeEntity, name: '' };
+    const err = assertNoSettingsPlaceholders(bad);
+    expect(err).not.toBeNull();
+    expect(err).toContain('company legal name');
+  });
+
+  it('signatoryIncompleteReason returns null for a complete entity', () => {
+    expect(signatoryIncompleteReason(completeEntity)).toBeNull();
+  });
+
+  it('signatoryIncompleteReason rejects generic "Authorized Signatory" name', () => {
+    const bad = { ...completeEntity, signatoryName: 'Authorized Signatory' };
+    const err = signatoryIncompleteReason(bad);
+    expect(err).not.toBeNull();
+    expect(err).toContain('signatory name');
+  });
+
+  it('signatoryIncompleteReason rejects missing signature image', () => {
+    const bad = { ...completeEntity, signatureAssetPath: null };
+    const err = signatoryIncompleteReason(bad);
+    expect(err).not.toBeNull();
+    expect(err).toContain('signature image');
+  });
+
+  it('signatoryIncompleteReason rejects missing seal', () => {
+    const bad = { ...completeEntity, sealAssetPath: null };
+    const err = signatoryIncompleteReason(bad);
+    expect(err).not.toBeNull();
+    expect(err).toContain('seal image');
+  });
+
+  it('isGenericSignatoryName identifies default generic names case-insensitively', () => {
+    expect(isGenericSignatoryName('Authorized Signatory')).toBe(true);
+    expect(isGenericSignatoryName('authorised signatory')).toBe(true);
+    expect(isGenericSignatoryName('HR & Payroll')).toBe(true);
+    expect(isGenericSignatoryName('Ranjith Kumar')).toBe(false);
+  });
+
+  it('buildAuthorisedSalarySlipPdf blocks when entity has placeholder CIN', async () => {
+    const badEntity = { ...entity, cin: 'SET-IN-SETTINGS' };
+    const result = await buildAuthorisedSalarySlipPdf({
+      snapshot: sampleSnapshot(),
+      entity: badEntity,
+      ytd,
+      paydayDayOfMonth: 5,
+      registerDocument: false,
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error).toContain('CIN');
+  });
+
+  it('buildAuthorisedSalarySlipPdf blocks when signatory name is generic', async () => {
+    const result = await buildAuthorisedSalarySlipPdf({
+      snapshot: sampleSnapshot(),
+      entity,
+      ytd,
+      paydayDayOfMonth: 5,
+      registerDocument: false,
+    });
+    // entity.signatoryName = 'Authorized Signatory' — should be blocked.
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error).toContain('signatory');
+  });
+});
+
+describe('resolveCanonicalAppUrl', () => {
+  it('returns error when NEXT_PUBLIC_APP_URL is not set', () => {
+    const original = process.env.NEXT_PUBLIC_APP_URL;
+    delete process.env.NEXT_PUBLIC_APP_URL;
+    const result = resolveCanonicalAppUrl();
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error).toContain('NEXT_PUBLIC_APP_URL');
+    process.env.NEXT_PUBLIC_APP_URL = original;
+  });
+
+  it('returns error for Vercel preview host', () => {
+    const original = process.env.NEXT_PUBLIC_APP_URL;
+    process.env.NEXT_PUBLIC_APP_URL =
+      'https://portfolix-abc123-teamname.vercel.app';
+    const result = resolveCanonicalAppUrl();
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error).toContain('preview');
+    process.env.NEXT_PUBLIC_APP_URL = original;
+  });
+
+  it('returns ok for a stable production domain', () => {
+    const original = process.env.NEXT_PUBLIC_APP_URL;
+    process.env.NEXT_PUBLIC_APP_URL = 'https://pay.yourcompany.com';
+    const result = resolveCanonicalAppUrl();
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.url).toBe('https://pay.yourcompany.com');
+    process.env.NEXT_PUBLIC_APP_URL = original;
+  });
+
+  it('strips trailing slash from the URL', () => {
+    const original = process.env.NEXT_PUBLIC_APP_URL;
+    process.env.NEXT_PUBLIC_APP_URL = 'https://pay.yourcompany.com/';
+    const result = resolveCanonicalAppUrl();
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.url).toBe('https://pay.yourcompany.com');
+    process.env.NEXT_PUBLIC_APP_URL = original;
+  });
+});
+
+describe('document-number scheme and token stability', () => {
+  it('canonical payslip number scheme is ASL-<EMPID>-<YYYY-MM> (no PX-AUTH prefix)', () => {
+    const num = generateAuthorisedPayslipNumber('PX-2024-001', '2026-07');
+    expect(num).toBe('ASL-PX-2024-001-2026-07');
+    expect(num).not.toMatch(/^PX-AUTH/);
+    expect(num).not.toMatch(/^AUTH-/);
+  });
+
+  it('document number is reused on re-download (_skipGuards path)', async () => {
+    const snap = sampleSnapshot();
+    const a = await buildAuthorisedSalarySlipPdf({
+      snapshot: snap,
+      entity,
+      ytd,
+      paydayDayOfMonth: 5,
+      registerDocument: false,
+      _skipGuards: true,
+    });
+    const b = await buildAuthorisedSalarySlipPdf({
+      snapshot: snap,
+      entity,
+      ytd,
+      paydayDayOfMonth: 5,
+      registerDocument: false,
+      _skipGuards: true,
+    });
+    expect(a.ok && b.ok).toBe(true);
+    if (!a.ok || !b.ok) return;
+    expect(a.data.documentNumber).toBe(b.data.documentNumber);
+    expect(a.data.documentNumber).toBe('ASL-PX-2024-001-2026-07');
+  });
+
+  it('verification token is stable across re-downloads (same bytes)', async () => {
+    const snap = sampleSnapshot();
+    const a = await buildAuthorisedSalarySlipPdf({
+      snapshot: snap,
+      entity,
+      ytd,
+      paydayDayOfMonth: 5,
+      registerDocument: false,
+      _skipGuards: true,
+    });
+    const b = await buildAuthorisedSalarySlipPdf({
+      snapshot: snap,
+      entity,
+      ytd,
+      paydayDayOfMonth: 5,
+      registerDocument: false,
+      _skipGuards: true,
+    });
+    expect(a.ok && b.ok).toBe(true);
+    if (!a.ok || !b.ok) return;
+    expect(a.data.publicVerificationId).toBe(b.data.publicVerificationId);
+    expect(createHash('sha256').update(a.data.bytes).digest('hex')).toBe(
+      createHash('sha256').update(b.data.bytes).digest('hex'),
+    );
   });
 });

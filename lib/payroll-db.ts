@@ -30,7 +30,12 @@ export interface EmployeeDetailsJson {
   bankName?: string;
   bankAccountNumber?: string;
   bankLast4: string;
+  /** Full PAN when known; legacy rows may omit and only have panMasked. */
+  pan?: string;
   panMasked: string;
+  ifsc?: string;
+  workLocation?: string;
+  salaryComponents?: { label: string; amount: number }[];
   flexLog: FlexLogEntry[];
   reportingManager?: string;
   workMode?: WorkMode;
@@ -72,6 +77,9 @@ export interface PayrollSlipRow {
   month_year: string;
   status: 'draft' | 'final';
   details_json: Omit<SlipSnapshot, 'id' | 'employeeId' | 'monthYear' | 'status'>;
+  /** Present when selected from payroll_slips (YTD dedupe). */
+  active_final?: boolean | null;
+  workflow_status?: string | null;
 }
 
 const ENTITY_CODES: EntityCode[] = ['PX', 'PB', 'PT', 'PH'];
@@ -89,7 +97,10 @@ function emptyDetails(): EmployeeDetailsJson {
     bankName: '',
     bankAccountNumber: '',
     bankLast4: '',
+    pan: '',
     panMasked: '',
+    ifsc: '',
+    workLocation: '',
     flexLog: [],
     reportingManager: '',
     workMode: 'office',
@@ -142,7 +153,11 @@ export function rowToEmployee(row: EmployeeRow): Employee {
     bankLast4:
       bankLast4FromAccount(details.bankAccountNumber ?? '') ||
       (details.bankLast4 ?? '').replace(/\D/g, '').slice(-4),
-    panMasked: maskPan(details.panMasked ?? ''),
+    pan: (details.pan ?? '').trim().toUpperCase(),
+    panMasked: maskPan(details.pan || details.panMasked || ''),
+    ifsc: (details.ifsc ?? '').trim().toUpperCase(),
+    workLocation: (details.workLocation ?? '').trim(),
+    salaryComponents: details.salaryComponents,
     flexBankBalance: row.flex_bank_balance,
     flexLog: details.flexLog ?? [],
     tdsMonthly: Number(details.tdsMonthly ?? 0) || 0,
@@ -184,7 +199,11 @@ export function employeeToRow(
       bankLast4:
         bankLast4FromAccount(employee.bankAccountNumber ?? '') ||
         (employee.bankLast4 ?? '').replace(/\D/g, '').slice(-4),
-      panMasked: maskPan(employee.panMasked ?? ''),
+      pan: (employee.pan ?? '').trim().toUpperCase(),
+      panMasked: maskPan(employee.pan || employee.panMasked || ''),
+      ifsc: (employee.ifsc ?? '').trim().toUpperCase(),
+      workLocation: (employee.workLocation ?? '').trim(),
+      salaryComponents: employee.salaryComponents,
       flexLog: employee.flexLog,
       reportingManager: employee.reportingManager,
       workMode: employee.workMode,
@@ -223,6 +242,11 @@ export function rowToSlip(row: PayrollSlipRow): SlipSnapshot {
       ...details.employee,
       empId: normalizeEmployeeId(details.employee.empId),
     },
+    activeFinal:
+      row.active_final === undefined || row.active_final === null
+        ? details.activeFinal
+        : Boolean(row.active_final),
+    workflowStatus: row.workflow_status ?? details.workflowStatus ?? null,
   };
 }
 

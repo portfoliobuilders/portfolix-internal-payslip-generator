@@ -156,4 +156,100 @@ describe('computeAuthorisedYtd', () => {
     expect(ytd.lopDeduction).toBe(100);
     expect(ytd.otherDeductions).toBe(50);
   });
+
+  it('YTD supersede regression: finalize month, supersede twice → YTD = ONE month value not three', () => {
+    // Scenario: Month 2026-04 was finalised, then superseded twice.
+    // YTD must count only one month of basic (20000), not three (60000).
+    const slips = [
+      // Original final — will be superseded.
+      makeFinal({
+        id: 'orig',
+        employeeId: 'emp-b',
+        monthYear: '2026-04',
+        generatedAt: '2026-05-01T00:00:00.000Z',
+        computed: { workflowStatus: undefined } as never,
+      } as Parameters<typeof makeFinal>[0] & { computed: { workflowStatus?: string } }),
+      // First supersede — becomes SUPERSEDED.
+      {
+        ...makeFinal({
+          id: 'sup1',
+          employeeId: 'emp-b',
+          monthYear: '2026-04',
+          generatedAt: '2026-05-02T00:00:00.000Z',
+        }),
+        workflowStatus: 'SUPERSEDED',
+      },
+      // Second supersede — active final.
+      {
+        ...makeFinal({
+          id: 'sup2',
+          employeeId: 'emp-b',
+          monthYear: '2026-04',
+          generatedAt: '2026-05-03T00:00:00.000Z',
+        }),
+        activeFinal: true,
+        workflowStatus: 'ISSUED',
+      },
+    ];
+
+    const ytd = computeAuthorisedYtd(slips, 'emp-b', '2026-04');
+    // Only the activeFinal snapshot counts — one month of baseSalary (20000).
+    expect(ytd.basic).toBe(20000);
+    expect(ytd.fixedAllowance).toBe(1000);
+  });
+
+  it('falls back to latest generatedAt when no activeFinal flag is set', () => {
+    // Pre-flag snapshots: no activeFinal, no workflowStatus.
+    const slips = [
+      makeFinal({
+        id: 'a',
+        employeeId: 'emp-c',
+        monthYear: '2026-05',
+        generatedAt: '2026-06-01T00:00:00.000Z',
+      }),
+      makeFinal({
+        id: 'b',
+        employeeId: 'emp-c',
+        monthYear: '2026-05',
+        generatedAt: '2026-06-02T00:00:00.000Z',
+        inputs: { baseSalary: 25000 },
+        computed: { netPay: 25000 },
+      }),
+    ];
+
+    const ytd = computeAuthorisedYtd(slips, 'emp-c', '2026-05');
+    // Latest generatedAt wins — baseSalary = 25000.
+    expect(ytd.basic).toBe(25000);
+  });
+
+  it('non-superseded preferred over superseded when no activeFinal', () => {
+    const slips = [
+      {
+        ...makeFinal({
+          id: 'x1',
+          employeeId: 'emp-d',
+          monthYear: '2026-06',
+          generatedAt: '2026-07-01T00:00:00.000Z',
+        }),
+        workflowStatus: 'SUPERSEDED',
+        inputs: { ...BASE_INPUTS, baseSalary: 30000 },
+        computed: { ...BASE_COMPUTED, netPay: 30000 },
+      },
+      {
+        ...makeFinal({
+          id: 'x2',
+          employeeId: 'emp-d',
+          monthYear: '2026-06',
+          generatedAt: '2026-06-28T00:00:00.000Z',
+        }),
+        workflowStatus: 'ISSUED',
+        inputs: { ...BASE_INPUTS, baseSalary: 20000 },
+        computed: { ...BASE_COMPUTED, netPay: 20000 },
+      },
+    ];
+
+    const ytd = computeAuthorisedYtd(slips, 'emp-d', '2026-06');
+    // Non-superseded (ISSUED) wins even though it has an earlier generatedAt.
+    expect(ytd.basic).toBe(20000);
+  });
 });

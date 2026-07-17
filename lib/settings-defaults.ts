@@ -153,8 +153,28 @@ export function isSettingsPlaceholder(value: string | null | undefined): boolean
 }
 
 /**
+ * Generic signatory names that indicate the settings have not been personalized.
+ * Any entity whose signatoryName matches one of these is treated as incomplete.
+ */
+const GENERIC_SIGNATORY_NAMES = new Set([
+  'authorized signatory',
+  'authorised signatory',
+  'hr & payroll',
+  'payroll',
+  'admin',
+]);
+
+/** True when signatoryName is a known generic placeholder (case-insensitive). */
+export function isGenericSignatoryName(name: string | null | undefined): boolean {
+  if (!name) return true;
+  return GENERIC_SIGNATORY_NAMES.has(name.trim().toLowerCase());
+}
+
+/**
  * Returns a human-readable reason listing missing company/signatory fields,
  * or null when the entity is complete enough to generate a bank copy.
+ * Fail-closed: missing signatureBytes/sealBytes at build time → reject.
+ * Generic seed names (e.g. "Authorized Signatory") are treated as incomplete.
  */
 export function signatoryIncompleteReason(entity: EntityInfo): string | null {
   const missing: string[] = [];
@@ -163,10 +183,29 @@ export function signatoryIncompleteReason(entity: EntityInfo): string | null {
   if (isSettingsPlaceholder(entity.registeredAddress)) missing.push('registered address');
   if (isSettingsPlaceholder(entity.phone)) missing.push('phone');
   if (isSettingsPlaceholder(entity.payrollEmail)) missing.push('payroll email');
-  if (isSettingsPlaceholder(entity.signatoryName)) missing.push('signatory name');
+  if (isSettingsPlaceholder(entity.signatoryName) || isGenericSignatoryName(entity.signatoryName)) {
+    missing.push('signatory name (real name required — generic defaults not accepted)');
+  }
   if (isSettingsPlaceholder(entity.signatoryDesignation)) missing.push('signatory designation');
   if (!entity.signatureAssetPath?.trim()) missing.push('signature image');
   if (!entity.sealAssetPath?.trim()) missing.push('company seal image');
   if (missing.length === 0) return null;
   return `Complete Company & Signatory settings first (${missing.join(', ')}).`;
+}
+
+/**
+ * Block bank-copy generation if any rendered entity field is empty or a placeholder.
+ * Returns an error string, or null when all fields are acceptable.
+ * Checks: name, CIN, registered address, phone, payroll email.
+ * Does NOT recheck signatory — use signatoryIncompleteReason for that.
+ */
+export function assertNoSettingsPlaceholders(entity: EntityInfo): string | null {
+  const badFields: string[] = [];
+  if (isSettingsPlaceholder(entity.name)) badFields.push('company legal name');
+  if (isSettingsPlaceholder(entity.cin)) badFields.push('CIN');
+  if (isSettingsPlaceholder(entity.registeredAddress)) badFields.push('registered address');
+  if (isSettingsPlaceholder(entity.phone)) badFields.push('phone number');
+  if (isSettingsPlaceholder(entity.payrollEmail)) badFields.push('payroll email');
+  if (badFields.length === 0) return null;
+  return `Bank-copy blocked: company settings contain placeholder values (${badFields.join(', ')}). Update Settings before generating an authorised slip.`;
 }

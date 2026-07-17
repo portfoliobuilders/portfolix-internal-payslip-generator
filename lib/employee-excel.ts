@@ -1,13 +1,14 @@
 /**
  * Excel template download and bulk-import parsing for the employee roster.
+ * Salary components are form-only (not in the spreadsheet template).
  */
 
 import * as XLSX from 'xlsx';
 import type { Employee, EngagementType, EntityCode, PaymentMode, PaymentType } from '@/lib/types';
 import {
   bankLast4FromAccount,
-  maskPan,
   normalizeBankAccountNumber,
+  validateIdentityFields,
 } from '@/lib/identity';
 import { defaultPaymentTypeForEngagement } from './workforce';
 
@@ -29,7 +30,9 @@ export const EMPLOYEE_TEMPLATE_HEADERS = [
   'Payment Mode',
   'Bank Name',
   'Bank Account Number',
-  'PAN Masked',
+  'PAN',
+  'IFSC',
+  'Work Location',
   'PT Half-Yearly',
   'TDS Monthly',
   'Opening Flex-Bank Balance',
@@ -132,24 +135,22 @@ function validateRow(
   if (!Number.isFinite(employee.compensationAmount) || employee.compensationAmount <= 0) {
     return `Row ${rowNumber}: Compensation Amount must be greater than zero.`;
   }
-  if (employee.bankAccountNumber) {
-    const digits = normalizeBankAccountNumber(employee.bankAccountNumber);
-    if (digits.length >= 9 && digits.length <= 18) {
-      // full account — ok
-    } else if (digits.length === 4) {
-      // legacy last-4 import from older "Bank Details" column — ok
-    } else {
-      return `Row ${rowNumber}: Bank Account Number must be 9–18 digits (or 4 for legacy last-4).`;
-    }
-  } else if (employee.bankLast4 && !/^\d{4}$/.test(employee.bankLast4)) {
+
+  // Legacy last-4-only bank column (no full account).
+  if (!employee.bankAccountNumber && employee.bankLast4 && !/^\d{4}$/.test(employee.bankLast4)) {
     return `Row ${rowNumber}: Bank A/C last-4 must be exactly 4 digits.`;
   }
-  if (employee.panMasked) {
-    const masked = maskPan(employee.panMasked);
-    if (masked.length !== 10) {
-      return `Row ${rowNumber}: PAN must be 10 characters (full PAN is auto-masked).`;
-    }
+
+  const identity = validateIdentityFields({
+    pan: employee.pan || employee.panMasked,
+    bankAccount: employee.bankAccountNumber,
+    ifsc: employee.ifsc,
+    bankName: employee.bankName,
+  });
+  if (!identity.ok) {
+    return `Row ${rowNumber}: ${identity.errors[0]}`;
   }
+
   if (!Number.isFinite(employee.flexBankBalance) || employee.flexBankBalance < 0) {
     return `Row ${rowNumber}: Opening Flex-Bank Balance must be 0 or more.`;
   }
@@ -173,6 +174,39 @@ function mapRow(row: Record<string, unknown>, rowNumber: number): BulkEmployeeIn
   const engagementType = normalizeEngagementType(row['Engagement Type']);
   const paymentType = normalizePaymentType(row['Payment Type'], engagementType);
   const compensationAmount = cellNumber(row['Compensation Amount']) || cellNumber(row['Base Salary']);
+
+  const bankAccountNumber = (() => {
+    const full = normalizeBankAccount(row['Bank Account Number']);
+    if (full.length >= 9) return full;
+    return '';
+  })();
+  const bankLast4 = (() => {
+    const full = normalizeBankAccount(row['Bank Account Number']);
+    if (full.length >= 4) return bankLast4FromAccount(full);
+    const legacy = normalizeBankAccount(row['Bank Details']);
+    return bankLast4FromAccount(legacy);
+  })();
+
+  const rawAccountDigits = normalizeBankAccount(row['Bank Account Number']);
+  if (
+    rawAccountDigits &&
+    rawAccountDigits.length !== 4 &&
+    (rawAccountDigits.length < 9 || rawAccountDigits.length > 18)
+  ) {
+    return `Row ${rowNumber}: Bank Account Number must be 9–18 digits (or 4 for legacy last-4).`;
+  }
+
+  // Prefer new "PAN" column; fall back to legacy "PAN Masked".
+  const panRaw = cellString(row['PAN']) || cellString(row['PAN Masked']);
+  const identity = validateIdentityFields({
+    pan: panRaw,
+    bankAccount: bankAccountNumber,
+    ifsc: cellString(row['IFSC']),
+    bankName: cellString(row['Bank Name']),
+  });
+
+  // Soft-accept identity for map; hard-fail in validateRow (after legacy last-4 check).
+  // If identity fails on PAN/IFSC/account, still build the row so validateRow reports the error.
   const employee: BulkEmployeeInput = {
     fullName: cellString(row['Full Name']),
     entityCode,
@@ -187,20 +221,16 @@ function mapRow(row: Record<string, unknown>, rowNumber: number): BulkEmployeeIn
     compensationAmount,
     baseSalary: compensationAmount,
     paymentMode: normalizePaymentMode(row['Payment Mode']),
-    bankName: cellString(row['Bank Name']),
-    bankAccountNumber: (() => {
-      const full = normalizeBankAccount(row['Bank Account Number']);
-      if (full.length >= 9) return full;
-      // Older templates used "Bank Details" for last-4 only — leave full account empty.
-      return full.length >= 9 ? full : '';
-    })(),
-    bankLast4: (() => {
-      const full = normalizeBankAccount(row['Bank Account Number']);
-      if (full.length >= 4) return bankLast4FromAccount(full);
-      const legacy = normalizeBankAccount(row['Bank Details']);
-      return bankLast4FromAccount(legacy);
-    })(),
-    panMasked: maskPan(cellString(row['PAN Masked'])),
+    bankName: identity.ok ? identity.bankName : cellString(row['Bank Name']),
+    bankAccountNumber: identity.ok ? identity.bankAccount : bankAccountNumber,
+    bankLast4:
+      (identity.ok && identity.bankAccount
+        ? bankLast4FromAccount(identity.bankAccount)
+        : bankLast4) || bankLast4,
+    pan: identity.ok ? identity.pan : panRaw.toUpperCase(),
+    panMasked: identity.ok ? identity.panMasked : '',
+    ifsc: identity.ok ? identity.ifsc : cellString(row['IFSC']).toUpperCase(),
+    workLocation: cellString(row['Work Location']),
     flexBankBalance: cellNumber(row['Opening Flex-Bank Balance']) || 0,
     internshipStartDate: null,
     internshipEndDate: normalizeJoiningDate(row['End Date']) || null,

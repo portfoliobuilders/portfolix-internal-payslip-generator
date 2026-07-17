@@ -1,17 +1,20 @@
 'use server';
 
+import { requirePayrollAdmin } from '@/lib/auth';
+
 /**
  * Settings server actions.
  *
  * - company_settings: legacy singleton branding row used by Settings UI
  * - app_settings (id=1, data jsonb): full Settings object including signatory fields
  *
- * TODO(auth session): wrap mutating exports with requirePayrollAdmin().
+ * Every export is gated by requirePayrollAdmin() (fail closed).
  */
 
 import { revalidatePath } from 'next/cache';
 import { randomUUID } from 'node:crypto';
 import { mergeSettings, SEED_SETTINGS } from '@/lib/settings-defaults';
+import { normalizeAddressText, normalizeLegalName } from '@/lib/company-address';
 import type { Settings } from '@/lib/types';
 import { createClient } from '@/utils/supabase/server';
 
@@ -54,6 +57,20 @@ function normalizeSettings(settings: Settings): Settings {
   const months = (settings.ptDeductionMonths ?? [])
     .map((m) => Math.round(Number(m)))
     .filter((m) => Number.isInteger(m) && m >= 1 && m <= 12);
+
+  const normalizedEntities = { ...settings.entities };
+  for (const code of Object.keys(normalizedEntities) as Array<keyof typeof normalizedEntities>) {
+    const e = normalizedEntities[code];
+    if (e) {
+      normalizedEntities[code] = {
+        ...e,
+        name: normalizeLegalName(e.name),
+        registeredAddress: normalizeAddressText(e.registeredAddress),
+        addressLines: e.addressLines.map(normalizeAddressText).filter(Boolean),
+      };
+    }
+  }
+
   return {
     ...settings,
     paydayDayOfMonth: clampPaydayDay(settings.paydayDayOfMonth),
@@ -62,11 +79,14 @@ function normalizeSettings(settings: Settings): Settings {
     ptDeductionMonths:
       months.length > 0 ? [...new Set(months)].sort((a, b) => a - b) : [8, 2],
     defaultPtHalfYearly: Math.max(0, Number(settings.defaultPtHalfYearly) || 0),
+    entities: normalizedEntities,
   };
 }
 
 /** Full app settings (jsonb singleton). */
 export async function fetchSettings(): Promise<ActionResult<Settings>> {
+  const auth = await requirePayrollAdmin();
+  if (!auth.ok) return auth;
   try {
     const supabase = await createClient();
     const { data, error } = await supabase
@@ -92,6 +112,8 @@ export async function fetchSettings(): Promise<ActionResult<Settings>> {
 }
 
 export async function saveSettings(settings: Settings): Promise<ActionResult<Settings>> {
+  const auth = await requirePayrollAdmin();
+  if (!auth.ok) return auth;
   try {
     const supabase = await createClient();
     const normalized = normalizeSettings(settings);
@@ -121,6 +143,8 @@ export async function saveSettings(settings: Settings): Promise<ActionResult<Set
 }
 
 export async function fetchCompanySettings(): Promise<SettingsActionResult<CompanySettingsRecord | null>> {
+  const auth = await requirePayrollAdmin();
+  if (!auth.ok) return auth;
   try {
     const supabase = await createClient();
     const { data, error } = await supabase
@@ -142,6 +166,8 @@ export async function fetchCompanySettings(): Promise<SettingsActionResult<Compa
 export async function updateCompanySettings(
   data: CompanySettingsRecord,
 ): Promise<SettingsActionResult<CompanySettingsRecord>> {
+  const auth = await requirePayrollAdmin();
+  if (!auth.ok) return auth;
   try {
     const supabase = await createClient();
     const payload = {
@@ -173,6 +199,8 @@ export async function updateCompanySettings(
 }
 
 export async function uploadCompanyLogo(formData: FormData): Promise<SettingsActionResult<string>> {
+  const auth = await requirePayrollAdmin();
+  if (!auth.ok) return auth;
   try {
     const file = formData.get('file');
     if (!(file instanceof File)) {
