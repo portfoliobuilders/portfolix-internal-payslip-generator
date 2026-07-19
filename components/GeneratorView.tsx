@@ -17,10 +17,9 @@ import {
   type AuthorisedPdfBundle,
 } from '@/lib/authorised-export';
 import { exportElementToPdf } from '@/lib/pdf-export';
-import { finalizePayrollSlip, savePayrollSlip, fetchAuthorisedSlipYtd, logAuthorisedSlipGeneration } from '@/app/actions/payroll';
+import { finalizePayrollSlip, savePayrollSlip, logAuthorisedSlipGeneration } from '@/app/actions/payroll';
 import { createSignatorySignedUrls, getSignatoryStorageStatus } from '@/app/actions/signatory-assets';
-import { computeAuthorisedYtd } from '@/lib/authorised-slip';
-import type { AuthorisedSlipYtd, Employee, EntityInfo, SlipSnapshot, SlipStatus } from '@/lib/types';
+import type { Employee, EntityInfo, SlipSnapshot, SlipStatus } from '@/lib/types';
 import { generateId } from '@/lib/payroll-db';
 import { findFinalSlipForMonth, findPreviousFinalSlip } from '@/lib/payroll-helpers';
 import { useHRStore } from '@/store/useHRStore';
@@ -149,7 +148,6 @@ export default function GeneratorView({
   const [signatoryStorageMessage, setSignatoryStorageMessage] = useState<string | null>(null);
   const [authorisedBundle, setAuthorisedBundle] = useState<{
     snapshot: SlipSnapshot;
-    ytd: AuthorisedSlipYtd;
     signatureUrl: string | null;
     sealUrl: string | null;
     pdf: AuthorisedPdfBundle;
@@ -250,28 +248,12 @@ export default function GeneratorView({
 
     void (async () => {
       try {
-        const [ytdResult, urlsResult] = await Promise.all([
-          fetchAuthorisedSlipYtd(existingFinal.employeeId, existingFinal.monthYear),
-          createSignatorySignedUrls({
-            signatureAssetPath: entityInfo.signatureAssetPath,
-            sealAssetPath: entityInfo.sealAssetPath,
-          }),
-        ]);
+        const urlsResult = await createSignatorySignedUrls({
+          signatureAssetPath: entityInfo.signatureAssetPath,
+          sealAssetPath: entityInfo.sealAssetPath,
+        });
 
         if (cancelled) return;
-
-        if (!ytdResult.ok) {
-          setAuthorisedError(ytdResult.error);
-          setAuthorisedBundle((prev) => {
-            if (prev?.pdfUrl) URL.revokeObjectURL(prev.pdfUrl);
-            return null;
-          });
-          return;
-        }
-
-        const ytd =
-          ytdResult.data ??
-          computeAuthorisedYtd(slipHistory, existingFinal.employeeId, existingFinal.monthYear);
 
         const signatureUrl = urlsResult.ok ? urlsResult.data.signatureUrl : null;
         const sealUrl = urlsResult.ok ? urlsResult.data.sealUrl : null;
@@ -279,11 +261,9 @@ export default function GeneratorView({
         const built = await buildAuthorisedSalarySlipPdf({
           snapshot: existingFinal,
           entity: entityInfo,
-          ytd,
           paydayDayOfMonth: settings.paydayDayOfMonth,
           signatureUrl,
           sealUrl,
-          history: slipHistory,
         });
 
         if (cancelled) return;
@@ -305,7 +285,6 @@ export default function GeneratorView({
           if (prev?.pdfUrl) URL.revokeObjectURL(prev.pdfUrl);
           return {
             snapshot: existingFinal,
-            ytd,
             signatureUrl,
             sealUrl,
             pdf: built.data,
@@ -329,7 +308,7 @@ export default function GeneratorView({
     return () => {
       cancelled = true;
     };
-  }, [mode, existingFinal, employee, settings.entities, settings.paydayDayOfMonth, slipHistory]);
+  }, [mode, existingFinal, employee, settings.entities, settings.paydayDayOfMonth]);
 
   useEffect(() => {
     // Re-seed the chained opening whenever employee or month changes.
@@ -579,7 +558,6 @@ export default function GeneratorView({
       const exported = await exportAuthorisedSalarySlipPdf({
         snapshot: existingFinal,
         entity,
-        ytd: authorisedBundle.ytd,
         paydayDayOfMonth: settings.paydayDayOfMonth,
         signatureUrl: authorisedBundle.signatureUrl,
         sealUrl: authorisedBundle.sealUrl,

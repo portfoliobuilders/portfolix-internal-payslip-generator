@@ -13,12 +13,11 @@ import {
 } from '@/lib/payroll-cycle';
 import { lopCalculationBasisDisplayText } from '@/lib/calculation-method';
 import { buildVectorPayslipPdf } from '@/lib/pdf-vector';
-import { computeAuthorisedYtd } from '@/lib/authorised-slip';
 import {
   assertNoSettingsPlaceholders,
   signatoryIncompleteReason,
 } from '@/lib/settings-defaults';
-import type { AuthorisedSlipYtd, EntityInfo, Settings, SlipSnapshot } from '@/lib/types';
+import type { EntityInfo, Settings, SlipSnapshot } from '@/lib/types';
 import { format, parse } from 'date-fns';
 
 export interface AuthorisedPdfBundle {
@@ -169,13 +168,11 @@ function logoPublicPath(entityCode: string): string {
 export async function buildAuthorisedSalarySlipPdf(input: {
   snapshot: SlipSnapshot;
   entity: EntityInfo;
-  ytd: AuthorisedSlipYtd;
   paydayDayOfMonth: number;
   signatureUrl?: string | null;
   sealUrl?: string | null;
   /** When false, skip registry write (tests). Default true. */
   registerDocument?: boolean;
-  history?: SlipSnapshot[];
   /**
    * When true, skip guard checks (unit tests that do not inject real settings).
    * NEVER set this in production paths.
@@ -285,14 +282,6 @@ export async function buildAuthorisedSalarySlipPdf(input: {
       : fetchBytes(logoPublicPath(input.snapshot.employee.entityCode)),
   ]);
 
-  const ytd =
-    input.ytd ??
-    computeAuthorisedYtd(
-      input.history ?? [input.snapshot],
-      input.snapshot.employeeId,
-      input.snapshot.monthYear,
-    );
-
   const pdf = await buildVectorPayslipPdf({
     documentType: 'AUTHORISED_SALARY_SLIP',
     legalCompanyName: input.entity.name,
@@ -320,7 +309,6 @@ export async function buildAuthorisedSalarySlipPdf(input: {
     payrollFinalisedDate: input.snapshot.generatedAt,
     snapshot: input.snapshot,
     entity: input.entity,
-    ytd,
     revisionNumber: resolvedRevision,
     paymentMode: input.snapshot.employee.paymentMode,
     signatureBytes,
@@ -367,7 +355,6 @@ export async function buildAuthorisedSalarySlipPdf(input: {
 export async function exportAuthorisedSalarySlipPdf(input: {
   snapshot: SlipSnapshot;
   entity: EntityInfo;
-  ytd: AuthorisedSlipYtd;
   paydayDayOfMonth: number;
   signatureUrl?: string | null;
   sealUrl?: string | null;
@@ -385,7 +372,6 @@ export async function exportAuthorisedSalarySlipPdf(input: {
   const built = await buildAuthorisedSalarySlipPdf({
     snapshot: input.snapshot,
     entity: input.entity,
-    ytd: input.ytd,
     paydayDayOfMonth: input.paydayDayOfMonth,
     signatureUrl: input.signatureUrl,
     sealUrl: input.sealUrl,

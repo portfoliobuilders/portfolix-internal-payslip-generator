@@ -1,5 +1,6 @@
 import { createHash } from 'crypto';
 import { describe, expect, it } from 'vitest';
+import { PDFDocument } from 'pdf-lib';
 import { authorisedSlipFilename } from '../format';
 import {
   buildAuthorisedSalarySlipPdf,
@@ -18,7 +19,7 @@ import {
   signatoryIncompleteReason,
   isGenericSignatoryName,
 } from '../settings-defaults';
-import type { AuthorisedSlipYtd, EntityInfo, SlipSnapshot } from '../types';
+import type { EntityInfo, SlipSnapshot } from '../types';
 
 const entity: EntityInfo = {
   name: 'PORTFOLIX ENTREPRISE PRIVATE LIMITED',
@@ -110,17 +111,6 @@ function sampleSnapshot(overrides: Partial<SlipSnapshot> = {}): SlipSnapshot {
   };
 }
 
-const ytd: AuthorisedSlipYtd = {
-  basic: 40000,
-  fixedAllowance: 10000,
-  variablePaid: 0,
-  grossEarnings: 50000,
-  lopDeduction: 0,
-  professionalTax: 0,
-  tds: 0,
-  otherDeductions: 0,
-  totalDeductions: 0,
-};
 
 function sha256(bytes: Uint8Array): string {
   return createHash('sha256').update(bytes).digest('hex');
@@ -189,7 +179,6 @@ describe('authorised export wiring helpers', () => {
       payrollFinalisedDate: '2026-07-28T10:00:00.000Z',
       snapshot: sampleSnapshot(),
       entity,
-      ytd,
       revisionNumber: 1,
       showPaymentBand: false,
     });
@@ -199,6 +188,7 @@ describe('authorised export wiring helpers', () => {
     expect(result.extractedText).toContain('ASL-PX-2024-001-2026-07');
     expect(result.extractedText).toContain('EARNINGS');
     expect(result.extractedText).toContain('DEDUCTIONS');
+    expect(result.extractedText).not.toMatch(/\bYTD\b/);
     expect(result.extractedText).toContain('₹50,000.00');
     expect(result.extractedText).toContain('Rupees Fifty Thousand Only');
     expect(result.extractedText).toContain('Scheduled credit: 05 Aug 2026');
@@ -209,6 +199,8 @@ describe('authorised export wiring helpers', () => {
     expect(result.extractedText).toContain('ABXXXXXX1F');
     expect(result.extractedText).not.toContain('····1234');
     expect(result.sizeBytes).toBeLessThan(1_000_000);
+    const loaded = await PDFDocument.load(result.bytes);
+    expect(loaded.getPageCount()).toBe(1);
   });
 
   it('paid ledger shows actual credit + payment band', async () => {
@@ -230,7 +222,6 @@ describe('authorised export wiring helpers', () => {
       payrollFinalisedDate: '2026-07-28T10:00:00.000Z',
       snapshot: sampleSnapshot({ actualCreditDate: '2026-08-05' }),
       entity,
-      ytd,
       revisionNumber: 1,
       showPaymentBand: true,
       confirmedPaidAmount: 50000,
@@ -272,7 +263,6 @@ describe('authorised export wiring helpers', () => {
       payrollFinalisedDate: '2026-07-28T10:00:00.000Z',
       snapshot: snap,
       entity,
-      ytd,
       revisionNumber: 1,
       showPaymentBand: false,
       paymentMode: 'Bank Transfer',
@@ -292,7 +282,6 @@ describe('authorised export wiring helpers', () => {
     const a = await buildAuthorisedSalarySlipPdf({
       snapshot: snap,
       entity,
-      ytd,
       paydayDayOfMonth: 5,
       registerDocument: false,
       _skipGuards: true,
@@ -300,7 +289,6 @@ describe('authorised export wiring helpers', () => {
     const b = await buildAuthorisedSalarySlipPdf({
       snapshot: snap,
       entity,
-      ytd,
       paydayDayOfMonth: 5,
       registerDocument: false,
       _skipGuards: true,
@@ -323,7 +311,6 @@ describe('authorised export wiring helpers', () => {
     const result = await buildAuthorisedSalarySlipPdf({
       snapshot: snap,
       entity,
-      ytd,
       paydayDayOfMonth: 5,
       registerDocument: false,
       _skipGuards: true,
@@ -409,7 +396,6 @@ describe('placeholder and signatory guards', () => {
     const result = await buildAuthorisedSalarySlipPdf({
       snapshot: sampleSnapshot(),
       entity: badEntity,
-      ytd,
       paydayDayOfMonth: 5,
       registerDocument: false,
     });
@@ -421,7 +407,6 @@ describe('placeholder and signatory guards', () => {
     const result = await buildAuthorisedSalarySlipPdf({
       snapshot: sampleSnapshot(),
       entity,
-      ytd,
       paydayDayOfMonth: 5,
       registerDocument: false,
     });
@@ -506,7 +491,6 @@ describe('document-number scheme and token stability', () => {
     const a = await buildAuthorisedSalarySlipPdf({
       snapshot: snap,
       entity,
-      ytd,
       paydayDayOfMonth: 5,
       registerDocument: false,
       _skipGuards: true,
@@ -514,7 +498,6 @@ describe('document-number scheme and token stability', () => {
     const b = await buildAuthorisedSalarySlipPdf({
       snapshot: snap,
       entity,
-      ytd,
       paydayDayOfMonth: 5,
       registerDocument: false,
       _skipGuards: true,
@@ -530,7 +513,6 @@ describe('document-number scheme and token stability', () => {
     const a = await buildAuthorisedSalarySlipPdf({
       snapshot: snap,
       entity,
-      ytd,
       paydayDayOfMonth: 5,
       registerDocument: false,
       _skipGuards: true,
@@ -538,7 +520,6 @@ describe('document-number scheme and token stability', () => {
     const b = await buildAuthorisedSalarySlipPdf({
       snapshot: snap,
       entity,
-      ytd,
       paydayDayOfMonth: 5,
       registerDocument: false,
       _skipGuards: true,

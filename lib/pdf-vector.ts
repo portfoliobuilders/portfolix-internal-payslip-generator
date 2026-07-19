@@ -26,7 +26,7 @@ import { formatAttendanceCycleRange } from './payroll-cycle';
 import { loadPdfFontBold, loadPdfFontRegular } from './pdf-fonts';
 import { buildQrPngBytes } from './qr-png';
 import { slipStatutoryDeductions } from './payroll-calc';
-import type { AuthorisedSlipYtd, EntityInfo, SlipSnapshot } from './types';
+import type { EntityInfo, SlipSnapshot } from './types';
 
 /** Browser-safe deterministic 32-hex seed for PDF trailer IDs (hash identity). */
 function deterministicHex(seed: string): string {
@@ -282,7 +282,6 @@ export interface VectorPayslipPdfInput {
   /** Full authorised layout (required for AUTHORISED_SALARY_SLIP). */
   snapshot?: SlipSnapshot | null;
   entity?: EntityInfo | null;
-  ytd?: AuthorisedSlipYtd | null;
   revisionNumber?: number;
   financialYearLabel?: string | null;
   paymentMode?: string | null;
@@ -510,7 +509,6 @@ async function buildAuthorisedFullPage(
   let page = pageIn;
   const snapshot = input.snapshot!;
   const entity = input.entity!;
-  const ytd = input.ytd!;
   const { inputs, computed, employee } = snapshot;
   const revision = input.revisionNumber ?? snapshot.revisionNumber ?? 1;
   const fy = input.financialYearLabel ?? financialYearLabelFor(snapshot.monthYear);
@@ -925,26 +923,22 @@ async function buildAuthorisedFullPage(
 
   ctx.y = empBottom - 8;
 
-  // ---- EARNINGS TABLE — bordered, right-aligned amounts ----
-  // Shared column right-edges so headers and figures share one vertical axis.
+  // ---- EARNINGS / DEDUCTIONS — Particulars | Amount (₹), bank-reference layout ----
+  // One shared amount right-edge; Particulars widened; amount column kept compact.
   const tableInnerW = A4_WIDTH - margin * 2;
-  const AMT_COL_W = 78;
-  const colYtdRight = margin + tableInnerW - 10;
-  const colMonthRight = colYtdRight - AMT_COL_W;
+  const AMT_COL_W = 88;
+  const colAmtRight = margin + tableInnerW - 10;
   const colParticulars = margin + 6;
-  const particularsMaxW = colMonthRight - colParticulars - 14;
+  const particularsMaxW = colAmtRight - AMT_COL_W - colParticulars - 6;
   const TABLE_BORDER = rgb(0.72, 0.72, 0.72);
   const HEADER_BG = rgb(0.94, 0.94, 0.96);
   const ROW_RULE = rgb(0.87, 0.87, 0.87);
-  // Vertical rules at the left edge of each amount column (shared by header + body).
-  const monthColRuleX = colMonthRight - AMT_COL_W + 8;
-  const ytdColRuleX = colMonthRight + 8;
+  // Vertical rule at the left edge of the amount column (shared by header + body).
+  const amtColRuleX = colAmtRight - AMT_COL_W + 8;
 
-  // Track rows for bordered rendering.
   type TableRowSpec = {
     label: string;
-    monthAmt: number | null; // null for text-only / non-amount rows
-    ytdAmt: number | null;
+    amount: number | null; // null for text-only / non-amount rows
     bold?: boolean;
     textNote?: string; // compact footnote for zero-reason
     isTextRow?: boolean; // e.g. EPF/ESI "Not applicable"
@@ -955,69 +949,71 @@ async function buildAuthorisedFullPage(
   const earningsRows: TableRowSpec[] = [];
   if (employee.salaryComponents && employee.salaryComponents.length > 0) {
     for (const comp of employee.salaryComponents) {
-      const ytdComp = ytd.components?.[comp.label] ?? 0;
-      earningsRows.push({ label: comp.label, monthAmt: comp.amount, ytdAmt: ytdComp });
+      earningsRows.push({ label: comp.label, amount: comp.amount });
     }
   } else {
     earningsRows.push({
       label: 'Basic',
-      monthAmt: inputs.baseSalary,
-      ytdAmt: ytd.basic,
+      amount: inputs.baseSalary,
     });
   }
-  earningsRows.push({ label: 'Fixed Allowance', monthAmt: inputs.fixedAllowance, ytdAmt: ytd.fixedAllowance });
-  earningsRows.push({ label: 'Incentive / Variable', monthAmt: variablePaid, ytdAmt: ytd.variablePaid });
-  earningsRows.push({ label: 'Gross Earnings', monthAmt: grossThisMonth, ytdAmt: ytd.grossEarnings, bold: true });
+  earningsRows.push({ label: 'Fixed Allowance', amount: inputs.fixedAllowance });
+  earningsRows.push({ label: 'Incentive / Variable', amount: variablePaid });
+  earningsRows.push({ label: 'Gross Earnings', amount: grossThisMonth, bold: true });
 
   // ---- Deductions rows ----
   const deductionRows: TableRowSpec[] = [
     {
       label: 'Loss of Pay',
-      monthAmt: lop,
-      ytdAmt: ytd.lopDeduction,
+      amount: lop,
       textNote: lop === 0 ? undefined : `${lopDays.toFixed(1)} LOP day(s)`,
     },
     {
       label: 'Professional Tax (Kerala)',
-      monthAmt: pt,
-      ytdAmt: ytd.professionalTax,
+      amount: pt,
       textNote: pt === 0 ? 'Nil — not a PT deduction month' : undefined,
     },
     {
       label: 'TDS (Income Tax)',
-      monthAmt: tds,
-      ytdAmt: ytd.tds,
+      amount: tds,
       textNote: tds === 0 ? 'Nil — Sec 87A rebate, new regime' : undefined,
     },
     {
       label: 'EPF',
-      monthAmt: null,
-      ytdAmt: null,
+      amount: null,
       isTextRow: true,
       textNote: 'Not applicable — establishment below 20 employees',
     },
     {
       label: 'ESI',
-      monthAmt: null,
-      ytdAmt: null,
+      amount: null,
       isTextRow: true,
       textNote: 'Not applicable',
     },
     {
       label: 'Other Deductions',
-      monthAmt: other,
-      ytdAmt: ytd.otherDeductions,
+      amount: other,
     },
     {
       label: 'Total Deductions',
-      monthAmt: totalDeductions,
-      ytdAmt: ytd.totalDeductions,
+      amount: totalDeductions,
       bold: true,
     },
   ];
 
   const drawBorderedTable = (title: string, rows: TableRowSpec[]) => {
     ctx.y -= 2;
+
+    // Compact section label above the bordered grid (EARNINGS / DEDUCTIONS).
+    page.drawText(title, {
+      x: colParticulars,
+      y: ctx.y - 9,
+      size: 8,
+      font: fontBold,
+      color: rgb(0.12, 0.12, 0.35),
+    });
+    ctx.extracted.push(title);
+    ctx.y -= 12;
 
     const headerBandH = 16;
     const headerTop = ctx.y;
@@ -1031,24 +1027,16 @@ async function buildAuthorisedFullPage(
       borderColor: TABLE_BORDER,
       borderWidth: 0.6,
     });
-    page.drawText(title, {
+    page.drawText('Particulars', {
       x: colParticulars,
       y: headerBaseline,
-      size: 8,
-      font: fontBold,
-      color: rgb(0.12, 0.12, 0.35),
-    });
-    ctx.extracted.push(title);
-    // Headers share the same right edges as the amount columns below.
-    drawRightAligned(page, 'This Month (₹)', {
-      rightX: colMonthRight,
-      y: headerBaseline,
-      size: 6.5,
+      size: 7,
       font: fontBold,
       color: rgb(0.35, 0.35, 0.35),
     });
-    drawRightAligned(page, 'YTD (₹)', {
-      rightX: colYtdRight,
+    // Amount header shares the same right edge as figures below.
+    drawRightAligned(page, 'Amount (₹)', {
+      rightX: colAmtRight,
       y: headerBaseline,
       size: 6.5,
       font: fontBold,
@@ -1140,8 +1128,7 @@ async function buildAuthorisedFullPage(
       }
 
       if (row.isTextRow) {
-        drawRightAligned(page, '—', { rightX: colMonthRight, y: labelY, size: 7, font });
-        drawRightAligned(page, '—', { rightX: colYtdRight, y: labelY, size: 7, font });
+        drawRightAligned(page, '—', { rightX: colAmtRight, y: labelY, size: 7, font });
         if (row.textValue) ctx.extracted.push(row.textValue);
         if (inlineNote) ctx.extracted.push(inlineNote);
         if (wrappedNotes.length > 0) {
@@ -1159,21 +1146,14 @@ async function buildAuthorisedFullPage(
           ctx.extracted.push(wrappedNotes.join(' '));
         }
       } else {
-        const mAmt = row.monthAmt ?? 0;
-        const yAmt = row.ytdAmt ?? 0;
-        drawRightAligned(page, amountOnly(mAmt), {
-          rightX: colMonthRight,
+        const amt = row.amount ?? 0;
+        drawRightAligned(page, amountOnly(amt), {
+          rightX: colAmtRight,
           y: labelY,
           size: rowSize,
           font: rowFont,
         });
-        drawRightAligned(page, amountOnly(yAmt), {
-          rightX: colYtdRight,
-          y: labelY,
-          size: rowSize,
-          font: rowFont,
-        });
-        ctx.extracted.push(`${row.label} ${formatINR(mAmt)} ${formatINR(yAmt)}`);
+        ctx.extracted.push(`${row.label} ${formatINR(amt)}`);
 
         if (wrappedNotes.length > 0) {
           let nY = labelY - noteGap - noteSize;
@@ -1193,7 +1173,7 @@ async function buildAuthorisedFullPage(
       ctx.y = rowBottom;
     }
 
-    // Bottom + side borders and amount column rules (same X for header + body).
+    // Bottom + side borders and amount column rule (same X for header + body).
     page.drawLine({
       start: { x: margin, y: ctx.y },
       end: { x: margin + tableInnerW, y: ctx.y },
@@ -1201,14 +1181,8 @@ async function buildAuthorisedFullPage(
       color: TABLE_BORDER,
     });
     page.drawLine({
-      start: { x: monthColRuleX, y: headerTop },
-      end: { x: monthColRuleX, y: ctx.y },
-      thickness: 0.4,
-      color: ROW_RULE,
-    });
-    page.drawLine({
-      start: { x: ytdColRuleX, y: headerTop },
-      end: { x: ytdColRuleX, y: ctx.y },
+      start: { x: amtColRuleX, y: headerTop },
+      end: { x: amtColRuleX, y: ctx.y },
       thickness: 0.4,
       color: ROW_RULE,
     });
@@ -1520,7 +1494,7 @@ async function buildSummaryPage(
 
 /**
  * ONE canonical vector PDF builder.
- * For AUTHORISED_SALARY_SLIP with snapshot+entity+ytd → full bank-grade layout.
+ * For AUTHORISED_SALARY_SLIP with snapshot+entity → full bank-grade layout.
  * Future authorised layout changes belong HERE only.
  */
 export async function buildVectorPayslipPdf(
@@ -1570,8 +1544,7 @@ export async function buildVectorPayslipPdf(
   const canFullAuthorised =
     input.documentType === 'AUTHORISED_SALARY_SLIP' &&
     input.snapshot &&
-    input.entity &&
-    input.ytd;
+    input.entity;
 
   if (canFullAuthorised) {
     extractedText = await buildAuthorisedFullPage(pdf, page, font, fontBold, input);

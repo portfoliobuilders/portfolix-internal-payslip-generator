@@ -1,9 +1,8 @@
 /**
  * Server-side payroll integrity pipeline.
- * Recomputes figures, aggregates YTD from FINAL snapshots, never trusts client totals.
+ * Recomputes figures from trusted inputs; never trusts client totals.
  */
 
-import { computeAuthorisedYtd } from './authorised-slip';
 import {
   calendarDaysInMonthYear,
   DEFAULT_CALCULATION_METHOD_CODE,
@@ -32,7 +31,7 @@ import {
   type ValidationIssue,
 } from './payroll-validate';
 import { roundRupees } from './money';
-import type { AuthorisedSlipYtd, Settings, SlipInputs, SlipSnapshot } from './types';
+import type { Settings, SlipInputs, SlipSnapshot } from './types';
 
 export interface TrustedPayrollInputs {
   employeeId: string;
@@ -162,14 +161,6 @@ export function recomputePayrollServerSide(
   };
 }
 
-export function aggregateYtdFromFinals(
-  slips: SlipSnapshot[],
-  employeeId: string,
-  throughMonthYear: string,
-): AuthorisedSlipYtd {
-  return computeAuthorisedYtd(slips, employeeId, throughMonthYear);
-}
-
 export interface BuildFinalSnapshotArgs {
   trusted: TrustedPayrollInputs;
   settings: Settings;
@@ -180,7 +171,7 @@ export interface BuildFinalSnapshotArgs {
   existingFinal: boolean;
   /** Confirm supersede of an existing FINAL. */
   supersedeConfirmed?: boolean;
-  /** All history used for YTD (FINAL only aggregated). */
+  /** Prior slips (unused by builder; retained for call-site compatibility). */
   history: SlipSnapshot[];
   workflowStatus?: PayrollWorkflowStatus;
   paymentStatus?: FinalizationContext['paymentStatus'];
@@ -203,7 +194,6 @@ export interface BuildFinalSnapshotResult {
   issues: ValidationIssue[];
   snapshot: SlipSnapshot | null;
   newFlexBalance: number | null;
-  ytd: AuthorisedSlipYtd | null;
   payrollDivisor: number | null;
   calculationMethodCode: CalculationMethodCode | null;
   attendancePeriod: AttendancePeriod | null;
@@ -213,6 +203,7 @@ export interface BuildFinalSnapshotResult {
  * Authoritative FINAL snapshot builder. Client computed values are not used.
  */
 export function buildServerFinalSnapshot(args: BuildFinalSnapshotArgs): BuildFinalSnapshotResult {
+  void args.history;
   const computation = recomputePayrollServerSide(args.trusted, args.settings, args.clientComputed);
   const calendarDays = calendarDaysInMonthYear(args.trusted.monthYear);
 
@@ -286,36 +277,12 @@ export function buildServerFinalSnapshot(args: BuildFinalSnapshotArgs): BuildFin
     }),
   ];
 
-  // YTD must be computable from history (may be zero for first FY month).
-  let ytd: AuthorisedSlipYtd;
-  try {
-    ytd = aggregateYtdFromFinals(args.history, args.trusted.employeeId, args.trusted.monthYear);
-  } catch (err) {
-    issues.push({
-      severity: 'error',
-      code: 'YTD_UNAVAILABLE',
-      message: err instanceof Error ? err.message : 'YTD could not be calculated.',
-    });
-    ytd = {
-      basic: 0,
-      fixedAllowance: 0,
-      variablePaid: 0,
-      grossEarnings: 0,
-      lopDeduction: 0,
-      professionalTax: 0,
-      tds: 0,
-      otherDeductions: 0,
-      totalDeductions: 0,
-    };
-  }
-
   if (hasBlockingErrors(issues)) {
     return {
       ok: false,
       issues,
       snapshot: null,
       newFlexBalance: null,
-      ytd,
       payrollDivisor: computation.payrollDivisor,
       calculationMethodCode: computation.calculationMethodCode,
       attendancePeriod,
@@ -353,7 +320,6 @@ export function buildServerFinalSnapshot(args: BuildFinalSnapshotArgs): BuildFin
     issues,
     snapshot,
     newFlexBalance: computation.newFlexBalance,
-    ytd,
     payrollDivisor: computation.payrollDivisor,
     calculationMethodCode: computation.calculationMethodCode,
     attendancePeriod,
