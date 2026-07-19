@@ -248,6 +248,7 @@ function mapRow(row: Record<string, unknown>, rowNumber: number): BulkEmployeeIn
     notes: cellString(row['Notes']),
     tdsMonthly: Math.max(0, cellNumber(row['TDS Monthly']) || 0),
     ptHalfYearly: Math.max(0, cellNumber(row['PT Half-Yearly']) || 0),
+    ptManualOverride: false,
   };
 
   const error = validateRow(employee, rowNumber);

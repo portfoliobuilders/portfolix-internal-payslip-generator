@@ -44,6 +44,7 @@ export interface EmployeeDetailsJson {
   notes?: string;
   tdsMonthly?: number;
   ptHalfYearly?: number;
+  ptManualOverride?: boolean;
 }
 
 export interface EmployeeRow {
@@ -109,6 +110,7 @@ function emptyDetails(): EmployeeDetailsJson {
     notes: '',
     tdsMonthly: 0,
     ptHalfYearly: 0,
+    ptManualOverride: false,
   };
 }
 
@@ -162,6 +164,7 @@ export function rowToEmployee(row: EmployeeRow): Employee {
     flexLog: details.flexLog ?? [],
     tdsMonthly: Number(details.tdsMonthly ?? 0) || 0,
     ptHalfYearly: Number(details.ptHalfYearly ?? 0) || 0,
+    ptManualOverride: details.ptManualOverride === true,
   };
 }
 
@@ -212,6 +215,7 @@ export function employeeToRow(
       notes: employee.notes,
       tdsMonthly: employee.tdsMonthly ?? 0,
       ptHalfYearly: employee.ptHalfYearly ?? 0,
+      ptManualOverride: employee.ptManualOverride === true,
     },
   };
 }

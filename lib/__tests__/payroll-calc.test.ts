@@ -6,7 +6,12 @@ import {
   computePayroll,
   derivePtThisMonth,
   floorToHalfDay,
+  isPartialHalfPtLiability,
+  KERALA_PT_SLABS_SEED,
+  monthlyPtInstallment,
   roundMoney,
+  suggestPtHalfYearly,
+  validatePtSlabs,
   validateVariablePaid,
 } from '../payroll-calc';
 import { amountInWords, integerInWords } from '../amount-in-words';
@@ -172,7 +177,7 @@ describe('statutory deductions (TDS + PT)', () => {
     expect(r.netPayWords).toBe('Rupees Seven Thousand Five Hundred Only');
   });
 
-  it('derivePtThisMonth applies only in configured months', () => {
+  it('derivePtThisMonth applies only in configured months (lump mode)', () => {
     expect(derivePtThisMonth(1250, '2026-08', [8, 2])).toBe(1250);
     expect(derivePtThisMonth(1250, '2026-02', [8, 2])).toBe(1250);
     expect(derivePtThisMonth(1250, '2026-07', [8, 2])).toBe(0);
@@ -189,6 +194,94 @@ describe('statutory deductions (TDS + PT)', () => {
     expect(r.pt).toBe(1250);
     expect(r.totalDeductions).toBe(1350);
     expect(r.netPay).toBe(18650);
+  });
+});
+
+describe('Kerala PT slabs + monthly accrual', () => {
+  it('looks up seeded half-yearly slabs from half-yearly gross', () => {
+    expect(suggestPtHalfYearly(1999.83, KERALA_PT_SLABS_SEED)).toBe(0); // gross 11,999
+    expect(suggestPtHalfYearly(2000, KERALA_PT_SLABS_SEED)).toBe(120); // 12,000
+    expect(suggestPtHalfYearly(8000, KERALA_PT_SLABS_SEED)).toBe(450); // 48,000
+    expect(suggestPtHalfYearly(50000, KERALA_PT_SLABS_SEED)).toBe(1250); // 300,000
+    expect(suggestPtHalfYearly(150000, KERALA_PT_SLABS_SEED)).toBe(1250);
+  });
+
+  it('rejects a ₹1,500 top-slab entry under Article 276 caps', () => {
+    const bad = KERALA_PT_SLABS_SEED.map((s) =>
+      s.maxGross == null ? { ...s, tax: 1500 } : { ...s },
+    );
+    expect(validatePtSlabs(bad)).toMatch(/Article 276|1,?250|cap/i);
+  });
+
+  it('monthly accrual 1,250 → 208×5 + 210 (exact total)', () => {
+    const months = [4, 5, 6, 7, 8, 9].map((m) =>
+      derivePtThisMonth(1250, `2026-${String(m).padStart(2, '0')}`, [8, 2], {
+        mode: 'monthly_accrual',
+        joiningDate: '2020-01-01',
+      }),
+    );
+    expect(months).toEqual([208, 208, 208, 208, 208, 210]);
+    expect(months.reduce((a, b) => a + b, 0)).toBe(1250);
+  });
+
+  it('monthly accrual 450 → 75 × 6', () => {
+    const months = [10, 11, 12, 1, 2, 3].map((m) => {
+      const y = m >= 10 ? 2026 : 2027;
+      return derivePtThisMonth(450, `${y}-${String(m).padStart(2, '0')}`, [8, 2], {
+        mode: 'monthly_accrual',
+        joiningDate: '2020-01-01',
+      });
+    });
+    expect(months).toEqual([75, 75, 75, 75, 75, 75]);
+    expect(months.reduce((a, b) => a + b, 0)).toBe(450);
+  });
+
+  it('monthly accrual 0 → 0', () => {
+    expect(
+      derivePtThisMonth(0, '2026-07', [8, 2], { mode: 'monthly_accrual', joiningDate: '2020-01-01' }),
+    ).toBe(0);
+  });
+
+  it('mid-half joiner: first full month starts accrual; Sep collects balance', () => {
+    // Joined 15 Jun 2026 → first full = Jul 2026. Jul+Aug = 208×2; Sep = 1250−416 = 834.
+    expect(
+      derivePtThisMonth(1250, '2026-06', [8, 2], {
+        mode: 'monthly_accrual',
+        joiningDate: '2026-06-15',
+      }),
+    ).toBe(0);
+    expect(
+      derivePtThisMonth(1250, '2026-07', [8, 2], {
+        mode: 'monthly_accrual',
+        joiningDate: '2026-06-15',
+      }),
+    ).toBe(208);
+    expect(
+      derivePtThisMonth(1250, '2026-09', [8, 2], {
+        mode: 'monthly_accrual',
+        joiningDate: '2026-06-15',
+      }),
+    ).toBe(834);
+    expect(isPartialHalfPtLiability('2026-06-15', '2026-07')).toBe(true);
+  });
+
+  it('CA partial-half flag only for joiners inside the current half', () => {
+    // Joined Jan 2026 (mid H2) — by Jul 2026 (H1) they are full-half; no lingering flag.
+    expect(isPartialHalfPtLiability('2026-01-12', '2026-07')).toBe(false);
+    // Day-1 Apr join = half start → not partial.
+    expect(isPartialHalfPtLiability('2026-04-01', '2026-07')).toBe(false);
+    // Mid-May joiner in Jul of same half → flag.
+    expect(isPartialHalfPtLiability('2026-05-10', '2026-07')).toBe(true);
+  });
+
+  it('monthlyPtInstallment helper matches accrual schedule', () => {
+    expect([0, 1, 2, 3, 4, 5].map((i) => monthlyPtInstallment(1250, i))).toEqual([
+      208, 208, 208, 208, 208, 210,
+    ]);
+    expect([0, 1, 2, 3, 4, 5].map((i) => monthlyPtInstallment(450, i))).toEqual([
+      75, 75, 75, 75, 75, 75,
+    ]);
+    expect(monthlyPtInstallment(0, 0)).toBe(0);
   });
 });
 

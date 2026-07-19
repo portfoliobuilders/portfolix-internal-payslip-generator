@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { format } from 'date-fns';
 import { AlertTriangle, Download, Printer } from 'lucide-react';
-import { computePayroll, derivePtThisMonth, validateVariablePaid } from '@/lib/payroll-calc';
+import { computePayroll, derivePtThisMonth, isPartialHalfPtLiability, ptMonthlyAccrualFootnote, validateVariablePaid } from '@/lib/payroll-calc';
 import {
   formatINR,
   formatMinutes,
@@ -329,8 +329,27 @@ export default function GeneratorView({
       employee.ptHalfYearly,
       form.monthYear,
       settings.ptDeductionMonths,
+      {
+        mode: settings.ptCollectionMode ?? 'monthly_accrual',
+        joiningDate: employee.joiningDate,
+      },
     );
-  }, [employee, form.monthYear, settings.ptDeductionMonths]);
+  }, [employee, form.monthYear, settings.ptDeductionMonths, settings.ptCollectionMode]);
+
+  const ptPartialHalfCa = Boolean(
+    employee &&
+      (settings.ptCollectionMode ?? 'monthly_accrual') === 'monthly_accrual' &&
+      isPartialHalfPtLiability(employee.joiningDate, form.monthYear),
+  );
+
+  const ptFootnote =
+    employee && (settings.ptCollectionMode ?? 'monthly_accrual') === 'monthly_accrual'
+      ? ptMonthlyAccrualFootnote(employee.ptHalfYearly)
+      : employee &&
+          (settings.ptCollectionMode ?? 'monthly_accrual') === 'half_yearly_lump' &&
+          ptThisMonth === 0
+        ? 'Not a PT deduction month.'
+        : null;
 
   const result = useMemo(() => {
     if (!employee) return null;
@@ -438,6 +457,8 @@ export default function GeneratorView({
       },
       flexBalanceAfter: result.newFlexBalance,
       generatedAt: new Date().toISOString(),
+      ptFootnote,
+      ptPartialHalfCaFlag: ptPartialHalfCa,
       employee: {
         fullName: employee.fullName,
         empId: employee.empId,
@@ -462,7 +483,7 @@ export default function GeneratorView({
       },
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [employee, result, form, status]);
+  }, [employee, result, form, status, ptFootnote, ptPartialHalfCa, ptThisMonth]);
 
   // ---------- Export / finalize flow ----------
   async function doExport(confirmedSupersede: boolean) {
@@ -678,7 +699,9 @@ export default function GeneratorView({
               label="Professional Tax this month (₹)"
               hint={
                 employee
-                  ? `Half-yearly ₹${employee.ptHalfYearly.toFixed(2)} · deducted in months ${settings.ptDeductionMonths.join(', ')}`
+                  ? (settings.ptCollectionMode ?? 'monthly_accrual') === 'monthly_accrual'
+                    ? `Monthly accrual · half-yearly ₹${employee.ptHalfYearly.toFixed(2)}`
+                    : `Half-yearly lump ₹${employee.ptHalfYearly.toFixed(2)} · deducted in months ${settings.ptDeductionMonths.join(', ')}`
                   : undefined
               }
             >
@@ -691,6 +714,12 @@ export default function GeneratorView({
               />
             </Field>
           </div>
+          {ptPartialHalfCa && (
+            <p className="mt-3 rounded-md border border-amber-edge bg-amber-tint px-3 py-2 text-[12px] font-medium text-amber-brand">
+              Mid-half joiner: partial-half Professional Tax liability — get one CA confirmation
+              before remitting.
+            </p>
+          )}
         </div>
 
         {employee && result && (

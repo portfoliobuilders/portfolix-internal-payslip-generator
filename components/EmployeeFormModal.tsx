@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type {
   AgreementType,
   DocumentsStatus,
@@ -14,6 +14,7 @@ import type {
 } from '@/lib/types';
 import { upsertEmployee } from '@/app/actions/payroll';
 import { validateIdentityFields } from '@/lib/identity';
+import { suggestPtHalfYearly } from '@/lib/payroll-calc';
 import { validateSalaryComponentsSum } from '@/lib/salary-components';
 import { useHRStore } from '@/store/useHRStore';
 import { Field, Modal, btnPrimary, btnSecondary, inputAmountCls, inputCls } from './ui';
@@ -67,6 +68,7 @@ type Draft = {
   flexBankBalance: string;
   tdsMonthly: string;
   ptHalfYearly: string;
+  ptManualOverride: boolean;
 };
 
 function toDraft(e: Employee | null): Draft {
@@ -110,6 +112,7 @@ function toDraft(e: Employee | null): Draft {
     flexBankBalance: e ? String(e.flexBankBalance) : '0',
     tdsMonthly: e ? String(e.tdsMonthly) : '0',
     ptHalfYearly: e ? String(e.ptHalfYearly) : '0',
+    ptManualOverride: e?.ptManualOverride === true,
   };
 }
 
@@ -182,17 +185,31 @@ export default function EmployeeFormModal({
   onSaveFailed?: (message: string) => void;
 }) {
   const entities = useHRStore((s) => s.settings.entities);
-  const defaultPt = useHRStore((s) => s.settings.defaultPtHalfYearly);
-  const [draft, setDraft] = useState<Draft>(() => {
-    const base = toDraft(employee);
-    if (!employee && defaultPt > 0 && base.ptHalfYearly === '0') {
-      return { ...base, ptHalfYearly: String(defaultPt) };
-    }
-    return base;
-  });
+  const ptSlabs = useHRStore((s) => s.settings.ptSlabs);
+  const [draft, setDraft] = useState<Draft>(() => toDraft(employee));
   const [touchedSave, setTouchedSave] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  /** Tracks last auto-suggested PT so we never silently overwrite a manual edit. */
+  const lastSuggestedPt = useRef<number | null>(null);
+
+  const suggestedPt = useMemo(() => {
+    const salary = Number(draft.baseSalary);
+    if (!Number.isFinite(salary) || salary <= 0) return 0;
+    return suggestPtHalfYearly(salary, ptSlabs ?? []);
+  }, [draft.baseSalary, ptSlabs]);
+
+  // Recalculate suggestion when salary changes; never overwrite a manual override.
+  useEffect(() => {
+    if (draft.ptManualOverride) return;
+    if (lastSuggestedPt.current === suggestedPt) return;
+    lastSuggestedPt.current = suggestedPt;
+    setDraft((d) => {
+      if (d.ptManualOverride) return d;
+      if (d.ptHalfYearly === String(suggestedPt)) return d;
+      return { ...d, ptHalfYearly: String(suggestedPt) };
+    });
+  }, [suggestedPt, draft.ptManualOverride]);
 
   const errors = validate(draft);
   const set = <K extends keyof Draft>(key: K, value: Draft[K]) =>
@@ -283,6 +300,7 @@ export default function EmployeeFormModal({
       flexBankBalance: Number(draft.flexBankBalance),
       tdsMonthly: Number(draft.tdsMonthly) || 0,
       ptHalfYearly: Number(draft.ptHalfYearly) || 0,
+      ptManualOverride: draft.ptManualOverride,
     };
 
     const result = await upsertEmployee(payload);
@@ -509,18 +527,40 @@ export default function EmployeeFormModal({
         <Field
           label="Professional Tax half-yearly (₹)"
           error={err('ptHalfYearly')}
-          hint="Deducted in PT months from Settings (usually Aug & Feb)"
+          hint={
+            draft.ptManualOverride
+              ? `Manual override (CA). Slab suggestion: ₹${suggestedPt.toFixed(2)}`
+              : `Auto from slabs · suggestion ₹${suggestedPt.toFixed(2)} · half-yearly gross ₹${((Number(draft.baseSalary) || 0) * 6).toLocaleString('en-IN')}`
+          }
         >
           <input
             type="number"
             min={0}
-            step="1"
+            step="0.01"
             className={inputAmountCls}
             value={draft.ptHalfYearly}
+            readOnly={!draft.ptManualOverride}
+            disabled={!draft.ptManualOverride}
             onChange={(e) => set('ptHalfYearly', e.target.value)}
             placeholder="0"
           />
         </Field>
+        <label className="col-span-2 flex items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={draft.ptManualOverride}
+            onChange={(e) => {
+              const on = e.target.checked;
+              setDraft((d) => ({
+                ...d,
+                ptManualOverride: on,
+                // Turning override off restores the live slab suggestion.
+                ptHalfYearly: on ? d.ptHalfYearly : String(suggestedPt),
+              }));
+            }}
+          />
+          Manual override (CA adjustments) — global slab recalculate will skip this employee
+        </label>
         <Field label="TDS monthly (₹)" error={err('tdsMonthly')}>
           <input
             type="number"

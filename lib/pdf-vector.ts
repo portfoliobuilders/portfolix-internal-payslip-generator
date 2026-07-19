@@ -1418,6 +1418,12 @@ async function buildAuthorisedFullPage(
     `For employer verification contact ${entity.payrollEmail} / ${entity.phone}.`,
     { size: 7, color: rgb(0.4, 0.4, 0.4) },
   );
+  if (input.snapshot?.ptFootnote) {
+    drawText(ctx, input.snapshot.ptFootnote, {
+      size: 6.5,
+      color: rgb(0.2, 0.2, 0.2),
+    });
+  }
 
   return ctx.extracted.filter(Boolean).join('\n');
 }
