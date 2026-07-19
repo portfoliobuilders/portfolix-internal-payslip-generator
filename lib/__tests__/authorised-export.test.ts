@@ -1,5 +1,6 @@
 import { createHash } from 'crypto';
 import { describe, expect, it } from 'vitest';
+import { PDFDocument } from 'pdf-lib';
 import { authorisedSlipFilename } from '../format';
 import {
   buildAuthorisedSalarySlipPdf,
@@ -198,6 +199,8 @@ describe('authorised export wiring helpers', () => {
     expect(result.extractedText).toContain('ABXXXXXX1F');
     expect(result.extractedText).not.toContain('····1234');
     expect(result.sizeBytes).toBeLessThan(1_000_000);
+    const loaded = await PDFDocument.load(result.bytes);
+    expect(loaded.getPageCount()).toBe(1);
   });
 
   it('paid ledger shows actual credit + payment band', async () => {
