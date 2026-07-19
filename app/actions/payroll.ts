@@ -9,7 +9,6 @@ import { requirePayrollAdmin } from '@/lib/auth';
 
 import { revalidatePath } from 'next/cache';
 import type {
-  AuthorisedSlipYtd,
   Employee,
   Settings,
   SignatorySnapshot,
@@ -33,7 +32,6 @@ import {
 import type { BulkEmployeeInput } from '@/lib/employee-excel';
 import { createClient } from '@/utils/supabase/server';
 import { statementMetaFor } from '@/lib/workforce';
-import { computeAuthorisedYtd } from '@/lib/authorised-slip';
 import { calendarDaysInMonthYear } from '@/lib/calculation-method';
 import { buildServerFinalSnapshot } from '@/lib/payroll-integrity';
 import { findFinalSlipForMonth } from '@/lib/payroll-helpers';
@@ -644,50 +642,6 @@ export async function finalizePayrollSlip(
     return {
       ok: false,
       error: err instanceof Error ? err.message : 'Failed to finalize payroll slip.',
-    };
-  }
-}
-
-/**
- * YTD line items for the Authorised Slip — Indian FY, FINAL snapshots only,
- * up to and including the given slip month.
- * Loads payroll_slips (with active_final / workflow_status) so superseded
- * finals cannot inflate YTD.
- */
-export async function fetchAuthorisedSlipYtd(
-  employeeId: string,
-  throughMonthYear: string,
-): Promise<ActionResult<AuthorisedSlipYtd>> {
-  const auth = await requirePayrollAdmin();
-  if (!auth.ok) return auth;
-  try {
-    const supabase = await getSupabase();
-    const { data, error } = await supabase
-      .from('payroll_slips')
-      .select('id, employee_id, month_year, status, details_json, active_final, workflow_status')
-      .eq('employee_id', employeeId)
-      .eq('status', 'final')
-      .order('month_year', { ascending: true });
-
-    if (error) {
-      // Fallback to full history path when columns are unavailable on older DBs.
-      const history = await fetchPayrollHistory();
-      if (!history.ok) return history;
-      return {
-        ok: true,
-        data: computeAuthorisedYtd(history.data, employeeId, throughMonthYear),
-      };
-    }
-
-    const slips = (data as PayrollSlipRow[]).map(rowToSlip);
-    return {
-      ok: true,
-      data: computeAuthorisedYtd(slips, employeeId, throughMonthYear),
-    };
-  } catch (err) {
-    return {
-      ok: false,
-      error: err instanceof Error ? err.message : 'Failed to compute authorised YTD.',
     };
   }
 }

@@ -312,7 +312,7 @@ export interface SlipSnapshot {
   activeFinal?: boolean | null;
   /**
    * Workflow status from payroll_slips table (e.g. 'ISSUED', 'SUPERSEDED').
-   * Used by YTD aggregation to exclude superseded duplicates.
+   * Used when selecting the canonical active FINAL for a month (supersede chains).
    */
   workflowStatus?: string | null;
 }
@@ -332,25 +332,4 @@ export interface SignatorySnapshot {
   documentNumber?: string;
   revisionNumber?: number;
   publicVerificationId?: string;
-}
-
-/** Per-line YTD totals for an Indian financial year, derived from FINAL snapshots only. */
-export interface AuthorisedSlipYtd {
-  basic: number;
-  fixedAllowance: number;
-  variablePaid: number;
-  grossEarnings: number;
-  lopDeduction: number;
-  professionalTax: number;
-  tds: number;
-  otherDeductions: number;
-  totalDeductions: number;
-  /**
-   * Per-component YTD totals keyed by component label.
-   * Populated when salary components are present on snapshots.
-   * Pre-component snapshots attribute everything to "Basic".
-   */
-  components?: Record<string, number>;
-  /** Net pay YTD (grossEarnings − totalDeductions across finalized months). */
-  netPay?: number;
 }

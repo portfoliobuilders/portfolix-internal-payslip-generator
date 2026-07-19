@@ -77,7 +77,7 @@ export interface PayrollSlipRow {
   month_year: string;
   status: 'draft' | 'final';
   details_json: Omit<SlipSnapshot, 'id' | 'employeeId' | 'monthYear' | 'status'>;
-  /** Present when selected from payroll_slips (YTD dedupe). */
+  /** Present when selected from payroll_slips (active FINAL / supersede chains). */
   active_final?: boolean | null;
   workflow_status?: string | null;
 }

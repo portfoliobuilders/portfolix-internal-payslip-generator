@@ -6,7 +6,6 @@ import { Download, Eye, FileBadge2, Printer, Trash2, Wallet, X } from 'lucide-re
 import {
   logAuthorisedSlipGeneration,
   deletePayrollSlip,
-  fetchAuthorisedSlipYtd,
 } from '@/app/actions/payroll';
 import { fetchPaymentObligationsForHistory } from '@/app/actions/salary-payment';
 import {
@@ -18,7 +17,6 @@ import {
   exportAuthorisedSalarySlipPdf,
   type AuthorisedPdfBundle,
 } from '@/lib/authorised-export';
-import { computeAuthorisedYtd } from '@/lib/authorised-slip';
 import {
   formatDate,
   formatINR,
@@ -30,7 +28,7 @@ import { formatAttendanceCycleRange } from '@/lib/payroll-cycle';
 import { exportElementToPdf } from '@/lib/pdf-export';
 import { authorisedSlipBlockedReason } from '@/lib/authorised-slip-readiness';
 import type { SalaryPaymentObligation, DocumentLifecycleStatus } from '@/lib/salary-payment-types';
-import type { AuthorisedSlipYtd, SlipSnapshot } from '@/lib/types';
+import type { SlipSnapshot } from '@/lib/types';
 import { useHRStore } from '@/store/useHRStore';
 import AuthorisedSlip, { printPdfBlobUrl } from './AuthorisedSlip';
 import PaymentLedgerDrawer from './PaymentLedgerDrawer';
@@ -64,7 +62,6 @@ export default function HistoryView({ slipHistory, loading, error, onRefresh }: 
   const [bankCopyError, setBankCopyError] = useState<string | null>(null);
   const [bankCopyPreview, setBankCopyPreview] = useState<{
     snapshot: SlipSnapshot;
-    ytd: AuthorisedSlipYtd;
     signatureUrl: string | null;
     sealUrl: string | null;
     pdf: AuthorisedPdfBundle;
@@ -196,28 +193,19 @@ export default function HistoryView({ slipHistory, loading, error, onRefresh }: 
     setBankCopyBusy(true);
     setBankCopyError(null);
     try {
-      const [ytdResult, urlsResult] = await Promise.all([
-        fetchAuthorisedSlipYtd(snapshot.employeeId, snapshot.monthYear),
-        createSignatorySignedUrls({
-          signatureAssetPath: entity.signatureAssetPath,
-          sealAssetPath: entity.sealAssetPath,
-        }),
-      ]);
-      const ytd =
-        ytdResult.ok
-          ? ytdResult.data
-          : computeAuthorisedYtd(slipHistory, snapshot.employeeId, snapshot.monthYear);
+      const urlsResult = await createSignatorySignedUrls({
+        signatureAssetPath: entity.signatureAssetPath,
+        sealAssetPath: entity.sealAssetPath,
+      });
       const signatureUrl = urlsResult.ok ? urlsResult.data.signatureUrl : null;
       const sealUrl = urlsResult.ok ? urlsResult.data.sealUrl : null;
 
       const built = await buildAuthorisedSalarySlipPdf({
         snapshot,
         entity,
-        ytd,
         paydayDayOfMonth: settings.paydayDayOfMonth,
         signatureUrl,
         sealUrl,
-        history: slipHistory,
       });
       if (!built.ok) {
         setBankCopyError(built.error);
@@ -230,7 +218,7 @@ export default function HistoryView({ slipHistory, loading, error, onRefresh }: 
 
       setBankCopyPreview((prev) => {
         if (prev?.pdfUrl) URL.revokeObjectURL(prev.pdfUrl);
-        return { snapshot, ytd, signatureUrl, sealUrl, pdf: built.data, pdfUrl };
+        return { snapshot, signatureUrl, sealUrl, pdf: built.data, pdfUrl };
       });
       setBankCopyPending(null);
 
@@ -261,7 +249,6 @@ export default function HistoryView({ slipHistory, loading, error, onRefresh }: 
     await exportAuthorisedSalarySlipPdf({
       snapshot: bankCopyPreview.snapshot,
       entity,
-      ytd: bankCopyPreview.ytd,
       paydayDayOfMonth: settings.paydayDayOfMonth,
       signatureUrl: bankCopyPreview.signatureUrl,
       sealUrl: bankCopyPreview.sealUrl,
