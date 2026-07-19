@@ -482,6 +482,14 @@ export default function SalarySlip({
           This is a computer-generated internal payroll document and does not require a physical
           signature.
         </p>
+        {snapshot.ptFootnote && (
+          <p className="text-ink">{snapshot.ptFootnote}</p>
+        )}
+        {snapshot.ptPartialHalfCaFlag && (
+          <p className="font-medium text-amber-brand">
+            Partial-half PT liability — confirm remittance treatment with CA.
+          </p>
+        )}
         {isAuthorizedForBank && (
           <div className="mt-2 border-t border-hairline pt-2 text-[9px] text-ink">
             <p className="font-semibold">Authorised signatory</p>

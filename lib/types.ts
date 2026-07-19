@@ -28,13 +28,36 @@ export interface EntityInfo {
   sealAssetPath: string | null;
 }
 
+/** How Kerala Professional Tax is collected from salary. */
+export type PtCollectionMode = 'half_yearly_lump' | 'monthly_accrual';
+
+/**
+ * One row of the configurable Kerala PT schedule.
+ * Basis = half-yearly gross income (monthly fixed pay × 6).
+ */
+export interface PtSlab {
+  /** Inclusive lower bound of half-yearly gross (₹). */
+  minGross: number;
+  /** Inclusive upper bound of half-yearly gross (₹); null = open-ended. */
+  maxGross: number | null;
+  /** Half-yearly professional tax (₹) for this band. */
+  tax: number;
+}
+
 export interface Settings {
   paydayDayOfMonth: number;
   payrollContact: string;
   /** Local time label printed on slips, e.g. "6:00 PM". */
   reviewDeadlineTime: string;
-  /** Calendar months (1–12) when Kerala PT is deducted from salary. */
+  /** Calendar months (1–12) when Kerala PT is deducted in half_yearly_lump mode. */
   ptDeductionMonths: number[];
+  /**
+   * PT collection mode. Default `monthly_accrual` (founder decision).
+   * `half_yearly_lump` preserves the legacy Aug/Feb full-half deduction.
+   */
+  ptCollectionMode: PtCollectionMode;
+  /** Configurable Kerala PT slabs (cap-enforced on save). */
+  ptSlabs: PtSlab[];
   /**
    * Suggested Kerala PT half-yearly amount (₹) for bulk apply / new hires.
    * Per-employee `ptHalfYearly` is what slips actually use.
@@ -151,6 +174,11 @@ export interface Employee {
   tdsMonthly: number;
   /** Kerala Professional Tax half-yearly amount (₹). details_json. Default 0. */
   ptHalfYearly: number;
+  /**
+   * When true, global “Recalculate PT from slabs” skips this employee
+   * unless the operator explicitly includes manual overrides (CA adjustments).
+   */
+  ptManualOverride: boolean;
 }
 
 export type SlipStatus = 'draft' | 'final';
@@ -315,6 +343,16 @@ export interface SlipSnapshot {
    * Used when selecting the canonical active FINAL for a month (supersede chains).
    */
   workflowStatus?: string | null;
+  /**
+   * Frozen PT footnote for this slip (monthly accrual mode).
+   * Missing on older finals — renderers must not invent one.
+   */
+  ptFootnote?: string | null;
+  /**
+   * Mid-half joiner: partial-half PT liability needs one CA confirmation.
+   * Frozen at generation; missing on older finals → treat as false.
+   */
+  ptPartialHalfCaFlag?: boolean;
 }
 
 /** Signatory fields frozen into authorised_slip_log at bank-copy generation. */

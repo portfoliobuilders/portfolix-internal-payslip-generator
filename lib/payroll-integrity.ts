@@ -18,7 +18,7 @@ import {
   type AttendancePeriod,
   type PayrollCycleMethod,
 } from './payroll-cycle';
-import { computePayroll, derivePtThisMonth, type PayrollInput, type PayrollResult } from './payroll-calc';
+import { computePayroll, derivePtThisMonth, ptMonthlyAccrualFootnote, isPartialHalfPtLiability, type PayrollInput, type PayrollResult } from './payroll-calc';
 import {
   buildAttendanceFromInputs,
   hasBlockingErrors,
@@ -46,6 +46,8 @@ export interface TrustedPayrollInputs {
   otherDeductions: number;
   tdsMonthly: number;
   ptHalfYearly: number;
+  /** ISO joining date — mid-half PT accrual start. */
+  joiningDate?: string | null;
   variableEarned: number;
   variablePaid: number;
   deferredOpening: number;
@@ -80,7 +82,7 @@ export interface ServerPayrollComputation {
  */
 export function recomputePayrollServerSide(
   trusted: TrustedPayrollInputs,
-  settings: Pick<Settings, 'ptDeductionMonths'>,
+  settings: Pick<Settings, 'ptDeductionMonths' | 'ptCollectionMode'>,
   clientComputed?: SlipSnapshot['computed'] | null,
 ): ServerPayrollComputation {
   const methodCode = trusted.calculationMethodCode ?? DEFAULT_CALCULATION_METHOD_CODE;
@@ -96,6 +98,10 @@ export function recomputePayrollServerSide(
     trusted.ptHalfYearly,
     trusted.monthYear,
     settings.ptDeductionMonths,
+    {
+      mode: settings.ptCollectionMode ?? 'monthly_accrual',
+      joiningDate: trusted.joiningDate ?? null,
+    },
   );
 
   const engineInput: PayrollInput = {
@@ -313,6 +319,13 @@ export function buildServerFinalSnapshot(args: BuildFinalSnapshotArgs): BuildFin
     expectedPaymentDate: args.expectedPaymentDate ?? null,
     actualCreditDate: args.salaryCreditDate ?? null,
     revisionNumber: 1,
+    ptFootnote:
+      args.settings.ptCollectionMode === 'monthly_accrual'
+        ? ptMonthlyAccrualFootnote(args.trusted.ptHalfYearly)
+        : null,
+    ptPartialHalfCaFlag:
+      args.settings.ptCollectionMode === 'monthly_accrual' &&
+      isPartialHalfPtLiability(args.trusted.joiningDate, args.trusted.monthYear),
   };
 
   return {

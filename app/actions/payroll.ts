@@ -91,6 +91,7 @@ export async function upsertEmployee(
       flexLog: employeeData.flexLog ?? [],
       tdsMonthly: employeeData.tdsMonthly ?? 0,
       ptHalfYearly: employeeData.ptHalfYearly ?? 0,
+      ptManualOverride: employeeData.ptManualOverride === true,
     });
 
     const { data, error } = await supabase
@@ -109,8 +110,10 @@ export async function upsertEmployee(
 }
 
 /**
- * Sets Kerala PT half-yearly amount on every employee roster row.
- * Use from Settings to reduce/raise PT for everyone in one step.
+ * Sets Kerala PT half-yearly amount on every employee whose current value differs.
+ * Skips `ptManualOverride` employees (use recalculatePtFromSlabs with
+ * includeManualOverrides for CA-approved bulk overrides).
+ * Prefer `recalculatePtFromSlabs` for slab-driven updates.
  */
 export async function applyPtHalfYearlyToAll(
   amount: number,
@@ -127,10 +130,10 @@ export async function applyPtHalfYearlyToAll(
     const existingResult = await supabase.from('employees').select('*');
     if (existingResult.error) return { ok: false, error: existingResult.error.message };
 
-    const rows = (existingResult.data as EmployeeRow[]).map((row) => {
-      const employee = rowToEmployee(row);
-      return employeeToRow({ ...employee, ptHalfYearly: pt });
-    });
+    const rows = (existingResult.data as EmployeeRow[])
+      .map((row) => rowToEmployee(row))
+      .filter((employee) => employee.ptManualOverride !== true && employee.ptHalfYearly !== pt)
+      .map((employee) => employeeToRow({ ...employee, ptHalfYearly: pt }));
 
     if (rows.length === 0) {
       return { ok: true, data: { count: 0, amount: pt } };
@@ -184,6 +187,8 @@ export async function bulkUpsertEmployees(
         flexLog,
         tdsMonthly: employee.tdsMonthly ?? existingEmployee?.tdsMonthly ?? 0,
         ptHalfYearly: employee.ptHalfYearly ?? existingEmployee?.ptHalfYearly ?? 0,
+        ptManualOverride:
+          employee.ptManualOverride ?? existingEmployee?.ptManualOverride ?? false,
       });
     });
 
@@ -444,6 +449,7 @@ export async function finalizePayrollSlip(
         otherDeductions: snapshot.inputs.otherDeductions,
         tdsMonthly: snapshot.inputs.tdsMonthly ?? employee.tdsMonthly ?? 0,
         ptHalfYearly: employee.ptHalfYearly ?? 0,
+        joiningDate: employee.joiningDate,
         variableEarned: snapshot.inputs.variableEarned,
         variablePaid: snapshot.inputs.variablePaid,
         deferredOpening: snapshot.inputs.deferredOpening,
@@ -822,3 +828,80 @@ export const getEmployees = fetchEmployees;
 export const getSlipHistory = fetchPayrollHistory;
 export const saveSlipHistory = savePayrollSlip;
 export const deleteSlipHistory = deletePayrollSlip;
+
+export interface PtRecalcDiff {
+  id: string;
+  empId: string;
+  fullName: string;
+  current: number;
+  suggested: number;
+  manualOverride: boolean;
+  skipped: boolean;
+}
+
+/**
+ * Preview or apply slab-driven PT recalculation across the roster.
+ * Skips `ptManualOverride` employees unless `includeManualOverrides` is true.
+ */
+export async function recalculatePtFromSlabs(options: {
+  includeManualOverrides?: boolean;
+  apply?: boolean;
+}): Promise<ActionResult<{ diffs: PtRecalcDiff[]; updated: number }>> {
+  const auth = await requirePayrollAdmin();
+  if (!auth.ok) return auth;
+  try {
+    const { suggestPtHalfYearly } = await import('@/lib/payroll-calc');
+    const { fetchSettings } = await import('@/app/actions/settings');
+
+    const settingsResult = await fetchSettings();
+    if (!settingsResult.ok) return settingsResult;
+
+    const employeesResult = await fetchEmployees();
+    if (!employeesResult.ok) return employeesResult;
+
+    const includeManual = options.includeManualOverrides === true;
+    const slabs = settingsResult.data.ptSlabs;
+    const diffs: PtRecalcDiff[] = [];
+
+    for (const emp of employeesResult.data) {
+      const suggested = suggestPtHalfYearly(emp.baseSalary, slabs);
+      const isManual = emp.ptManualOverride === true;
+      const skipped = isManual && !includeManual;
+      diffs.push({
+        id: emp.id,
+        empId: emp.empId,
+        fullName: emp.fullName,
+        current: emp.ptHalfYearly,
+        suggested,
+        manualOverride: isManual,
+        skipped,
+      });
+    }
+
+    if (!options.apply) {
+      return { ok: true, data: { diffs, updated: 0 } };
+    }
+
+    const toUpdate = diffs.filter((d) => !d.skipped && d.current !== d.suggested);
+    let updated = 0;
+    for (const diff of toUpdate) {
+      const emp = employeesResult.data.find((e) => e.id === diff.id);
+      if (!emp) continue;
+      const result = await upsertEmployee({
+        ...emp,
+        ptHalfYearly: diff.suggested,
+        // Applying a slab recalc clears the manual flag only when explicitly included.
+        ptManualOverride: includeManual && emp.ptManualOverride ? false : emp.ptManualOverride,
+      });
+      if (!result.ok) return result;
+      updated += 1;
+    }
+
+    return { ok: true, data: { diffs, updated } };
+  } catch (err) {
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : 'Failed to recalculate Professional Tax.',
+    };
+  }
+}
