@@ -49,6 +49,7 @@ describe('schema drift guard', () => {
         'verification_hits',
         'align_payroll_document_lifecycle_columns',
         'document_lifecycle_and_payroll_admins',
+        'compat_compensation_and_issued_doc_unique',
       ],
       [],
     );

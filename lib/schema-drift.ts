@@ -123,6 +123,13 @@ export const EXPECTED_SCHEMA_MIGRATIONS: ExpectedMigration[] = [
       'document_lifecycle_and_payroll_admins',
     ],
   },
+  {
+    file: '018_compat_compensation_and_issued_doc_unique.sql',
+    appliedNames: [
+      '018_compat_compensation_and_issued_doc_unique',
+      'compat_compensation_and_issued_doc_unique',
+    ],
+  },
 ];
 
 /** Canary columns the deployed code reads/writes — belt-and-suspenders vs name tracking alone. */
