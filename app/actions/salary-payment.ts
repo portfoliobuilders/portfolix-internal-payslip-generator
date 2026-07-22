@@ -1,5 +1,8 @@
 'use server';
 
+import { requirePayrollAdmin } from '@/lib/auth';
+
+
 /**
  * Salary-payment obligation + transaction server actions.
  * Domain rules live in lib/salary-payment.ts — this file persists them.
@@ -409,6 +412,8 @@ export async function ensureSalaryPaymentObligation(input: {
   companyCommittedDate?: string | null;
   actorUserId?: string;
 }): Promise<ActionResult<SalaryPaymentObligation>> {
+  const auth = await requirePayrollAdmin();
+  if (!auth.ok) return auth;
   try {
     const supabase = await createClient();
     const { data: existing } = await supabase
@@ -473,6 +478,8 @@ export async function fetchPaymentLedger(
     payrollStatus: string;
   }>
 > {
+  const auth = await requirePayrollAdmin();
+  if (!auth.ok) return auth;
   let bundle = await loadLedgerBundle(payrollRecordId);
   if (!bundle.ok) {
     // Backfill obligation for older final slips that pre-date the payment module.
@@ -559,6 +566,8 @@ async function ensureObligationForExistingSlip(
 export async function fetchPaymentObligationsForHistory(): Promise<
   ActionResult<SalaryPaymentObligation[]>
 > {
+  const auth = await requirePayrollAdmin();
+  if (!auth.ok) return auth;
   try {
     const supabase = await createClient();
 
@@ -657,6 +666,8 @@ export async function recordSalaryPayment(input: {
   supportingEvidencePath?: string | null;
   evidenceSha256?: string | null;
 }): Promise<ActionResult<SalaryPaymentTransaction>> {
+  const auth = await requirePayrollAdmin();
+  if (!auth.ok) return auth;
   const actor = await resolveSessionActor();
   if (!actor.ok) return actor;
   const createdBy = actor.actor.userId;
@@ -724,6 +735,8 @@ export async function confirmSalaryPayment(input: {
   overrideReason?: string | null;
   creditedAt?: string | null;
 }): Promise<ActionResult<SalaryPaymentTransaction>> {
+  const auth = await requirePayrollAdmin();
+  if (!auth.ok) return auth;
   const actor = await resolveSessionActor();
   if (!actor.ok) return actor;
 
@@ -786,6 +799,8 @@ export async function failSalaryPayment(input: {
   reason: string;
   asRejectedByBank?: boolean;
 }): Promise<ActionResult<SalaryPaymentTransaction>> {
+  const auth = await requirePayrollAdmin();
+  if (!auth.ok) return auth;
   const actor = await resolveSessionActor();
   if (!actor.ok) return actor;
   const actorUserId = actor.actor.userId;
@@ -840,6 +855,8 @@ export async function reverseSalaryPayment(input: {
   approver?: ActorContext;
   reason: string;
 }): Promise<ActionResult<{ original: SalaryPaymentTransaction; reversal: SalaryPaymentTransaction }>> {
+  const auth = await requirePayrollAdmin();
+  if (!auth.ok) return auth;
   const actor = await resolveSessionActor();
   if (!actor.ok) return actor;
   const approver: ActorContext = {
@@ -917,6 +934,8 @@ export async function putSalaryPaymentOnHold(input: {
   evidencePath?: string | null;
   complianceReviewFlag: boolean;
 }): Promise<ActionResult<PaymentHoldOrDeferral>> {
+  const auth = await requirePayrollAdmin();
+  if (!auth.ok) return auth;
   const actor = await resolveSessionActor();
   if (!actor.ok) return actor;
   const approvingUser = actor.actor.userId;
@@ -998,6 +1017,8 @@ export async function rescheduleSalaryPayment(input: {
   actorUserId?: string;
   reason: string;
 }): Promise<ActionResult<SalaryPaymentObligation>> {
+  const auth = await requirePayrollAdmin();
+  if (!auth.ok) return auth;
   const actor = await resolveSessionActor();
   if (!actor.ok) return actor;
   const actorUserId = actor.actor.userId;
@@ -1051,6 +1072,8 @@ export async function assertAuthorisedSlipPaymentGate(
     paymentStatus: string;
   }>
 > {
+  const auth = await requirePayrollAdmin();
+  if (!auth.ok) return auth;
   const bundle = await loadLedgerBundle(payrollRecordId);
   if (!bundle.ok) {
     // Soft: if no obligation table/row yet, block authorised slip for finals without payment proof
@@ -1098,6 +1121,8 @@ export async function checkDocumentAvailability(
   payrollRecordId: string,
   kind: DocumentKind,
 ): Promise<ActionResult<{ allowed: true; title?: string }>> {
+  const auth = await requirePayrollAdmin();
+  if (!auth.ok) return auth;
   const bundle = await loadLedgerBundle(payrollRecordId);
   if (!bundle.ok) return { ok: false, error: bundle.error };
 

@@ -1,15 +1,12 @@
 /**
- * Lifecycle aggregation tests — active finals only for YTD / deferred.
+ * Lifecycle aggregation tests — active finals only for deferred / History grouping.
+ * (Authorised YTD column/module removed on main — #50.)
  */
 
 import { describe, expect, it } from 'vitest';
-import { computeAuthorisedYtd } from '../authorised-slip';
 import { findPreviousFinalSlip, findFinalSlipForMonth } from '../payroll-helpers';
-import {
-  authorisedDocumentNumber,
-  groupSlipsByEmployeeMonth,
-  legacyAuthorisedDocumentNumber,
-} from '../payroll-lifecycle';
+import { groupSlipsByEmployeeMonth } from '../payroll-lifecycle';
+import { generateAuthorisedPayslipNumber } from '../verification';
 import type { SlipComputed, SlipEmployeeInfo, SlipInputs, SlipSnapshot } from '../types';
 
 const employee: SlipEmployeeInfo = {
@@ -85,57 +82,43 @@ function makeSlip(
 }
 
 describe('lifecycle aggregations', () => {
-  it('(a) finalize July, supersede twice → YTD = one month value', () => {
+  it('findFinalSlipForMonth returns the active final after supersedes', () => {
     const slips = [
       makeSlip({
         id: 'jul-1',
         monthYear: '2026-07',
-        status: 'superseded',
+        status: 'final',
+        activeFinal: false,
+        workflowStatus: 'SUPERSEDED',
         generatedAt: '2026-07-20T10:00:00.000Z',
       }),
       makeSlip({
         id: 'jul-2',
         monthYear: '2026-07',
-        status: 'superseded',
+        status: 'final',
+        activeFinal: false,
+        workflowStatus: 'SUPERSEDED',
         generatedAt: '2026-07-25T10:00:00.000Z',
       }),
       makeSlip({
         id: 'jul-3',
         monthYear: '2026-07',
         status: 'final',
+        activeFinal: true,
         generatedAt: '2026-07-28T10:00:00.000Z',
       }),
     ];
-    const ytd = computeAuthorisedYtd(slips, 'emp-tinu', '2026-07');
-    expect(ytd.basic).toBe(50000);
     expect(findFinalSlipForMonth(slips, 'emp-tinu', '2026-07')?.id).toBe('jul-3');
   });
 
-  it('(b) void a May test final → YTD excludes it', () => {
-    const slips = [
-      makeSlip({
-        id: 'may-void',
-        monthYear: '2026-05',
-        status: 'voided',
-        generatedAt: '2026-05-28T10:00:00.000Z',
-      }),
-      makeSlip({
-        id: 'jul-active',
-        monthYear: '2026-07',
-        status: 'final',
-        generatedAt: '2026-07-28T10:00:00.000Z',
-      }),
-    ];
-    const ytd = computeAuthorisedYtd(slips, 'emp-tinu', '2026-07');
-    expect(ytd.basic).toBe(50000);
-  });
-
-  it('(c) deferred opening for August reads the active July final only', () => {
+  it('deferred opening for August reads the active July final only', () => {
     const slips = [
       makeSlip({
         id: 'jul-old',
         monthYear: '2026-07',
-        status: 'superseded',
+        status: 'final',
+        activeFinal: false,
+        workflowStatus: 'SUPERSEDED',
         generatedAt: '2026-07-20T10:00:00.000Z',
         computed: { ...baseComputed, deferredClosing: 999 },
       }),
@@ -143,13 +126,16 @@ describe('lifecycle aggregations', () => {
         id: 'jul-active',
         monthYear: '2026-07',
         status: 'final',
+        activeFinal: true,
         generatedAt: '2026-07-28T10:00:00.000Z',
         computed: { ...baseComputed, deferredClosing: 1200 },
       }),
       makeSlip({
         id: 'jul-void',
         monthYear: '2026-06',
-        status: 'voided',
+        status: 'final',
+        activeFinal: false,
+        workflowStatus: 'CANCELLED',
         generatedAt: '2026-06-28T10:00:00.000Z',
         computed: { ...baseComputed, deferredClosing: 5000 },
       }),
@@ -165,13 +151,16 @@ describe('lifecycle aggregations', () => {
       makeSlip({
         id: 'f-old',
         monthYear: '2026-07',
-        status: 'superseded',
+        status: 'final',
+        activeFinal: false,
+        workflowStatus: 'SUPERSEDED',
         generatedAt: '2026-07-20T10:00:00.000Z',
       }),
       makeSlip({
         id: 'f-new',
         monthYear: '2026-07',
         status: 'final',
+        activeFinal: true,
         generatedAt: '2026-07-28T10:00:00.000Z',
       }),
     ];
@@ -182,21 +171,12 @@ describe('lifecycle aggregations', () => {
   });
 });
 
-describe('authorised document numbers', () => {
-  it('uses a unique PX-AUTH id per revision so supersede cannot collide', () => {
-    expect(authorisedDocumentNumber('2026-04', 'PX-OPS-2512-005', 1)).toBe(
-      'PX-AUTH-2026-04-PX-OPS-2512-005-R1',
+describe('authorised document numbers (ASL)', () => {
+  it('uses a stable ASL id per employee+month; revision is separate', () => {
+    expect(generateAuthorisedPayslipNumber('PX-OPS-2512-005', '2026-04')).toBe(
+      'ASL-PX-OPS-2512-005-2026-04',
     );
-    expect(authorisedDocumentNumber('2026-04', 'PX-OPS-2512-005', 2)).toBe(
-      'PX-AUTH-2026-04-PX-OPS-2512-005-R2',
-    );
-    expect(authorisedDocumentNumber('2026-04', 'PX-OPS-2512-005', 1)).not.toBe(
-      authorisedDocumentNumber('2026-04', 'PX-OPS-2512-005', 2),
-    );
-  });
-
-  it('keeps the legacy ASL lookup key for historical rows', () => {
-    expect(legacyAuthorisedDocumentNumber('PX-OPS-2512-005', '2026-04')).toBe(
+    expect(generateAuthorisedPayslipNumber('px-ops-2512-005', '2026-04')).toBe(
       'ASL-PX-OPS-2512-005-2026-04',
     );
   });

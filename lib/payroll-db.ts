@@ -19,6 +19,7 @@ import type {
   WorkMode,
 } from '@/lib/types';
 import { mergeSettings, SEED_SETTINGS } from '@/lib/settings-defaults';
+import { bankLast4FromAccount, maskPan, normalizeBankAccountNumber } from './identity';
 import { defaultPaymentTypeForEngagement } from './workforce';
 import { slipStatutoryDeductions } from './payroll-calc';
 
@@ -27,15 +28,14 @@ export interface EmployeeDetailsJson {
   employeeAddress: string;
   paymentMode: PaymentMode;
   bankName?: string;
-  ifsc?: string | null;
-  bankDetailsVerified?: boolean;
   bankAccountNumber?: string;
-  /** Legacy alias — prefer bankAccountNumber. */
-  bankAccount?: string;
   bankLast4: string;
+  /** Full PAN when known; legacy rows may omit and only have panMasked. */
   pan?: string;
   panMasked: string;
+  ifsc?: string;
   workLocation?: string;
+  salaryComponents?: { label: string; amount: number }[];
   flexLog: FlexLogEntry[];
   reportingManager?: string;
   workMode?: WorkMode;
@@ -75,14 +75,11 @@ export interface PayrollSlipRow {
   id: string;
   employee_id: string;
   month_year: string;
-  status: 'draft' | 'final' | 'superseded' | 'voided';
+  status: 'draft' | 'final';
   details_json: Omit<SlipSnapshot, 'id' | 'employeeId' | 'monthYear' | 'status'>;
-  superseded_by?: string | null;
-  supersedes?: string | null;
-  active_final?: boolean;
-  voided_at?: string | null;
-  voided_by?: string | null;
-  void_reason?: string | null;
+  /** Present when selected from payroll_slips (active FINAL / supersede chains). */
+  active_final?: boolean | null;
+  workflow_status?: string | null;
 }
 
 const ENTITY_CODES: EntityCode[] = ['PX', 'PB', 'PT', 'PH'];
@@ -98,12 +95,11 @@ function emptyDetails(): EmployeeDetailsJson {
     employeeAddress: '',
     paymentMode: 'Bank Transfer',
     bankName: '',
-    ifsc: null,
-    bankDetailsVerified: false,
     bankAccountNumber: '',
     bankLast4: '',
     pan: '',
     panMasked: '',
+    ifsc: '',
     workLocation: '',
     flexLog: [],
     reportingManager: '',
@@ -115,21 +111,6 @@ function emptyDetails(): EmployeeDetailsJson {
     ptHalfYearly: 0,
     ptManualOverride: false,
   };
-}
-
-/** Prefer full account; fall back to legacy `bankAccount` key. */
-export function resolveBankAccountNumber(details: {
-  bankAccountNumber?: string | null;
-  bankAccount?: string | null;
-}): string {
-  return (details.bankAccountNumber ?? details.bankAccount ?? '').trim();
-}
-
-/** Mask full PAN as ABXXXXXX1F when only full pan is present. */
-export function maskPan(pan: string): string {
-  const p = pan.trim().toUpperCase();
-  if (!/^[A-Z]{5}\d{4}[A-Z]$/.test(p)) return pan.trim();
-  return `${p.slice(0, 2)}XXXXXX${p.slice(8)}`;
 }
 
 export function rowToEmployee(row: EmployeeRow): Employee {
@@ -167,21 +148,16 @@ export function rowToEmployee(row: EmployeeRow): Employee {
     agreementType: details.agreementType ?? 'offer_letter',
     documentsStatus: details.documentsStatus ?? 'pending',
     notes: details.notes ?? '',
-    bankName: details.bankName ?? '',
-    ifsc: details.ifsc ?? null,
-    bankDetailsVerified: details.bankDetailsVerified === true,
-    bankAccountNumber: resolveBankAccountNumber(details),
+    bankName: (details.bankName ?? '').trim(),
+    bankAccountNumber: normalizeBankAccountNumber(details.bankAccountNumber ?? ''),
     bankLast4:
-      details.bankLast4 ||
-      (() => {
-        const acct = resolveBankAccountNumber(details);
-        return acct.length >= 4 ? acct.slice(-4) : '';
-      })(),
+      bankLast4FromAccount(details.bankAccountNumber ?? '') ||
+      (details.bankLast4 ?? '').replace(/\D/g, '').slice(-4),
     pan: (details.pan ?? '').trim().toUpperCase(),
-    panMasked:
-      details.panMasked ||
-      (details.pan ? maskPan(details.pan) : ''),
-    workLocation: details.workLocation ?? '',
+    panMasked: maskPan(details.pan || details.panMasked || ''),
+    ifsc: (details.ifsc ?? '').trim().toUpperCase(),
+    workLocation: (details.workLocation ?? '').trim(),
+    salaryComponents: details.salaryComponents,
     flexBankBalance: row.flex_bank_balance,
     flexLog: details.flexLog ?? [],
     tdsMonthly: Number(details.tdsMonthly ?? 0) || 0,
@@ -218,20 +194,16 @@ export function employeeToRow(
       department: employee.department,
       employeeAddress: employee.employeeAddress,
       paymentMode: employee.paymentMode,
-      bankName: employee.bankName ?? '',
-      ifsc: employee.ifsc ?? null,
-      bankDetailsVerified: employee.bankDetailsVerified === true,
-      bankAccountNumber: employee.bankAccountNumber ?? '',
+      bankName: (employee.bankName ?? '').trim(),
+      bankAccountNumber: normalizeBankAccountNumber(employee.bankAccountNumber ?? ''),
       bankLast4:
-        employee.bankLast4 ||
-        (employee.bankAccountNumber && employee.bankAccountNumber.length >= 4
-          ? employee.bankAccountNumber.slice(-4)
-          : ''),
-      pan: employee.pan ?? '',
-      panMasked:
-        employee.panMasked ||
-        (employee.pan ? maskPan(employee.pan) : ''),
-      workLocation: employee.workLocation ?? '',
+        bankLast4FromAccount(employee.bankAccountNumber ?? '') ||
+        (employee.bankLast4 ?? '').replace(/\D/g, '').slice(-4),
+      pan: (employee.pan ?? '').trim().toUpperCase(),
+      panMasked: maskPan(employee.pan || employee.panMasked || ''),
+      ifsc: (employee.ifsc ?? '').trim().toUpperCase(),
+      workLocation: (employee.workLocation ?? '').trim(),
+      salaryComponents: employee.salaryComponents,
       flexLog: employee.flexLog,
       reportingManager: employee.reportingManager,
       workMode: employee.workMode,
@@ -245,22 +217,13 @@ export function employeeToRow(
   };
 }
 
-function normalizeSlipStatus(
-  raw: string | null | undefined,
-): SlipSnapshot['status'] {
-  const s = String(raw ?? 'draft').toLowerCase();
-  if (s === 'final' || s === 'superseded' || s === 'voided' || s === 'draft') return s;
-  return 'draft';
-}
-
-/** Back-compat: older frozen snapshots may omit tds / pt. Row status wins over frozen JSON. */
+/** Back-compat: older frozen snapshots may omit tds / pt. */
 export function rowToSlip(row: PayrollSlipRow): SlipSnapshot {
   const details = row.details_json;
   const inputs = {
     ...details.inputs,
     tdsMonthly: details.inputs?.tdsMonthly ?? 0,
     ptThisMonth: details.inputs?.ptThisMonth ?? 0,
-    baseSalary: details.inputs?.baseSalary ?? 0,
   };
   const statutory = slipStatutoryDeductions(details.computed ?? {}, inputs);
   const computed = {
@@ -272,7 +235,7 @@ export function rowToSlip(row: PayrollSlipRow): SlipSnapshot {
     id: row.id,
     employeeId: row.employee_id,
     monthYear: row.month_year,
-    status: normalizeSlipStatus(row.status),
+    status: row.status,
     ...details,
     inputs,
     computed,
@@ -280,6 +243,11 @@ export function rowToSlip(row: PayrollSlipRow): SlipSnapshot {
       ...details.employee,
       empId: normalizeEmployeeId(details.employee.empId),
     },
+    activeFinal:
+      row.active_final === undefined || row.active_final === null
+        ? details.activeFinal
+        : Boolean(row.active_final),
+    workflowStatus: row.workflow_status ?? details.workflowStatus ?? null,
   };
 }
 

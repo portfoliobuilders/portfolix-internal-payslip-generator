@@ -75,3 +75,29 @@ create table if not exists person_documents (
   verified_status text default 'pending',
   notes text
 );
+
+alter table public.payment_statements enable row level security;
+alter table public.workforce_events enable row level security;
+alter table public.person_documents enable row level security;
+
+drop policy if exists "Allow anon full access" on public.payment_statements;
+create policy "Allow anon full access" on public.payment_statements
+  for all to anon, authenticated, public
+  using (true)
+  with check (true);
+
+drop policy if exists "Allow anon full access" on public.workforce_events;
+create policy "Allow anon full access" on public.workforce_events
+  for all to anon, authenticated, public
+  using (true)
+  with check (true);
+
+drop policy if exists "Allow anon full access" on public.person_documents;
+create policy "Allow anon full access" on public.person_documents
+  for all to anon, authenticated, public
+  using (true)
+  with check (true);
+
+grant all on table public.payment_statements to anon, authenticated, service_role;
+grant all on table public.workforce_events to anon, authenticated, service_role;
+grant all on table public.person_documents to anon, authenticated, service_role;

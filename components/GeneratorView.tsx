@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { format } from 'date-fns';
-import { AlertTriangle, Download, Maximize2, Minus, Plus, Printer } from 'lucide-react';
+import { AlertTriangle, Download, Printer } from 'lucide-react';
 import { computePayroll, derivePtThisMonth, isPartialHalfPtLiability, ptMonthlyAccrualFootnote, validateVariablePaid } from '@/lib/payroll-calc';
 import {
   formatINR,
@@ -11,21 +11,22 @@ import {
   formatMonthYear,
   slipFilename,
 } from '@/lib/format';
-import { exportAuthorisedSalarySlipPdf } from '@/lib/authorised-export';
+import {
+  buildAuthorisedSalarySlipPdf,
+  exportAuthorisedSalarySlipPdf,
+  type AuthorisedPdfBundle,
+} from '@/lib/authorised-export';
 import { exportElementToPdf } from '@/lib/pdf-export';
-import { finalizePayrollSlip, savePayrollSlip, fetchAuthorisedSlipYtd, logAuthorisedSlipGeneration } from '@/app/actions/payroll';
+import { finalizePayrollSlip, savePayrollSlip, logAuthorisedSlipGeneration } from '@/app/actions/payroll';
 import { createSignatorySignedUrls, getSignatoryStorageStatus } from '@/app/actions/signatory-assets';
-import { assertAuthorisedSlipPaymentGate } from '@/app/actions/salary-payment';
-import { computeAuthorisedYtd } from '@/lib/authorised-slip';
-import type { AuthorisedSlipYtd, Employee, EntityInfo, SlipSnapshot, SlipStatus } from '@/lib/types';
+import type { Employee, EntityInfo, SlipSnapshot, SlipStatus } from '@/lib/types';
 import { generateId } from '@/lib/payroll-db';
 import { findFinalSlipForMonth, findPreviousFinalSlip } from '@/lib/payroll-helpers';
-import { authorisedDocumentNumber } from '@/lib/payroll-lifecycle';
 import { useHRStore } from '@/store/useHRStore';
 import { useUIStore } from '@/store/useUIStore';
-import { signatoryIncompleteReason } from '@/lib/settings-defaults';
+import { authorisedSlipBlockedReason } from '@/lib/authorised-slip-readiness';
 import { COMPANY_ENTITIES, PAYROLL_CONTACT } from '@/lib/constants/company';
-import AuthorisedSlip from './AuthorisedSlip';
+import AuthorisedSlip, { printPdfBlobUrl } from './AuthorisedSlip';
 import SalarySlip from './SalarySlip';
 import Toast from './Toast';
 import { Field, Modal, btnPrimary, btnSecondary, inputAmountCls, inputCls } from './ui';
@@ -86,59 +87,26 @@ function nonNegative(value: string, label: string): string | null {
 function ScaledPreview({ children }: { children: React.ReactNode }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [scale, setScale] = useState(0.5);
-  const [manualScale, setManualScale] = useState<number | null>(null);
   const SHEET_PX = 794; // 210mm at 96dpi
-  const SHEET_HEIGHT_PX = 1123;
 
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
     const observer = new ResizeObserver(() => {
-      if (manualScale == null) setScale(Math.min(el.clientWidth / SHEET_PX, 1));
+      setScale(Math.min(el.clientWidth / SHEET_PX, 1));
     });
     observer.observe(el);
     return () => observer.disconnect();
-  }, [manualScale]);
-
-  function fitWidth() {
-    const width = containerRef.current?.clientWidth ?? SHEET_PX;
-    setManualScale(null);
-    setScale(Math.min(width / SHEET_PX, 1));
-  }
-
-  function fitPage() {
-    const width = containerRef.current?.clientWidth ?? SHEET_PX;
-    const availableHeight = Math.max(420, window.innerHeight - 210);
-    const next = Math.min(width / SHEET_PX, availableHeight / SHEET_HEIGHT_PX, 1);
-    setManualScale(next);
-    setScale(next);
-  }
+  }, []);
 
   return (
     <div ref={containerRef} className="w-full overflow-hidden">
-      <div className="no-print mb-2 flex flex-wrap items-center justify-end gap-1">
-        <button type="button" className={btnSecondary} onClick={fitWidth}>Fit width</button>
-        <button type="button" className={btnSecondary} onClick={fitPage}>Fit page</button>
-        <button type="button" aria-label="Zoom out" className={btnSecondary} onClick={() => {
-          const next = Math.max(0.25, scale - 0.1);
-          setManualScale(next);
-          setScale(next);
-        }}><Minus size={14} /></button>
-        <button type="button" aria-label="Zoom in" className={btnSecondary} onClick={() => {
-          const next = Math.min(1.5, scale + 0.1);
-          setManualScale(next);
-          setScale(next);
-        }}><Plus size={14} /></button>
-        <button type="button" aria-label="Full screen" className={btnSecondary} onClick={() => {
-          void containerRef.current?.requestFullscreen?.();
-        }}><Maximize2 size={14} /></button>
-      </div>
       <div
         style={{
           transform: `scale(${scale})`,
           transformOrigin: 'top left',
           width: SHEET_PX,
-          height: SHEET_HEIGHT_PX * scale, // 297mm at 96dpi
+          height: 1123 * scale, // 297mm at 96dpi
         }}
       >
         {children}
@@ -180,12 +148,10 @@ export default function GeneratorView({
   const [signatoryStorageMessage, setSignatoryStorageMessage] = useState<string | null>(null);
   const [authorisedBundle, setAuthorisedBundle] = useState<{
     snapshot: SlipSnapshot;
-    ytd: AuthorisedSlipYtd;
     signatureUrl: string | null;
     sealUrl: string | null;
-    actualCreditDate: string;
-    confirmedPaidAmount: number;
-    outstandingAmount: number;
+    pdf: AuthorisedPdfBundle;
+    pdfUrl: string;
   } | null>(null);
   const [authorisedLoading, setAuthorisedLoading] = useState(false);
   const [authorisedError, setAuthorisedError] = useState<string | null>(null);
@@ -209,13 +175,6 @@ export default function GeneratorView({
       setGeneratorEmployeeId(null);
     }
   }, [preselectedId, setGeneratorEmployeeId]);
-
-  useEffect(() => {
-    setForm((f) => ({
-      ...f,
-      authorizedForBankVerification: settings.bankVerificationEnabledByDefault,
-    }));
-  }, [settings.bankVerificationEnabledByDefault]);
 
   const employee = employees.find((e) => e.id === employeeId) ?? null;
 
@@ -270,10 +229,13 @@ export default function GeneratorView({
     ? existingFinal.inputs.flexBankBalanceBefore
     : employee?.flexBankBalance ?? 0;
 
-  // Authorised preview NEVER uses live form inputs — only a stored FINAL snapshot.
+  // Authorised preview = the exact pdf-lib blob (never a parallel DOM layout).
   useEffect(() => {
     if (mode !== 'authorised' || !existingFinal || !employee) {
-      setAuthorisedBundle(null);
+      setAuthorisedBundle((prev) => {
+        if (prev?.pdfUrl) URL.revokeObjectURL(prev.pdfUrl);
+        return null;
+      });
       setAuthorisedError(null);
       setAuthorisedLoading(false);
       return;
@@ -286,65 +248,58 @@ export default function GeneratorView({
 
     void (async () => {
       try {
-        const [ytdResult, urlsResult, paymentResult] = await Promise.all([
-          fetchAuthorisedSlipYtd(existingFinal.employeeId, existingFinal.monthYear),
-          createSignatorySignedUrls({
-            signatureAssetPath: entityInfo.signatureAssetPath,
-            sealAssetPath: entityInfo.sealAssetPath,
-          }),
-          assertAuthorisedSlipPaymentGate(existingFinal.id),
-        ]);
+        const urlsResult = await createSignatorySignedUrls({
+          signatureAssetPath: entityInfo.signatureAssetPath,
+          sealAssetPath: entityInfo.sealAssetPath,
+        });
 
         if (cancelled) return;
 
-        if (!ytdResult.ok) {
-          setAuthorisedError(ytdResult.error);
-          setAuthorisedBundle(null);
-          return;
-        }
-        if (!paymentResult.ok) {
-          setAuthorisedError(paymentResult.error);
-          setAuthorisedBundle(null);
-          return;
-        }
-
-        const ytd =
-          ytdResult.data ??
-          computeAuthorisedYtd(slipHistory, existingFinal.employeeId, existingFinal.monthYear);
-
-        // Signed URLs may fail when the secret key is missing — still show the
-        // slip preview with an explicit warning; download stays gated.
         const signatureUrl = urlsResult.ok ? urlsResult.data.signatureUrl : null;
         const sealUrl = urlsResult.ok ? urlsResult.data.sealUrl : null;
-        if (!urlsResult.ok) {
-          setAuthorisedError(
-            urlsResult.error ||
-              'Signature image could not be loaded from company settings.',
-          );
-        } else if (
-          entityInfo.signatureAssetPath &&
-          !signatureUrl
-        ) {
-          setAuthorisedError('Signature image could not be loaded from company settings.');
-        } else if (entityInfo.sealAssetPath && !sealUrl) {
-          setAuthorisedError('Company seal is missing.');
-        }
 
-        setAuthorisedBundle({
+        const built = await buildAuthorisedSalarySlipPdf({
           snapshot: existingFinal,
-          ytd,
+          entity: entityInfo,
+          paydayDayOfMonth: settings.paydayDayOfMonth,
           signatureUrl,
           sealUrl,
-          actualCreditDate: paymentResult.data.actualCreditDate,
-          confirmedPaidAmount: paymentResult.data.confirmedPaidAmount,
-          outstandingAmount: paymentResult.data.outstandingAmount,
+        });
+
+        if (cancelled) return;
+
+        if (!built.ok) {
+          setAuthorisedError(built.error);
+          setAuthorisedBundle((prev) => {
+            if (prev?.pdfUrl) URL.revokeObjectURL(prev.pdfUrl);
+            return null;
+          });
+          return;
+        }
+
+        const copy = new Uint8Array(built.data.bytes.byteLength);
+        copy.set(built.data.bytes);
+        const pdfUrl = URL.createObjectURL(new Blob([copy], { type: 'application/pdf' }));
+
+        setAuthorisedBundle((prev) => {
+          if (prev?.pdfUrl) URL.revokeObjectURL(prev.pdfUrl);
+          return {
+            snapshot: existingFinal,
+            signatureUrl,
+            sealUrl,
+            pdf: built.data,
+            pdfUrl,
+          };
         });
       } catch (err) {
         if (cancelled) return;
         setAuthorisedError(
           err instanceof Error ? err.message : 'Failed to load authorised bank copy.',
         );
-        setAuthorisedBundle(null);
+        setAuthorisedBundle((prev) => {
+          if (prev?.pdfUrl) URL.revokeObjectURL(prev.pdfUrl);
+          return null;
+        });
       } finally {
         if (!cancelled) setAuthorisedLoading(false);
       }
@@ -353,7 +308,7 @@ export default function GeneratorView({
     return () => {
       cancelled = true;
     };
-  }, [mode, existingFinal, employee, settings.entities, slipHistory]);
+  }, [mode, existingFinal, employee, settings.entities, settings.paydayDayOfMonth]);
 
   useEffect(() => {
     // Re-seed the chained opening whenever employee or month changes.
@@ -515,14 +470,14 @@ export default function GeneratorView({
         engagementType: employee.engagementType,
         employmentStatus: employee.employmentStatus,
         paymentType: employee.paymentType,
-        bankName: employee.bankName ?? '',
-        ifsc: employee.ifsc ?? null,
-        bankDetailsVerified: employee.bankDetailsVerified === true,
-        bankAccountNumber: employee.bankAccountNumber ?? '',
+        bankName: employee.bankName,
+        bankAccountNumber: employee.bankAccountNumber,
         bankLast4: employee.bankLast4,
-        pan: employee.pan ?? '',
+        pan: employee.pan,
         panMasked: employee.panMasked,
-        workLocation: employee.workLocation ?? '',
+        ifsc: employee.ifsc,
+        workLocation: employee.workLocation,
+        salaryComponents: employee.salaryComponents,
       },
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -598,13 +553,10 @@ export default function GeneratorView({
     if (!existingFinal) {
       return 'Finalize this month first — the bank copy is generated from the finalized record.';
     }
-    if (!signatoryStorageConfigured) {
-      return (
-        signatoryStorageMessage ??
-        'SUPABASE_SECRET_KEY is not configured. Bank copy cannot embed signature/seal.'
-      );
-    }
-    return signatoryIncompleteReason(entity);
+    return authorisedSlipBlockedReason(entity, {
+      signatoryStorageConfigured,
+      signatoryStorageMessage,
+    });
   }, [
     employee,
     entity,
@@ -614,15 +566,21 @@ export default function GeneratorView({
   ]);
 
   async function doAuthorisedExport() {
-    if (!employee || !entity || !existingFinal || authorisedDisableReason) return;
+    if (!employee || !entity || !existingFinal || authorisedDisableReason || !authorisedBundle) {
+      return;
+    }
 
     setExporting(true);
     setAuthorisedError(null);
     try {
-      // Production bank PDF: text/vector + verification registry (not html2canvas).
+      // Same bytes as the preview iframe — never a second renderer.
       const exported = await exportAuthorisedSalarySlipPdf({
         snapshot: existingFinal,
         entity,
+        paydayDayOfMonth: settings.paydayDayOfMonth,
+        signatureUrl: authorisedBundle.signatureUrl,
+        sealUrl: authorisedBundle.sealUrl,
+        bundle: authorisedBundle.pdf,
       });
       if (!exported.ok) {
         setAuthorisedError(exported.error);
@@ -639,6 +597,9 @@ export default function GeneratorView({
         registeredAddress: entity.registeredAddress,
         phone: entity.phone,
         payrollEmail: entity.payrollEmail,
+        documentNumber: exported.data.documentNumber,
+        revisionNumber: exported.data.revisionNumber,
+        publicVerificationId: exported.data.publicVerificationId,
       });
     } catch (err) {
       setAuthorisedError(err instanceof Error ? err.message : 'Failed to generate bank copy.');
@@ -877,19 +838,6 @@ export default function GeneratorView({
         </div>
 
         <div className="rounded-lg border border-hairline bg-paper p-4 shadow-card">
-          <Field label="Authorized copy for bank verification">
-            <select
-              className={inputCls}
-              value={form.authorizedForBankVerification ? 'yes' : 'no'}
-              onChange={(e) => set('authorizedForBankVerification', e.target.value === 'yes')}
-            >
-              <option value="no">No</option>
-              <option value="yes">Yes</option>
-            </select>
-          </Field>
-        </div>
-
-        <div className="rounded-lg border border-hairline bg-paper p-4 shadow-card">
           <Field label="Remarks / operations note">
             <textarea
               className={`${inputCls} resize-none`}
@@ -907,6 +855,7 @@ export default function GeneratorView({
         <div className="flex flex-wrap items-center gap-3 rounded-lg border border-hairline bg-paper px-4 py-2.5 shadow-card">
           <div className="flex overflow-hidden rounded-md border border-hairline">
             <button
+              type="button"
               onClick={() => setMode('draft')}
               className={`min-h-[44px] px-3 py-2 text-sm font-medium transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ink/20 sm:min-h-0 ${
                 mode === 'draft' ? 'bg-amber-tint text-amber-brand' : 'bg-paper text-muted hover:bg-surface hover:text-ink'
@@ -915,29 +864,22 @@ export default function GeneratorView({
               Draft
             </button>
             <button
+              type="button"
               onClick={() => setMode('final')}
               className={`min-h-[44px] border-l border-hairline px-3 py-2 text-sm font-medium transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ink/20 sm:min-h-0 ${
                 mode === 'final' ? 'bg-emerald-tint text-emerald-deep' : 'bg-paper text-muted hover:bg-surface hover:text-ink'
               }`}
             >
-              ✓ Final
+              Final
             </button>
             <button
+              type="button"
               onClick={() => setMode('authorised')}
               className={`min-h-[44px] border-l border-hairline px-3 py-2 text-sm font-medium transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ink/20 sm:min-h-0 ${
-                mode === 'authorised' ? 'bg-surface text-ink' : 'bg-paper text-muted hover:bg-surface hover:text-ink'
+                mode === 'authorised' ? 'bg-ink text-paper' : 'bg-paper text-muted hover:bg-surface hover:text-ink'
               }`}
             >
-              <Download size={14} />
-              {exporting
-                ? 'Exporting…'
-                : status === 'final'
-                  ? employee?.paymentType === 'salary'
-                    ? 'Generate Salary Slip'
-                    : employee?.paymentType === 'stipend'
-                      ? 'Generate Stipend Statement'
-                      : 'Generate Payment Statement'
-                  : 'Download draft PDF'}
+              Authorised
             </button>
           </div>
 
@@ -945,28 +887,43 @@ export default function GeneratorView({
             {mode === 'authorised' ? (
               <>
                 <button
+                  type="button"
                   className={btnSecondary}
-                  disabled={!authorisedBundle || !!authorisedDisableReason}
+                  disabled={!authorisedBundle?.pdfUrl || !!authorisedDisableReason}
+                  onClick={() => {
+                    if (authorisedBundle?.pdfUrl) printPdfBlobUrl(authorisedBundle.pdfUrl);
+                  }}
+                >
+                  <Printer size={14} /> Print
+                </button>
+                <button
+                  type="button"
+                  className={btnPrimary}
+                  disabled={
+                    !authorisedBundle ||
+                    !!authorisedDisableReason ||
+                    exporting ||
+                    authorisedLoading
+                  }
+                  title={authorisedDisableReason ?? undefined}
+                  onClick={() => void doAuthorisedExport()}
+                >
+                  <Download size={14} />
+                  {exporting ? 'Exporting…' : 'Download authorised PDF'}
+                </button>
+              </>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  className={btnSecondary}
+                  disabled={!snapshot || hasErrors}
                   onClick={() => window.print()}
                 >
                   <Printer size={14} /> Print
                 </button>
                 <button
-                  className={btnPrimary}
-                  disabled={!!authorisedDisableReason || exporting || authorisedLoading}
-                  title={authorisedDisableReason ?? undefined}
-                  onClick={() => void doAuthorisedExport()}
-                >
-                  <Download size={14} />
-                  {exporting ? 'Exporting…' : 'Download bank copy PDF'}
-                </button>
-              </>
-            ) : (
-              <>
-                <button className={btnSecondary} disabled={!snapshot || hasErrors} onClick={() => window.print()}>
-                  <Printer size={14} /> Print
-                </button>
-                <button
+                  type="button"
                   className={btnPrimary}
                   disabled={!snapshot || hasErrors || exporting}
                   onClick={() => void doExport(false)}
@@ -976,7 +933,11 @@ export default function GeneratorView({
                   }
                 >
                   <Download size={14} />
-                  {exporting ? 'Exporting…' : status === 'final' ? 'Download PDF & finalize' : 'Download draft PDF'}
+                  {exporting
+                    ? 'Exporting…'
+                    : mode === 'final'
+                      ? 'Download PDF & finalize'
+                      : 'Download draft PDF'}
                 </button>
               </>
             )}
@@ -1037,30 +998,10 @@ export default function GeneratorView({
           ) : authorisedBundle && entity ? (
             <div className="space-y-2">
               <p className="rounded-md border border-hairline bg-surface px-3 py-1.5 text-[11px] font-medium text-muted">
-                Rendered from the finalized slip for {formatMonthYear(existingFinal.monthYear)}.
+                Authorised bank copy for {formatMonthYear(existingFinal.monthYear)} ·{' '}
+                {authorisedBundle.pdf.documentNumber}
               </p>
-              <ScaledPreview>
-                <AuthorisedSlip
-                  snapshot={authorisedBundle.snapshot}
-                  entity={entity}
-                  ytd={authorisedBundle.ytd}
-                  paydayDayOfMonth={settings.paydayDayOfMonth}
-                  signatureUrl={authorisedBundle.signatureUrl}
-                  sealUrl={authorisedBundle.sealUrl}
-                  signatureAssetPath={entity.signatureAssetPath}
-                  sealAssetPath={entity.sealAssetPath}
-                  actualCreditDate={authorisedBundle.actualCreditDate}
-                  confirmedPaidAmount={authorisedBundle.confirmedPaidAmount}
-                  outstandingBalance={authorisedBundle.outstandingAmount}
-                  payrollFinalisedDate={existingFinal.generatedAt}
-                  documentNumber={authorisedDocumentNumber(
-                    existingFinal.monthYear,
-                    existingFinal.employee.empId,
-                    1,
-                  )}
-                  verificationId={existingFinal.id.replace(/-/g, '').slice(0, 24)}
-                />
-              </ScaledPreview>
+              <AuthorisedSlip pdfUrl={authorisedBundle.pdfUrl} />
             </div>
           ) : (
             <div className="flex h-96 items-center justify-center rounded-lg border border-dashed border-hairline bg-paper text-sm text-muted">
@@ -1103,42 +1044,6 @@ export default function GeneratorView({
               ledgerMismatch={ledgerMismatch}
               authorizedSignatoryName={settings.authorizedSignatoryName}
               authorizedSignatoryTitle={settings.authorizedSignatoryTitle}
-            />
-          </div>,
-          document.body,
-        )}
-
-      {mode === 'authorised' &&
-        authorisedBundle &&
-        entity &&
-        typeof document !== 'undefined' &&
-        createPortal(
-          <div id="slip-print-root" ref={exportRef}>
-            <AuthorisedSlip
-              snapshot={authorisedBundle.snapshot}
-              entity={entity}
-              ytd={authorisedBundle.ytd}
-              paydayDayOfMonth={settings.paydayDayOfMonth}
-              signatureUrl={authorisedBundle.signatureUrl}
-              sealUrl={authorisedBundle.sealUrl}
-              signatureAssetPath={
-                settings.entities[(existingFinal ?? authorisedBundle.snapshot).employee.entityCode]
-                  ?.signatureAssetPath ?? null
-              }
-              sealAssetPath={
-                settings.entities[(existingFinal ?? authorisedBundle.snapshot).employee.entityCode]
-                  ?.sealAssetPath ?? null
-              }
-              actualCreditDate={authorisedBundle.actualCreditDate}
-              confirmedPaidAmount={authorisedBundle.confirmedPaidAmount}
-              outstandingBalance={authorisedBundle.outstandingAmount}
-              payrollFinalisedDate={(existingFinal ?? authorisedBundle.snapshot).generatedAt}
-              documentNumber={authorisedDocumentNumber(
-                (existingFinal ?? authorisedBundle.snapshot).monthYear,
-                (existingFinal ?? authorisedBundle.snapshot).employee.empId,
-                1,
-              )}
-              verificationId={(existingFinal ?? authorisedBundle.snapshot).id.replace(/-/g, '').slice(0, 24)}
             />
           </div>,
           document.body,

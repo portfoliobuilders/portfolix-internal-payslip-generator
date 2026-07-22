@@ -26,20 +26,6 @@ export interface EntityInfo {
   signatureAssetPath: string | null;
   /** Private storage path in the signatory-assets bucket (never a public URL). */
   sealAssetPath: string | null;
-  /**
-   * How authorised slips prove authenticity.
-   * SIGNATURE_AND_SEAL requires both visual assets — never auto-falls back.
-   */
-  authorisationMode?:
-    | 'SIGNATURE_AND_SEAL'
-    | 'COMPUTER_GENERATED_VERIFICATION'
-    | 'CRYPTOGRAPHIC_DIGITAL_SIGNATURE';
-  /** ISO date — authority window start (inclusive). Null = no start constraint. */
-  authorityEffectiveFrom?: string | null;
-  /** ISO date — authority window end (inclusive). Null = open-ended. */
-  authorityEffectiveTo?: string | null;
-  /** When false, authorised issuance is blocked. */
-  signatoryActive?: boolean;
 }
 
 /** How Kerala Professional Tax is collected from salary. */
@@ -159,22 +145,28 @@ export interface Employee {
   agreementType: AgreementType;
   documentsStatus: DocumentsStatus;
   notes: string;
-  /** Bank name for salary credit (e.g. HDFC Bank). Never invent. */
-  bankName?: string;
-  /** Optional verified IFSC — omit when unverified. */
-  ifsc?: string | null;
-  /** Explicit HR confirmation that bank name/account details were verified. */
-  bankDetailsVerified?: boolean;
-  /** Full account number — Authorised Slip only; internal slip uses bankLast4. */
-  bankAccountNumber?: string;
-  /** Last 4 digits (also derived from bankAccountNumber when present). */
+  /** Bank name printed on slips / authorised PDF (e.g. 'HDFC Bank'). */
+  bankName: string;
+  /** Full bank account number — Authorised renders full; Final masks at render. */
+  bankAccountNumber: string;
+  /** Last 4 digits — derived from bankAccountNumber when present (legacy snapshots). */
   bankLast4: string;
-  /** Full PAN — Authorised Slip only; internal slip uses panMasked. */
-  pan?: string;
-  /** Masked PAN, e.g. 'ABXXXXXX1F' — internal / legacy snapshots. */
+  /**
+   * Full PAN when known (may be empty for legacy). Authorised renders full;
+   * Final slip masks via maskPan at render time.
+   */
+  pan: string;
+  /** Derived masked PAN, e.g. 'ABXXXXXX1F' — kept for legacy + Final display. */
   panMasked: string;
-  /** Work location shown on Authorised Slip (e.g. Kochi Office). */
-  workLocation?: string;
+  /** IFSC code (11 chars); empty when unknown. */
+  ifsc: string;
+  /** Work location printed on Authorised slip when present. */
+  workLocation: string;
+  /**
+   * Optional earnings breakdown; when absent, render treats base salary as a
+   * single "Basic" line. When present, amounts must sum to baseSalary.
+   */
+  salaryComponents?: { label: string; amount: number }[];
   /** Flex-bank balance in minutes. */
   flexBankBalance: number;
   flexLog: FlexLogEntry[];
@@ -189,14 +181,7 @@ export interface Employee {
   ptManualOverride: boolean;
 }
 
-/**
- * Document lifecycle on payroll_slips.status.
- * - draft: replaceable; hard-deletable
- * - final: the single ACTIVE final for an employee-month
- * - superseded: prior final kept for audit (hidden from default views / aggregations)
- * - voided: cleaned-up final with reason (hidden; never row-deleted)
- */
-export type SlipStatus = 'draft' | 'final' | 'superseded' | 'voided';
+export type SlipStatus = 'draft' | 'final';
 
 /** Raw inputs captured on the generator form for one slip. */
 export interface SlipInputs {
@@ -267,13 +252,15 @@ export interface SlipEmployeeInfo {
   employmentStatus: EmploymentStatus;
   paymentType: PaymentType;
   bankName?: string;
-  ifsc?: string | null;
-  bankDetailsVerified?: boolean;
+  /** Full account — Authorised only; Final masks at render. */
   bankAccountNumber?: string;
   bankLast4: string;
+  /** Full PAN when known — Authorised only; Final masks at render. */
   pan?: string;
   panMasked: string;
+  ifsc?: string;
   workLocation?: string;
+  salaryComponents?: { label: string; amount: number }[];
 }
 
 export interface PaymentStatementMeta {
@@ -345,6 +332,16 @@ export interface SlipSnapshot {
   internalDocumentNumber?: string | null;
   payrollBatchId?: string | null;
   /**
+   * When true this snapshot is the authoritative (non-superseded) final for its month.
+   * Loaded from the payroll_slips.active_final column when available.
+   */
+  activeFinal?: boolean | null;
+  /**
+   * Workflow status from payroll_slips table (e.g. 'ISSUED', 'SUPERSEDED').
+   * Used when selecting the canonical active FINAL for a month (supersede chains).
+   */
+  workflowStatus?: string | null;
+  /**
    * Frozen PT footnote for this slip (monthly accrual mode).
    * Missing on older finals — renderers must not invent one.
    */
@@ -367,17 +364,8 @@ export interface SignatorySnapshot {
   registeredAddress: string;
   phone: string;
   payrollEmail: string;
-}
-
-/** Per-line YTD totals for an Indian financial year, derived from FINAL snapshots only. */
-export interface AuthorisedSlipYtd {
-  basic: number;
-  fixedAllowance: number;
-  variablePaid: number;
-  grossEarnings: number;
-  lopDeduction: number;
-  professionalTax: number;
-  tds: number;
-  otherDeductions: number;
-  totalDeductions: number;
+  /** Canonical payslip number — stored once, reused on every re-download. */
+  documentNumber?: string;
+  revisionNumber?: number;
+  publicVerificationId?: string;
 }

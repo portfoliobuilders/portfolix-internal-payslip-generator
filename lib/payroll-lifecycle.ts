@@ -6,11 +6,26 @@
 import type { SlipSnapshot, SlipStatus } from '@/lib/types';
 
 export const ACTIVE_FINAL_STATUS: SlipStatus = 'final';
-export const HIDDEN_SLIP_STATUSES: ReadonlySet<SlipStatus> = new Set(['superseded', 'voided']);
+export const HIDDEN_WORKFLOW_STATUSES: ReadonlySet<string> = new Set([
+  'SUPERSEDED',
+  'CANCELLED',
+  'VOIDED',
+  'REVOKED',
+]);
+
+type LifecycleSlip = Pick<SlipSnapshot, 'status' | 'activeFinal' | 'workflowStatus'>;
+
+function normalizedWorkflowStatus(slip: Pick<SlipSnapshot, 'workflowStatus'>): string {
+  return (slip.workflowStatus ?? '').trim().toUpperCase();
+}
 
 /** True when this snapshot is the live FINAL for its employee-month. */
-export function isActiveFinal(slip: Pick<SlipSnapshot, 'status'>): boolean {
-  return slip.status === 'final';
+export function isActiveFinal(slip: LifecycleSlip): boolean {
+  return (
+    slip.status === 'final' &&
+    slip.activeFinal !== false &&
+    !HIDDEN_WORKFLOW_STATUSES.has(normalizedWorkflowStatus(slip))
+  );
 }
 
 /** Drafts are hard-deletable; finals/authorised are not. */
@@ -19,13 +34,16 @@ export function isDraft(slip: Pick<SlipSnapshot, 'status'>): boolean {
 }
 
 /** Hidden from default History / YTD / deferred / ledger / exports. */
-export function isHiddenFromDefaultViews(slip: Pick<SlipSnapshot, 'status'>): boolean {
-  return slip.status === 'superseded' || slip.status === 'voided';
+export function isHiddenFromDefaultViews(slip: LifecycleSlip): boolean {
+  return (
+    HIDDEN_WORKFLOW_STATUSES.has(normalizedWorkflowStatus(slip)) ||
+    (slip.status === 'final' && slip.activeFinal === false)
+  );
 }
 
 /** Visible in the default History grouping (draft + active final). */
-export function isDefaultVisibleSlip(slip: Pick<SlipSnapshot, 'status'>): boolean {
-  return slip.status === 'draft' || slip.status === 'final';
+export function isDefaultVisibleSlip(slip: LifecycleSlip): boolean {
+  return !isHiddenFromDefaultViews(slip) && (slip.status === 'draft' || isActiveFinal(slip));
 }
 
 /**
@@ -87,14 +105,14 @@ export function groupSlipsByEmployeeMonth(
       map.set(key, group);
     }
 
-    if (s.status === 'draft') {
+    if (isHiddenFromDefaultViews(s)) {
+      group.trail.push(s);
+    } else if (s.status === 'draft') {
       if (!group.draft || s.generatedAt > group.draft.generatedAt) group.draft = s;
-    } else if (s.status === 'final') {
+    } else if (isActiveFinal(s)) {
       if (!group.activeFinal || s.generatedAt > group.activeFinal.generatedAt) {
         group.activeFinal = s;
       }
-    } else if (includeHidden || isHiddenFromDefaultViews(s)) {
-      group.trail.push(s);
     }
   }
 
@@ -119,20 +137,17 @@ export function groupSlipsByEmployeeMonth(
   );
 }
 
-/** Authorised document number scheme — unique per revision (avoids UNIQUE collisions on supersede). */
-export function authorisedDocumentNumber(
-  monthYear: string,
-  empId: string,
-  revisionNumber: number,
-): string {
-  return `PX-AUTH-${monthYear}-${empId}-R${revisionNumber}`;
-}
-
 /**
- * Legacy bank-copy number used before revision-aware PX-AUTH ids.
- * Kept for lookup/supersede of historical rows still stored as ASL-*.
+ * Canonical authorised bank-copy number: ASL-{EMPID}-{YYYY-MM}.
+ * Revision lives in revision_number; uniqueness of ISSUED rows is enforced by
+ * migration 018 (partial unique on document_number WHERE status = ISSUED).
  */
-export function legacyAuthorisedDocumentNumber(empId: string, monthYear: string): string {
+export function authorisedDocumentNumber(empId: string, monthYear: string): string {
   const safeEmp = empId.replace(/[^A-Za-z0-9-]/g, '').toUpperCase();
   return `ASL-${safeEmp}-${monthYear}`;
+}
+
+/** @deprecated Alias — same ASL scheme as authorisedDocumentNumber. */
+export function legacyAuthorisedDocumentNumber(empId: string, monthYear: string): string {
+  return authorisedDocumentNumber(empId, monthYear);
 }

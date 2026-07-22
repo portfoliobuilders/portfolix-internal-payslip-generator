@@ -1,9 +1,7 @@
 /**
  * Server-only Supabase client using SUPABASE_SECRET_KEY (service role).
  * NEVER import this module from client components or any NEXT_PUBLIC path.
- *
- * TODO(auth session): wrap callers with requirePayrollAdmin() — settings writes
- * and signatory uploads must not remain open once auth lands.
+ * Callers that mutate settings / signatory assets must also call requirePayrollAdmin().
  */
 
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';

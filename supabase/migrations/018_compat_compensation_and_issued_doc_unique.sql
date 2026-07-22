@@ -7,8 +7,9 @@
 --      (blocked by a global UNIQUE on document_number).
 --
 -- This migration restores a compatibility shim + corrects uniqueness so live
--- payroll finalize / authorised bank-copy flows work again. New app code still
--- treats base_salary as the source of truth and prefers revision-unique PX-AUTH ids.
+-- payroll finalize / authorised bank-copy flows work again. App code treats
+-- base_salary as the source of truth and uses stable ASL-{EMP}-{YYYY-MM} numbers;
+-- revision_number tracks supersedes while only one ISSUED row may hold a number.
 -- ============================================================================
 
 -- 1) Compatibility column for older clients that still write compensation_amount.

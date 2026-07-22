@@ -11,7 +11,9 @@ alwaysApply: false
 - The client is UNTRUSTED. All payroll computation, validation, and persistence happen server-side. Never accept computed figures (netPay, lopDeduction, deferredClosing, snapshots) from the browser — accept raw inputs only and recompute on the server.
 - `lib/payroll-calc.ts` and `lib/amount-in-words.ts` remain dependency-free pure modules and are the ONLY place payroll math exists. Server actions call them; UI renders stored results.
 - Fail closed: missing env, failed auth, or a failed guard throws immediately. No mock Supabase clients outside tests.
-- Full PAN, bank account number, IFSC, bank name, and work location may be stored and are rendered on the Authorised Slip. The internal Final slip continues to render PAN and account masked. Aadhaar is NEVER collected, stored, or rendered.
+- Auth: every app route except `/login`, `/auth/*`, and `/verify/*` requires a signed-in payroll admin (`requirePayrollAdmin` on server actions + middleware redirect).
+- Identifier policy: Full PAN, bank account number, IFSC, bank name, and work location may be stored and are rendered ONLY on the Authorised Slip. The internal Final slip continues to render PAN and account masked (derive the mask at render time). Aadhaar is NEVER collected, stored, or rendered — reject 12-digit Aadhaar-shaped input in any identity field.
+- Identity validation: PAN `^[A-Z]{5}[0-9]{4}[A-Z]$` (uppercase-normalize) · bankAccount 9–18 digits · IFSC `^[A-Z]{4}0[A-Z0-9]{6}$` · bankName non-empty when provided.
 - Allowed dependencies now include: @supabase/ssr, @supabase/supabase-js, zod. Do not add other packages without asking.
 
 ## Payroll math

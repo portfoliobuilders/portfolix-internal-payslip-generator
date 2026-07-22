@@ -1,21 +1,22 @@
 'use client';
 
 import { createPortal } from 'react-dom';
-import { useEffect, useMemo, useState, Fragment } from 'react';
-import { ChevronDown, ChevronRight, Download, Eye, FileBadge2, Printer, Trash2, Wallet, X } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { Download, Eye, FileBadge2, Printer, Trash2, Wallet, X } from 'lucide-react';
 import {
   logAuthorisedSlipGeneration,
   deletePayrollSlip,
-  voidPayrollSlip,
 } from '@/app/actions/payroll';
-import { revokeAuthorisedDocument } from '@/app/actions/issued-documents';
 import { fetchPaymentObligationsForHistory } from '@/app/actions/salary-payment';
 import {
-  fetchVerificationHitSummaries,
-  type VerificationHitSummary,
-} from '@/app/actions/verification-hits';
-import { getSignatoryStorageStatus } from '@/app/actions/signatory-assets';
-import { exportAuthorisedSalarySlipPdf } from '@/lib/authorised-export';
+  createSignatorySignedUrls,
+  getSignatoryStorageStatus,
+} from '@/app/actions/signatory-assets';
+import {
+  buildAuthorisedSalarySlipPdf,
+  exportAuthorisedSalarySlipPdf,
+  type AuthorisedPdfBundle,
+} from '@/lib/authorised-export';
 import {
   formatDate,
   formatINR,
@@ -23,13 +24,13 @@ import {
   formatSalaryAttendanceCycle,
   slipFilename,
 } from '@/lib/format';
-import { groupSlipsByEmployeeMonth, type EmployeeMonthGroup } from '@/lib/payroll-lifecycle';
+import { formatAttendanceCycleRange } from '@/lib/payroll-cycle';
 import { exportElementToPdf } from '@/lib/pdf-export';
-import { signatoryIncompleteReason } from '@/lib/settings-defaults';
-import type { SalaryPaymentObligation } from '@/lib/salary-payment-types';
+import { authorisedSlipBlockedReason } from '@/lib/authorised-slip-readiness';
+import type { SalaryPaymentObligation, DocumentLifecycleStatus } from '@/lib/salary-payment-types';
 import type { SlipSnapshot } from '@/lib/types';
 import { useHRStore } from '@/store/useHRStore';
-import AuthorisedDocVerificationIndicator from './AuthorisedDocVerificationIndicator';
+import AuthorisedSlip, { printPdfBlobUrl } from './AuthorisedSlip';
 import PaymentLedgerDrawer from './PaymentLedgerDrawer';
 import SalarySlip from './SalarySlip';
 import Toast from './Toast';
@@ -49,15 +50,9 @@ export default function HistoryView({ slipHistory, loading, error, onRefresh }: 
   const [employeeFilter, setEmployeeFilter] = useState('');
   const [monthFilter, setMonthFilter] = useState('');
   const [statementFilter, setStatementFilter] = useState('');
-  const [showHidden, setShowHidden] = useState(false);
-  const [expandedKeys, setExpandedKeys] = useState<Set<string>>(new Set());
   const [viewing, setViewing] = useState<SlipSnapshot | null>(null);
   const [exportTarget, setExportTarget] = useState<SlipSnapshot | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<SlipSnapshot | null>(null);
-  const [voidTarget, setVoidTarget] = useState<SlipSnapshot | null>(null);
-  const [voidReason, setVoidReason] = useState('');
-  const [revokeTarget, setRevokeTarget] = useState<SlipSnapshot | null>(null);
-  const [revokeReason, setRevokeReason] = useState('');
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -65,14 +60,18 @@ export default function HistoryView({ slipHistory, loading, error, onRefresh }: 
   const [bankCopyPending, setBankCopyPending] = useState<SlipSnapshot | null>(null);
   const [bankCopyBusy, setBankCopyBusy] = useState(false);
   const [bankCopyError, setBankCopyError] = useState<string | null>(null);
+  const [bankCopyPreview, setBankCopyPreview] = useState<{
+    snapshot: SlipSnapshot;
+    signatureUrl: string | null;
+    sealUrl: string | null;
+    pdf: AuthorisedPdfBundle;
+    pdfUrl: string;
+  } | null>(null);
   const [signatoryStorageConfigured, setSignatoryStorageConfigured] = useState(true);
   const [signatoryStorageMessage, setSignatoryStorageMessage] = useState<string | null>(null);
   const [obligationsByPayrollId, setObligationsByPayrollId] = useState<
     Map<string, SalaryPaymentObligation>
   >(new Map());
-  const [verificationByPayrollId, setVerificationByPayrollId] = useState<
-    Record<string, VerificationHitSummary>
-  >({});
   const [ledgerTarget, setLedgerTarget] = useState<SlipSnapshot | null>(null);
 
   async function refreshObligations() {
@@ -83,16 +82,6 @@ export default function HistoryView({ slipHistory, loading, error, onRefresh }: 
 
   useEffect(() => {
     void refreshObligations();
-    void (async () => {
-      const ids = slipHistory.map((s) => s.id);
-      if (ids.length === 0) {
-        setVerificationByPayrollId({});
-        return;
-      }
-      const result = await fetchVerificationHitSummaries(ids);
-      if (!result.ok) return;
-      setVerificationByPayrollId(result.data);
-    })();
   }, [slipHistory]);
 
   useEffect(() => {
@@ -114,27 +103,19 @@ export default function HistoryView({ slipHistory, loading, error, onRefresh }: 
     return [...map.entries()].sort((a, b) => a[1].localeCompare(b[1]));
   }, [slipHistory]);
 
-  const filteredGroups = useMemo(() => {
-    const groups = groupSlipsByEmployeeMonth(slipHistory, { includeHidden: showHidden });
-    return groups
-      .filter((g) => (employeeFilter ? g.employeeId === employeeFilter : true))
-      .filter((g) => (monthFilter ? g.monthYear === monthFilter : true))
-      .filter((g) => {
-        if (!statementFilter) return true;
-        const sample = g.activeFinal ?? g.draft ?? g.trail[0];
-        if (!sample) return false;
-        const title = statementMetaFor(
-          sample.employee.paymentType,
-          sample.employee.engagementType,
-          sample.employee.employmentStatus,
-        ).statementTitle;
-        return title === statementFilter;
-      });
-  }, [slipHistory, employeeFilter, monthFilter, statementFilter, showHidden]);
-
-  function primarySnapshot(g: EmployeeMonthGroup): SlipSnapshot | null {
-    return g.activeFinal ?? g.draft ?? g.trail[0] ?? null;
-  }
+  const filtered = useMemo(
+    () =>
+      [...slipHistory]
+        .filter((s) => (employeeFilter ? s.employeeId === employeeFilter : true))
+        .filter((s) => (monthFilter ? s.monthYear === monthFilter : true))
+        .filter((s) => {
+          if (!statementFilter) return true;
+          const title = statementMetaFor(s.employee.paymentType, s.employee.engagementType, s.employee.employmentStatus).statementTitle;
+          return title === statementFilter;
+        })
+        .sort((a, b) => b.generatedAt.localeCompare(a.generatedAt)),
+    [slipHistory, employeeFilter, monthFilter, statementFilter],
+  );
 
   /**
    * Re-download renders the STORED snapshot (never recomputed): the
@@ -163,10 +144,24 @@ export default function HistoryView({ slipHistory, loading, error, onRefresh }: 
   }
 
   async function handleDelete() {
-    if (!deleteTarget || deleteTarget.status !== 'draft') return;
+    if (!deleteTarget) return;
     setDeleting(true);
     setDeleteError(null);
-    const result = await deletePayrollSlip(deleteTarget.id);
+    const isFinal = deleteTarget.status === 'final';
+    const reason = isFinal
+      ? window.prompt(
+          'Final/issued payroll cannot be permanently deleted. Enter a reason to Cancel or Revoke this record:',
+        )
+      : undefined;
+    if (isFinal && !reason?.trim()) {
+      setDeleting(false);
+      setDeleteError('A reason is required to cancel or revoke a final payroll record.');
+      return;
+    }
+    const result = await deletePayrollSlip(deleteTarget.id, {
+      reason: reason?.trim(),
+      actorUserId: 'hr-user',
+    });
     setDeleting(false);
     if (!result.ok) {
       setDeleteError(result.error);
@@ -174,79 +169,59 @@ export default function HistoryView({ slipHistory, loading, error, onRefresh }: 
     }
     if (viewing?.id === deleteTarget.id) setViewing(null);
     setDeleteTarget(null);
-    setToastMessage('Draft slip removed from history.');
-    await onRefresh?.();
-  }
-
-  async function handleVoid() {
-    if (!voidTarget) return;
-    const reason = voidReason.trim();
-    if (reason.length < 3) {
-      setDeleteError('Enter a void reason (at least 3 characters).');
-      return;
-    }
-    setDeleting(true);
-    setDeleteError(null);
-    const result = await voidPayrollSlip({ id: voidTarget.id, reason });
-    setDeleting(false);
-    if (!result.ok) {
-      setDeleteError(result.error);
-      return;
-    }
-    setVoidTarget(null);
-    setVoidReason('');
-    setToastMessage('Final slip voided (kept for audit).');
-    await onRefresh?.();
-  }
-
-  async function handleRevoke() {
-    if (!revokeTarget || !revokeReason.trim()) {
-      setDeleteError('A reason is required to revoke the bank copy.');
-      return;
-    }
-    setDeleting(true);
-    setDeleteError(null);
-    const result = await revokeAuthorisedDocument({
-      payrollRecordId: revokeTarget.id,
-      reason: revokeReason.trim(),
-    });
-    setDeleting(false);
-    if (!result.ok) {
-      setDeleteError(result.error);
-      return;
-    }
-    setRevokeTarget(null);
-    setRevokeReason('');
-    setToastMessage(`Bank copy revoked (${result.data.documentNumber}). Final can now be voided.`);
+    setToastMessage(
+      result.data.action === 'deleted'
+        ? 'Draft slip removed from history.'
+        : result.data.action === 'revoked'
+          ? 'Issued document revoked (original preserved as cancelled/revoked).'
+          : 'Final payroll cancelled (original preserved).',
+    );
     await onRefresh?.();
   }
 
   async function generateBankCopy(snapshot: SlipSnapshot) {
     const entity = settings.entities[snapshot.employee.entityCode];
-    const incomplete = signatoryIncompleteReason(entity);
-    if (incomplete) {
-      setBankCopyError(incomplete);
+    const blocked = authorisedSlipBlockedReason(entity, {
+      signatoryStorageConfigured,
+      signatoryStorageMessage,
+    });
+    if (blocked) {
+      setBankCopyError(blocked);
       return;
     }
 
     setBankCopyBusy(true);
     setBankCopyError(null);
     try {
-      // Production bank PDF: text/vector + verification registry (not html2canvas).
-      const exported = await exportAuthorisedSalarySlipPdf({ snapshot, entity });
-      if (!exported.ok) {
-        setBankCopyError(exported.error);
+      const urlsResult = await createSignatorySignedUrls({
+        signatureAssetPath: entity.signatureAssetPath,
+        sealAssetPath: entity.sealAssetPath,
+      });
+      const signatureUrl = urlsResult.ok ? urlsResult.data.signatureUrl : null;
+      const sealUrl = urlsResult.ok ? urlsResult.data.sealUrl : null;
+
+      const built = await buildAuthorisedSalarySlipPdf({
+        snapshot,
+        entity,
+        paydayDayOfMonth: settings.paydayDayOfMonth,
+        signatureUrl,
+        sealUrl,
+      });
+      if (!built.ok) {
+        setBankCopyError(built.error);
         return;
       }
 
-      setBankCopyPending(null);
-      if (exported.data.alreadyIssued || exported.data.reusedImmutablePdf) {
-        setToastMessage('Already issued — opening existing document.');
-      } else {
-        setToastMessage(`Bank copy issued · ${exported.data.documentNumber}`);
-      }
+      const copy = new Uint8Array(built.data.bytes.byteLength);
+      copy.set(built.data.bytes);
+      const pdfUrl = URL.createObjectURL(new Blob([copy], { type: 'application/pdf' }));
 
-      // Reprints are logged, never blocked — log after successful PDF.
+      setBankCopyPreview((prev) => {
+        if (prev?.pdfUrl) URL.revokeObjectURL(prev.pdfUrl);
+        return { snapshot, signatureUrl, sealUrl, pdf: built.data, pdfUrl };
+      });
+      setBankCopyPending(null);
+
       await logAuthorisedSlipGeneration(snapshot.id, {
         signatoryName: entity.signatoryName,
         signatoryDesignation: entity.signatoryDesignation,
@@ -257,6 +232,9 @@ export default function HistoryView({ slipHistory, loading, error, onRefresh }: 
         registeredAddress: entity.registeredAddress,
         phone: entity.phone,
         payrollEmail: entity.payrollEmail,
+        documentNumber: built.data.documentNumber,
+        revisionNumber: built.data.revisionNumber,
+        publicVerificationId: built.data.publicVerificationId,
       });
     } catch (err) {
       setBankCopyError(err instanceof Error ? err.message : 'Failed to generate bank copy.');
@@ -265,74 +243,84 @@ export default function HistoryView({ slipHistory, loading, error, onRefresh }: 
     }
   }
 
-  function StatusBadge({ status }: { status: SlipSnapshot['status'] }) {
-    if (status === 'final') {
-      return (
-        <span className="rounded border border-emerald-brand bg-emerald-tint px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-emerald-deep">
-          Final
-        </span>
-      );
+  async function downloadBankCopyPreview() {
+    if (!bankCopyPreview) return;
+    const entity = settings.entities[bankCopyPreview.snapshot.employee.entityCode];
+    await exportAuthorisedSalarySlipPdf({
+      snapshot: bankCopyPreview.snapshot,
+      entity,
+      paydayDayOfMonth: settings.paydayDayOfMonth,
+      signatureUrl: bankCopyPreview.signatureUrl,
+      sealUrl: bankCopyPreview.sealUrl,
+      bundle: bankCopyPreview.pdf,
+    });
+  }
+
+  function InternalDocBadge({ status }: { status?: DocumentLifecycleStatus }) {
+    if (!status) return <span className="text-[11px] text-muted">—</span>;
+    const internalStatuses: DocumentLifecycleStatus[] = [
+      'INTERNAL_AVAILABLE',
+      'PARTIAL_ADVICE_ALLOWED',
+      'OUTSTANDING_STATEMENT_ALLOWED',
+      'NOT_READY',
+      'DRAFT',
+    ];
+    if (!internalStatuses.includes(status)) {
+      return <span className="text-[11px] text-muted">—</span>;
     }
-    if (status === 'superseded') {
-      return (
-        <span className="rounded border border-hairline bg-surface px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-muted">
-          Superseded
-        </span>
-      );
-    }
-    if (status === 'voided') {
-      return (
-        <span className="rounded border border-amber-edge bg-amber-tint px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-amber-brand">
-          Voided
-        </span>
-      );
-    }
+    const label =
+      status === 'INTERNAL_AVAILABLE'
+        ? 'Available'
+        : status === 'PARTIAL_ADVICE_ALLOWED'
+          ? 'Partial'
+          : status === 'OUTSTANDING_STATEMENT_ALLOWED'
+            ? 'Outstanding'
+            : status.replace(/_/g, ' ');
     return (
-      <span className="rounded border border-amber-edge bg-amber-tint px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-amber-brand">
-        Draft
+      <span className="rounded border border-hairline bg-surface px-1.5 py-0.5 text-[10px] font-medium">
+        {label}
       </span>
     );
   }
 
-  function DocChips({ group }: { group: EmployeeMonthGroup }) {
-    const obl = group.activeFinal
-      ? obligationsByPayrollId.get(group.activeFinal.id)
-      : undefined;
+  function AuthorisedDocBadge({ status }: { status?: DocumentLifecycleStatus }) {
+    if (!status || !status.startsWith('AUTHORISED')) {
+      return <span className="text-[11px] text-muted">—</span>;
+    }
+    const label =
+      status === 'AUTHORISED_BLOCKED'
+        ? 'Blocked'
+        : status === 'AUTHORISED_ELIGIBLE'
+          ? 'Eligible'
+          : status === 'AUTHORISED_ISSUED'
+            ? 'Issued'
+            : status.replace(/_/g, ' ');
     return (
-      <div className="flex flex-wrap gap-1">
-        {group.draft && (
-          <button
-            type="button"
-            className="rounded border border-amber-edge bg-amber-tint px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-amber-brand"
-            onClick={() => setViewing(group.draft)}
-          >
-            Draft
-          </button>
-        )}
-        {group.activeFinal && (
-          <button
-            type="button"
-            className="rounded border border-emerald-brand bg-emerald-tint px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-emerald-deep"
-            onClick={() => setViewing(group.activeFinal)}
-          >
-            Final
-          </button>
-        )}
-        {group.activeFinal && obl?.documentStatus === 'AUTHORISED_ISSUED' && (
-          <span className="rounded border border-ink/20 bg-surface px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-ink">
-            Authorised
-            {group.activeFinal.revisionNumber
-              ? ` · Rev ${group.activeFinal.revisionNumber}`
-              : ''}
-          </span>
-        )}
-        {group.activeFinal && (
-          <AuthorisedDocVerificationIndicator
-            status={obl?.documentStatus}
-            summary={verificationByPayrollId[group.activeFinal.id] ?? null}
-          />
-        )}
-      </div>
+      <span className="rounded border border-hairline bg-surface px-1.5 py-0.5 text-[10px] font-medium">
+        {label}
+      </span>
+    );
+  }
+
+  function attendanceCycleLabel(snapshot: SlipSnapshot): string {
+    if (snapshot.attendancePeriodStart && snapshot.attendancePeriodEnd) {
+      return formatAttendanceCycleRange(
+        snapshot.attendancePeriodStart,
+        snapshot.attendancePeriodEnd,
+      );
+    }
+    return '—';
+  }
+
+  function StatusBadge({ status }: { status: SlipSnapshot['status'] }) {
+    return status === 'final' ? (
+      <span className="rounded border border-emerald-brand bg-emerald-tint px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-emerald-deep">
+        Final
+      </span>
+    ) : (
+      <span className="rounded border border-amber-edge bg-amber-tint px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-amber-brand">
+        Draft
+      </span>
     );
   }
 
@@ -360,21 +348,11 @@ export default function HistoryView({ slipHistory, loading, error, onRefresh }: 
   function BankCopyButton({ snapshot, compact = false }: { snapshot: SlipSnapshot; compact?: boolean }) {
     if (snapshot.status !== 'final') return null;
     const entity = settings.entities[snapshot.employee.entityCode];
-    const settingsReason = signatoryIncompleteReason(entity);
-    const obligation = obligationsByPayrollId.get(snapshot.id);
-    const paymentReason =
-      obligation &&
-      (obligation.paymentStatus !== 'PAID' || obligation.outstandingAmount > 0)
-        ? 'Authorised salary slip blocked until payment is PAID and fully reconciled.'
-        : !obligation
-          ? 'Authorised salary slip blocked until payment obligation is PAID and fully reconciled.'
-          : null;
-    const reason =
-      paymentReason ??
-      (!signatoryStorageConfigured
-        ? signatoryStorageMessage ??
-          'Server key not configured (SUPABASE_SECRET_KEY). Bank copy cannot embed signature/seal.'
-        : settingsReason);
+    // Payment no longer blocks generation — unpaid slips show Scheduled credit.
+    const reason = authorisedSlipBlockedReason(entity, {
+      signatoryStorageConfigured,
+      signatoryStorageMessage,
+    });
     const disabled = !!reason || bankCopyBusy;
 
     if (compact) {
@@ -439,20 +417,11 @@ export default function HistoryView({ slipHistory, loading, error, onRefresh }: 
         <div>
             <h1 className="text-sm font-semibold">Payment History</h1>
           <p className="text-[12px] text-muted">
-            {filteredGroups.length} employee-month
-            {filteredGroups.length === 1 ? '' : 's'} · one active draft / final / authorised each ·
-            re-downloads always use the stored snapshot
+            {filtered.length} of {slipHistory.length} snapshot{slipHistory.length === 1 ? '' : 's'} ·
+            re-downloads always use the stored snapshot, never recomputed
           </p>
         </div>
         <div className="flex flex-col gap-3 sm:ml-auto sm:flex-row sm:items-end sm:gap-2">
-          <label className="flex items-center gap-2 pb-2 text-[12px] text-muted">
-            <input
-              type="checkbox"
-              checked={showHidden}
-              onChange={(e) => setShowHidden(e.target.checked)}
-            />
-            Show superseded &amp; voided
-          </label>
           <label className="block">
             <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-[0.08em] text-muted">Employee</span>
             <select className={`${inputCls} w-full sm:w-56`} value={employeeFilter} onChange={(e) => setEmployeeFilter(e.target.value)}>
@@ -481,7 +450,7 @@ export default function HistoryView({ slipHistory, loading, error, onRefresh }: 
 
       {/* Wide payment columns: horizontal scroll on small screens (no clipping). */}
       <div className="min-w-0 overflow-x-auto overscroll-x-contain rounded-lg border border-hairline bg-paper shadow-card [-webkit-overflow-scrolling:touch]">
-        {filteredGroups.length === 0 ? (
+        {filtered.length === 0 ? (
           <p className="px-4 py-14 text-center text-sm text-muted">
             {slipHistory.length === 0
               ? 'No slips yet. Generate a slip from the Generator page — every export is saved to Supabase.'
@@ -491,181 +460,116 @@ export default function HistoryView({ slipHistory, loading, error, onRefresh }: 
           <table className="w-full min-w-[1280px] text-sm">
             <thead>
               <tr className="border-b border-hairline text-left text-[11px] uppercase tracking-wide text-muted">
-                <th className="px-3 py-2 font-semibold w-8" />
                 <th className="px-3 py-2 font-semibold">Employee</th>
                 <th className="px-3 py-2 font-semibold">Salary month</th>
                 <th className="px-3 py-2 font-semibold">Attendance cycle</th>
-                <th className="px-3 py-2 font-semibold">Documents</th>
+                <th className="px-3 py-2 font-semibold">Payroll</th>
+                <th className="px-3 py-2 font-semibold">Internal doc</th>
+                <th className="px-3 py-2 font-semibold">Authorised doc</th>
                 <th className="px-3 py-2 font-semibold">Payment</th>
                 <th className="px-3 py-2 text-right font-semibold">Net due</th>
                 <th className="px-3 py-2 text-right font-semibold">Confirmed</th>
                 <th className="px-3 py-2 text-right font-semibold">Outstanding</th>
+                <th className="px-3 py-2 font-semibold">Original due</th>
+                <th className="px-3 py-2 font-semibold">Revised expected</th>
+                <th className="px-3 py-2 font-semibold">Last paid</th>
+                <th className="px-3 py-2 font-semibold">Timeliness</th>
                 <th className="sticky right-0 bg-paper px-3 py-2 text-right font-semibold">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-hairline">
-              {filteredGroups.map((g) => {
-                const s = primarySnapshot(g);
-                if (!s) return null;
-                const obl = g.activeFinal
-                  ? obligationsByPayrollId.get(g.activeFinal.id)
-                  : undefined;
-                const expanded = expandedKeys.has(g.key);
-                const hasTrail = g.trail.length > 0;
+              {filtered.map((s) => {
+                const obl = obligationsByPayrollId.get(s.id);
                 return (
-                  <Fragment key={g.key}>
-                    <tr className="hover:bg-surface/60">
-                      <td className="px-2 py-2.5">
-                        {hasTrail ? (
-                          <button
-                            type="button"
-                            className="rounded p-1 text-muted hover:bg-surface"
-                            aria-label={expanded ? 'Collapse trail' : 'Expand revision trail'}
-                            onClick={() => {
-                              setExpandedKeys((prev) => {
-                                const next = new Set(prev);
-                                if (next.has(g.key)) next.delete(g.key);
-                                else next.add(g.key);
-                                return next;
-                              });
-                            }}
-                          >
-                            {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-                          </button>
-                        ) : null}
-                      </td>
-                      <td className="px-3 py-2.5">
-                        <p className="font-medium">{g.employee.fullName}</p>
-                        <p className="text-[12px] text-muted">{g.employee.empId}</p>
-                      </td>
-                      <td className="px-3 py-2.5 whitespace-nowrap">{formatMonthYear(g.monthYear)}</td>
-                      <td className="px-3 py-2.5 text-[11px] text-muted whitespace-nowrap">
-                        {formatSalaryAttendanceCycle(g.monthYear)}
-                      </td>
-                      <td className="px-3 py-2.5">
-                        <DocChips group={g} />
-                      </td>
-                      <td className="px-3 py-2.5">
-                        <PaymentBadge obligation={obl} />
-                      </td>
-                      <td className="amount px-3 py-2.5 text-right font-medium">
-                        {formatINR(obl?.netSalaryPayable ?? s.computed.netPay)}
-                      </td>
-                      <td className="amount px-3 py-2.5 text-right text-[12px]">
-                        {obl ? formatINR(obl.confirmedPaidAmount) : '—'}
-                      </td>
-                      <td className="amount px-3 py-2.5 text-right text-[12px]">
-                        {obl ? formatINR(obl.outstandingAmount) : '—'}
-                      </td>
-                      <td className="sticky right-0 bg-paper px-3 py-2.5">
-                        <div className="flex max-w-[14rem] flex-wrap justify-end gap-0.5 sm:max-w-none">
-                          {g.activeFinal && (
-                            <>
-                              <button
-                                title="View final"
-                                aria-label="View final"
-                                className="flex h-11 w-11 items-center justify-center rounded-md text-muted transition-colors duration-150 hover:bg-surface hover:text-ink lg:h-9 lg:w-9"
-                                onClick={() => setViewing(g.activeFinal)}
-                              >
-                                <Eye size={15} />
-                              </button>
-                              <button
-                                title="Re-download PDF"
-                                aria-label="Re-download PDF"
-                                className="flex h-11 w-11 items-center justify-center rounded-md text-muted transition-colors duration-150 hover:bg-surface hover:text-ink disabled:opacity-40 lg:h-9 lg:w-9"
-                                disabled={exportTarget !== null}
-                                onClick={() => void redownload(g.activeFinal!)}
-                              >
-                                <Download size={15} />
-                              </button>
-                              <button
-                                title="Payment Ledger"
-                                aria-label="Payment Ledger"
-                                className="flex h-11 w-11 items-center justify-center rounded-md text-muted transition-colors duration-150 hover:bg-surface hover:text-ink lg:h-9 lg:w-9"
-                                onClick={() => setLedgerTarget(g.activeFinal)}
-                              >
-                                <Wallet size={15} />
-                              </button>
-                              <BankCopyButton snapshot={g.activeFinal} compact />
-                              <button
-                                title="Void final (when eligible)"
-                                aria-label="Void final"
-                                className="rounded p-1.5 text-muted hover:bg-surface hover:text-amber-brand"
-                                onClick={() => {
-                                  setDeleteError(null);
-                                  setVoidReason('');
-                                  setVoidTarget(g.activeFinal);
-                                }}
-                              >
-                                Void
-                              </button>
-                              <button
-                                title="Revoke bank copy"
-                                aria-label="Revoke bank copy"
-                                className="rounded p-1.5 text-[10px] text-muted hover:bg-surface hover:text-amber-brand"
-                                onClick={() => {
-                                  setDeleteError(null);
-                                  setRevokeReason('');
-                                  setRevokeTarget(g.activeFinal);
-                                }}
-                              >
-                                Revoke
-                              </button>
-                            </>
-                          )}
-                          {g.draft && (
-                            <>
-                              <button
-                                title="View draft"
-                                aria-label="View draft"
-                                className="flex h-11 w-11 items-center justify-center rounded-md text-muted hover:bg-surface hover:text-ink lg:h-9 lg:w-9"
-                                onClick={() => setViewing(g.draft)}
-                              >
-                                <Eye size={15} />
-                              </button>
-                              <button
-                                title="Delete draft"
-                                aria-label="Delete draft"
-                                className="rounded p-1.5 text-muted hover:bg-surface hover:text-amber-brand"
-                                onClick={() => {
-                                  setDeleteError(null);
-                                  setDeleteTarget(g.draft);
-                                }}
-                              >
-                                <Trash2 size={15} />
-                              </button>
-                            </>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                    {expanded &&
-                      g.trail.map((t) => (
-                        <tr key={t.id} className="bg-surface/40 text-[12px] text-muted">
-                          <td />
-                          <td className="px-3 py-2" colSpan={2}>
-                            Revision trail
-                          </td>
-                          <td className="px-3 py-2 whitespace-nowrap">{formatDate(t.generatedAt)}</td>
-                          <td className="px-3 py-2">
-                            <StatusBadge status={t.status} />
-                          </td>
-                          <td className="px-3 py-2" colSpan={4}>
-                            Read-only · {formatINR(t.computed.netPay)}
-                          </td>
-                          <td className="sticky right-0 bg-surface/40 px-3 py-2 text-right">
-                            <button
-                              className="rounded p-1.5 hover:bg-paper hover:text-ink"
-                              onClick={() => setViewing(t)}
-                              title="View superseded/voided slip"
-                            >
-                              <Eye size={14} />
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
-                  </Fragment>
-                );
+                <tr key={s.id} className="hover:bg-surface/60">
+                  <td className="px-3 py-2.5">
+                    <p className="font-medium">{s.employee.fullName}</p>
+                    <p className="text-[12px] text-muted">{s.employee.empId}</p>
+                  </td>
+                  <td className="px-3 py-2.5 whitespace-nowrap">{formatMonthYear(s.monthYear)}</td>
+                  <td className="px-3 py-2.5 text-[11px] text-muted whitespace-nowrap">
+                    {formatSalaryAttendanceCycle(s.monthYear)}
+                  </td>
+                  <td className="px-3 py-2.5"><StatusBadge status={s.status} /></td>
+                  <td className="px-3 py-2.5">
+                    <InternalDocBadge status={obl?.documentStatus} />
+                  </td>
+                  <td className="px-3 py-2.5">
+                    <AuthorisedDocBadge status={obl?.documentStatus} />
+                  </td>
+                  <td className="px-3 py-2.5"><PaymentBadge obligation={obl} /></td>
+                  <td className="amount px-3 py-2.5 text-right font-medium">
+                    {formatINR(obl?.netSalaryPayable ?? s.computed.netPay)}
+                  </td>
+                  <td className="amount px-3 py-2.5 text-right text-[12px]">
+                    {obl ? formatINR(obl.confirmedPaidAmount) : '—'}
+                  </td>
+                  <td className="amount px-3 py-2.5 text-right text-[12px]">
+                    {obl ? formatINR(obl.outstandingAmount) : '—'}
+                  </td>
+                  <td className="px-3 py-2.5 text-[12px] text-muted whitespace-nowrap">
+                    {obl ? formatDate(obl.originalStatutoryDueDate) : '—'}
+                  </td>
+                  <td className="px-3 py-2.5 text-[12px] text-muted whitespace-nowrap">
+                    {obl?.revisedExpectedDate ? formatDate(obl.revisedExpectedDate) : '—'}
+                  </td>
+                  <td className="px-3 py-2.5 text-[12px] text-muted whitespace-nowrap">
+                    {obl?.lastPaymentDate ? formatDate(obl.lastPaymentDate) : '—'}
+                  </td>
+                  <td className="px-3 py-2.5 text-[11px] text-muted">
+                    {obl ? obl.timeliness.replace(/_/g, ' ') : '—'}
+                  </td>
+                  <td className="sticky right-0 bg-paper px-3 py-2.5">
+                    <div className="flex max-w-[11rem] flex-wrap justify-end gap-0.5 sm:max-w-none">
+                      <button
+                        title="View slip"
+                        aria-label="View slip"
+                        className="flex h-11 w-11 items-center justify-center rounded-md text-muted transition-colors duration-150 hover:bg-surface hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink/20 lg:h-9 lg:w-9"
+                        onClick={() => setViewing(s)}
+                      >
+                        <Eye size={15} />
+                      </button>
+                      <button
+                        title="Re-download PDF (from stored snapshot)"
+                        aria-label="Re-download PDF (from stored snapshot)"
+                        className="flex h-11 w-11 items-center justify-center rounded-md text-muted transition-colors duration-150 hover:bg-surface hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink/20 disabled:cursor-not-allowed disabled:opacity-40 lg:h-9 lg:w-9"
+                        disabled={exportTarget !== null}
+                        onClick={() => void redownload(s)}
+                      >
+                        <Download size={15} />
+                      </button>
+                      {s.status === 'final' && (
+                        <button
+                          title="Payment Ledger"
+                          aria-label="Payment Ledger"
+                          className="flex h-11 w-11 items-center justify-center rounded-md text-muted transition-colors duration-150 hover:bg-surface hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink/20 lg:h-9 lg:w-9"
+                          onClick={() => setLedgerTarget(s)}
+                        >
+                          <Wallet size={15} />
+                        </button>
+                      )}
+                      <BankCopyButton snapshot={s} compact />
+                      <button
+                        title={
+                          s.status === 'final'
+                            ? 'Cancel / Revoke (final records are never permanently deleted)'
+                            : 'Delete draft slip'
+                        }
+                        aria-label={
+                          s.status === 'final' ? 'Cancel or revoke payroll record' : 'Delete draft slip'
+                        }
+                        className="rounded p-1.5 text-muted hover:bg-surface hover:text-amber-brand"
+                        onClick={() => {
+                          setDeleteError(null);
+                          setDeleteTarget(s);
+                        }}
+                      >
+                        <Trash2 size={15} />
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              );
               })}
             </tbody>
           </table>
@@ -782,17 +686,80 @@ export default function HistoryView({ slipHistory, loading, error, onRefresh }: 
         </Modal>
       )}
 
+      {bankCopyPreview && (
+        <div
+          className="no-print fixed inset-0 z-50 overflow-auto bg-ink/50 p-3 backdrop-blur-[2px] sm:p-6"
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget) {
+              URL.revokeObjectURL(bankCopyPreview.pdfUrl);
+              setBankCopyPreview(null);
+            }
+          }}
+        >
+          <div className="mx-auto w-full max-w-[210mm]">
+            <div className="mb-2 flex flex-wrap justify-end gap-2">
+              <button
+                className={`${btnSecondary} bg-paper`}
+                onClick={() => printPdfBlobUrl(bankCopyPreview.pdfUrl)}
+              >
+                <Printer size={14} /> Print
+              </button>
+              <button
+                className={`${btnSecondary} bg-paper`}
+                onClick={() => void downloadBankCopyPreview()}
+              >
+                <Download size={14} /> Download PDF
+              </button>
+              <button
+                className={`${btnSecondary} bg-paper`}
+                onClick={() => {
+                  URL.revokeObjectURL(bankCopyPreview.pdfUrl);
+                  setBankCopyPreview(null);
+                }}
+              >
+                <X size={14} /> Close
+              </button>
+            </div>
+            <p className="mb-2 rounded-md border border-hairline bg-paper px-3 py-1.5 text-[11px] text-muted">
+              Authorised bank copy · {bankCopyPreview.pdf.documentNumber}
+            </p>
+            <AuthorisedSlip pdfUrl={bankCopyPreview.pdfUrl} />
+          </div>
+        </div>
+      )}
+
+      {deleteTarget && deleteTarget.status === 'final' && (
+        <Modal
+          title="Cannot delete final slip"
+          onClose={() => setDeleteTarget(null)}
+        >
+          <p className="text-sm text-ink">
+            Final payroll snapshots cannot be permanently deleted. To correct this record, supersede
+            it with a new final slip from the Generator, or cancel/revoke through payroll operations.
+          </p>
+          <div className="mt-5 flex justify-end">
+            <button className={btnPrimary} onClick={() => setDeleteTarget(null)}>
+              OK
+            </button>
+          </div>
+        </Modal>
+      )}
+
       {deleteTarget && deleteTarget.status === 'draft' && (
         <Modal
-          title="Delete draft from history?"
+          title="Delete slip from history?"
           onClose={() => {
             if (!deleting) setDeleteTarget(null);
           }}
         >
           <p className="text-sm text-ink">
-            Permanently remove the draft for{' '}
+            Permanently remove the stored snapshot for{' '}
             <strong>{deleteTarget.employee.fullName}</strong> ({deleteTarget.employee.empId}) ·{' '}
-            {formatMonthYear(deleteTarget.monthYear)}?
+            {formatMonthYear(deleteTarget.monthYear)} (Draft)?
+          </p>
+          <p className="mt-2 text-[12px] text-muted">
+            Re-download and bank copy will no longer be available for this entry. Employee flex-bank
+            balance is not changed.
           </p>
           {deleteError && (
             <p className="mt-3 rounded-md border border-amber-edge bg-amber-tint px-3 py-2 text-[12px] text-amber-brand">
@@ -808,107 +775,7 @@ export default function HistoryView({ slipHistory, loading, error, onRefresh }: 
               Cancel
             </button>
             <button className={btnPrimary} disabled={deleting} onClick={() => void handleDelete()}>
-              {deleting ? 'Deleting…' : 'Delete draft'}
-            </button>
-          </div>
-        </Modal>
-      )}
-
-      {voidTarget && (
-        <Modal
-          title="Void final payroll record?"
-          onClose={() => {
-            if (!deleting) {
-              setVoidTarget(null);
-              setVoidReason('');
-              setDeleteError(null);
-            }
-          }}
-        >
-          <p className="text-sm text-ink">
-            Void the active final for <strong>{voidTarget.employee.fullName}</strong> ·{' '}
-            {formatMonthYear(voidTarget.monthYear)}. The record is kept for audit and excluded from
-            YTD, History defaults, deferred chains, and exports. It is never deleted.
-          </p>
-          <p className="mt-2 text-[12px] text-muted">
-            Requires no active bank copy and no recorded payment. Revoke the bank copy first if one
-            exists.
-          </p>
-          <label className="mt-3 block text-[12px]">
-            Reason (required)
-            <input
-              className={inputCls}
-              value={voidReason}
-              onChange={(e) => setVoidReason(e.target.value)}
-              placeholder="e.g. Duplicate July test final"
-            />
-          </label>
-          {deleteError && (
-            <p className="mt-3 rounded-md border border-amber-edge bg-amber-tint px-3 py-2 text-[12px] text-amber-brand">
-              {deleteError}
-            </p>
-          )}
-          <div className="mt-5 flex justify-end gap-2">
-            <button
-              className={btnSecondary}
-              disabled={deleting}
-              onClick={() => {
-                setVoidTarget(null);
-                setVoidReason('');
-              }}
-            >
-              Cancel
-            </button>
-            <button className={btnPrimary} disabled={deleting} onClick={() => void handleVoid()}>
-              {deleting ? 'Voiding…' : 'Void final'}
-            </button>
-          </div>
-        </Modal>
-      )}
-
-      {revokeTarget && (
-        <Modal
-          title="Revoke bank copy?"
-          onClose={() => {
-            if (!deleting) {
-              setRevokeTarget(null);
-              setRevokeReason('');
-              setDeleteError(null);
-            }
-          }}
-        >
-          <p className="text-sm text-ink">
-            Revoke the active authorised document for {revokeTarget.employee.fullName} ·{' '}
-            {formatMonthYear(revokeTarget.monthYear)}. The document is kept as REVOKED for records
-            and unlocks Void on the final.
-          </p>
-          <label className="mt-3 block text-[12px]">
-            Reason (required)
-            <input
-              className={inputCls}
-              value={revokeReason}
-              onChange={(e) => setRevokeReason(e.target.value)}
-              placeholder="e.g. Orphaned collision attempt"
-            />
-          </label>
-          {deleteError && (
-            <p className="mt-3 rounded-md border border-amber-edge bg-amber-tint px-3 py-2 text-[12px] text-amber-brand">
-              {deleteError}
-            </p>
-          )}
-          <div className="mt-5 flex justify-end gap-2">
-            <button
-              className={btnSecondary}
-              disabled={deleting}
-              onClick={() => {
-                setRevokeTarget(null);
-                setRevokeReason('');
-              }}
-            >
-              Cancel
-            </button>
-            <button className={btnPrimary} disabled={deleting} onClick={() => void handleRevoke()}>
-              {deleting ? 'Revoking…' : 'Revoke bank copy'}
+              {deleting ? 'Deleting…' : 'Delete'}
             </button>
           </div>
         </Modal>

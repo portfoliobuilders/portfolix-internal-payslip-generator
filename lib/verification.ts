@@ -9,30 +9,31 @@ export type PublicVerificationStatus = 'VALID' | 'SUPERSEDED' | 'REVOKED' | 'CAN
 
 export interface PublicVerificationPayload {
   companyLegalName: string;
-  companyCin: string | null;
-  companyLogoUrl: string | null;
   payslipNumber: string;
-  /** Full employee name exactly as printed on the authorised slip. */
   employeeDisplayName: string;
-  maskedEmployeeId: string;
   salaryMonth: string;
-  financialYear: string;
-  attendanceCycle: string;
-  payrollFinalisedAt: string | null;
-  actualCreditDate: string | null;
-  netSalary: number | null;
   documentStatus: PublicVerificationStatus;
   revisionNumber: number;
-  issueDate: string | null;
-  verificationFingerprint: string | null;
+  issueDate: string;
   publicVerificationId: string;
-  issuedDocumentId: string;
-  checkedAtIso: string;
 }
 
-/** Unpredictable public verification id (URL-safe). */
+/** Unpredictable public verification id (URL-safe). ~32 chars, unguessable. */
 export function generatePublicVerificationId(): string {
   return randomBytes(24).toString('base64url');
+}
+
+/**
+ * Canonical authorised payslip number — ONE scheme for header, filename, and log.
+ * Format: ASL-<EMPID>-<YYYY-MM>
+ * Revision is stored/displayed separately; it increments only on supersede.
+ */
+export function generateAuthorisedPayslipNumber(
+  empId: string,
+  monthYear: string,
+): string {
+  const safeEmp = empId.replace(/[^A-Za-z0-9-]/g, '').toUpperCase();
+  return `ASL-${safeEmp}-${monthYear}`;
 }
 
 export function computeVerificationFingerprint(parts: {
@@ -106,7 +107,8 @@ export function mapDocumentStatusToPublic(
     case 'CANCELLED':
       return 'CANCELLED';
     default:
-      return 'VALID';
+      // Unknown / draft / legacy — never advertise as VALID.
+      return 'REVOKED';
   }
 }
 

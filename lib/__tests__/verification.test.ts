@@ -6,7 +6,9 @@ import { describe, expect, it } from 'vitest';
 import {
   assertAuthorisedSlipReady,
   computeVerificationFingerprint,
+  generateAuthorisedPayslipNumber,
   generatePublicVerificationId,
+  mapDocumentStatusToPublic,
   maskEmployeeId,
   privacyControlledName,
 } from '../verification';
@@ -19,6 +21,20 @@ describe('verification helpers', () => {
     expect(b.length).toBeGreaterThanOrEqual(20);
     expect(a).not.toBe(b);
     expect(a).not.toMatch(/^\d+$/);
+  });
+
+  it('canonical authorised payslip number is ASL-<EMPID>-<YYYY-MM>', () => {
+    expect(generateAuthorisedPayslipNumber('PX-2024-001', '2026-07')).toBe(
+      'ASL-PX-2024-001-2026-07',
+    );
+  });
+
+  it('mapDocumentStatusToPublic never defaults unknown to VALID', () => {
+    expect(mapDocumentStatusToPublic('ISSUED')).toBe('VALID');
+    expect(mapDocumentStatusToPublic('SUPERSEDED')).toBe('SUPERSEDED');
+    expect(mapDocumentStatusToPublic('DRAFT')).toBe('REVOKED');
+    expect(mapDocumentStatusToPublic('LEGACY_UNVERIFIED')).toBe('REVOKED');
+    expect(mapDocumentStatusToPublic(null)).toBe('REVOKED');
   });
 
   it('masks employee id and privacy-controls name', () => {
@@ -58,5 +74,24 @@ describe('verification helpers', () => {
     expect(assertAuthorisedSlipReady({ ...base, paymentStatus: 'PARTIALLY_PAID' }).ok).toBe(false);
     expect(assertAuthorisedSlipReady({ ...base, paymentStatus: 'SALARY_WAIVED' }).ok).toBe(false);
     expect(assertAuthorisedSlipReady({ ...base, actualCreditDate: null }).ok).toBe(false);
+  });
+
+  it('document number scheme is exactly ASL-<EMPID>-<YYYY-MM>', () => {
+    expect(generateAuthorisedPayslipNumber('PX-2024-001', '2026-07')).toBe(
+      'ASL-PX-2024-001-2026-07',
+    );
+    expect(generateAuthorisedPayslipNumber('PB-2025-042', '2025-12')).toBe(
+      'ASL-PB-2025-042-2025-12',
+    );
+    // Sanitises special characters.
+    expect(generateAuthorisedPayslipNumber('PX OPS 001', '2026-04')).toBe(
+      'ASL-PXOPS001-2026-04',
+    );
+  });
+
+  it('document number never starts with PX-AUTH or AUTH-', () => {
+    const num = generateAuthorisedPayslipNumber('PX-2024-001', '2026-07');
+    expect(num).not.toMatch(/^PX-AUTH/);
+    expect(num).not.toMatch(/^AUTH-/);
   });
 });

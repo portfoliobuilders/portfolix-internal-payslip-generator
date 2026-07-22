@@ -13,8 +13,10 @@ import type {
   WorkMode,
 } from '@/lib/types';
 import { upsertEmployee } from '@/app/actions/payroll';
-import { useHRStore } from '@/store/useHRStore';
+import { validateIdentityFields } from '@/lib/identity';
 import { suggestPtHalfYearly } from '@/lib/payroll-calc';
+import { validateSalaryComponentsSum } from '@/lib/salary-components';
+import { useHRStore } from '@/store/useHRStore';
 import { Field, Modal, btnPrimary, btnSecondary, inputAmountCls, inputCls } from './ui';
 import { baseSalaryInputLabel, defaultPaymentTypeForEngagement } from '@/lib/workforce';
 
@@ -26,6 +28,8 @@ const PAYMENT_TYPES: PaymentType[] = ['salary', 'stipend', 'professional_fee', '
 const WORK_MODES: WorkMode[] = ['office', 'remote', 'hybrid'];
 const AGREEMENT_TYPES: AgreementType[] = ['offer_letter', 'internship_offer', 'freelancer_agreement', 'consultancy_agreement', 'contract_agreement', 'apprenticeship_contract'];
 const DOCUMENT_STATUSES: DocumentsStatus[] = ['pending', 'partially_collected', 'completed'];
+
+type ComponentDraft = { label: string; amount: string };
 
 type Draft = {
   fullName: string;
@@ -55,10 +59,11 @@ type Draft = {
   documentsStatus: DocumentsStatus;
   notes: string;
   bankName: string;
+  bankAccountNumber: string;
+  pan: string;
   ifsc: string;
-  bankDetailsVerified: boolean;
-  bankLast4: string;
-  panMasked: string;
+  workLocation: string;
+  salaryComponents: ComponentDraft[];
   flexBankBalance: string;
   tdsMonthly: string;
   ptHalfYearly: string;
@@ -94,10 +99,14 @@ function toDraft(e: Employee | null): Draft {
     documentsStatus: e?.documentsStatus ?? 'pending',
     notes: e?.notes ?? '',
     bankName: e?.bankName ?? '',
+    bankAccountNumber: e?.bankAccountNumber ?? '',
+    pan: e?.pan || e?.panMasked || '',
     ifsc: e?.ifsc ?? '',
-    bankDetailsVerified: e?.bankDetailsVerified === true,
-    bankLast4: e?.bankLast4 ?? '',
-    panMasked: e?.panMasked ?? '',
+    workLocation: e?.workLocation ?? '',
+    salaryComponents: (e?.salaryComponents ?? []).map((c) => ({
+      label: c.label,
+      amount: String(c.amount),
+    })),
     flexBankBalance: e ? String(e.flexBankBalance) : '0',
     tdsMonthly: e ? String(e.tdsMonthly) : '0',
     ptHalfYearly: e ? String(e.ptHalfYearly) : '0',
@@ -105,25 +114,49 @@ function toDraft(e: Employee | null): Draft {
   };
 }
 
-function validate(d: Draft): Partial<Record<keyof Draft, string>> {
-  const errors: Partial<Record<keyof Draft, string>> = {};
+function parseComponents(draft: Draft): { label: string; amount: number }[] {
+  return draft.salaryComponents
+    .filter((c) => c.label.trim() || c.amount.trim())
+    .map((c) => ({ label: c.label.trim(), amount: Number(c.amount) || 0 }));
+}
+
+function validate(d: Draft): Partial<Record<keyof Draft | 'salaryComponentsSum', string>> {
+  const errors: Partial<Record<keyof Draft | 'salaryComponentsSum', string>> = {};
   if (!d.fullName.trim()) errors.fullName = 'Name is required.';
   if (!d.empId.trim()) errors.empId = 'Employee ID is required.';
   else if (!d.empId.trim().toUpperCase().startsWith(d.entityCode))
     errors.empId = `Must be prefixed by the entity code (e.g. ${d.entityCode}-2024-042).`;
   if (!d.joiningDate) errors.joiningDate = 'Joining date is required.';
   const salary = Number(d.baseSalary);
-  if (!d.baseSalary || !Number.isFinite(salary) || salary <= 0) errors.baseSalary = 'Enter a valid amount.';
+  if (!d.baseSalary || !Number.isFinite(salary) || salary <= 0)
+    errors.baseSalary = 'Enter a valid amount.';
   if (d.employmentStatus === 'notice_period' && !d.noticeStartDate) {
     errors.noticeStartDate = 'Notice start date is required for notice period status.';
   }
   if ((d.employmentStatus === 'offboarded' || d.employmentStatus === 'completed') && !d.offboardingDate && !d.noticeEndDate && !d.contractEndDate && !d.internshipEndDate) {
     errors.offboardingDate = 'Offboarding/end date is required for offboarded/completed status.';
   }
-  if (d.bankLast4 && !/^\d{4}$/.test(d.bankLast4))
-    errors.bankLast4 = 'Exactly 4 digits — never store the full account number.';
-  if (d.panMasked && /^[A-Z]{5}\d{4}[A-Z]$/i.test(d.panMasked.trim()))
-    errors.panMasked = 'This looks like a FULL PAN. Store a masked form only, e.g. ABXXXXXX1F.';
+
+  const identity = validateIdentityFields({
+    pan: d.pan,
+    bankAccount: d.bankAccountNumber,
+    ifsc: d.ifsc,
+    bankName: d.bankName,
+  });
+  if (!identity.ok) {
+    for (const msg of identity.errors) {
+      if (msg.startsWith('PAN')) errors.pan = msg;
+      else if (msg.startsWith('Bank account')) errors.bankAccountNumber = msg;
+      else if (msg.startsWith('IFSC')) errors.ifsc = msg;
+      else if (msg.startsWith('Bank name')) errors.bankName = msg;
+      else errors.pan = errors.pan ?? msg;
+    }
+  }
+
+  const components = parseComponents(d);
+  const sumCheck = validateSalaryComponentsSum(components.length ? components : undefined, salary || 0);
+  if (!sumCheck.ok) errors.salaryComponentsSum = sumCheck.error;
+
   const flex = Number(d.flexBankBalance);
   if (!Number.isFinite(flex) || flex < 0) errors.flexBankBalance = 'Minutes must be 0 or more.';
   const tds = Number(d.tdsMonthly);
@@ -159,7 +192,7 @@ export default function EmployeeFormModal({
   const suggestedPt = useMemo(() => {
     const salary = Number(draft.baseSalary);
     if (!Number.isFinite(salary) || salary <= 0) return 0;
-    return suggestPtHalfYearly(salary, ptSlabs);
+    return suggestPtHalfYearly(salary, ptSlabs ?? []);
   }, [draft.baseSalary, ptSlabs]);
 
   // Recalculate suggestion when salary changes; never overwrite a manual override.
@@ -180,11 +213,46 @@ export default function EmployeeFormModal({
 
   async function handleSave() {
     setTouchedSave(true);
-    if (Object.keys(errors).length > 0) return;
+    const currentErrors = validate(draft);
+    if (Object.keys(currentErrors).length > 0) {
+      const messages = Object.values(currentErrors).filter(Boolean) as string[];
+      const summary =
+        messages.length === 1
+          ? messages[0]!
+          : `Please fix ${messages.length} fields: ${messages.slice(0, 3).join(' ')}`;
+      setSaveError(summary);
+      onSaveFailed?.(summary);
+      return;
+    }
 
     setSaving(true);
     setSaveError(null);
     onSaveStart?.();
+
+    const identity = validateIdentityFields({
+      pan: draft.pan,
+      bankAccount: draft.bankAccountNumber,
+      ifsc: draft.ifsc,
+      bankName: draft.bankName,
+    });
+    if (!identity.ok) {
+      setSaving(false);
+      setSaveError(identity.errors.join(' '));
+      onSaveFailed?.(identity.errors.join(' '));
+      return;
+    }
+
+    const components = parseComponents(draft);
+    const sumCheck = validateSalaryComponentsSum(
+      components.length ? components : undefined,
+      Number(draft.baseSalary),
+    );
+    if (!sumCheck.ok) {
+      setSaving(false);
+      setSaveError(sumCheck.error ?? 'Invalid salary components.');
+      onSaveFailed?.(sumCheck.error ?? 'Invalid salary components.');
+      return;
+    }
 
     const payload = {
       ...(employee ? { id: employee.id, flexLog: employee.flexLog } : { flexLog: [] as Employee['flexLog'] }),
@@ -214,14 +282,16 @@ export default function EmployeeFormModal({
       agreementType: draft.agreementType,
       documentsStatus: draft.documentsStatus,
       notes: draft.notes.trim(),
-      bankName: draft.bankName.trim(),
-      ifsc: draft.ifsc.trim().toUpperCase() || null,
-      bankDetailsVerified: draft.bankDetailsVerified,
-      bankAccountNumber: employee?.bankAccountNumber ?? '',
-      bankLast4: draft.bankLast4.trim(),
-      pan: employee?.pan ?? '',
-      panMasked: draft.panMasked.trim().toUpperCase(),
-      workLocation: employee?.workLocation ?? '',
+      bankName: identity.bankName,
+      bankAccountNumber: identity.bankAccount,
+      bankLast4: identity.bankAccount
+        ? identity.bankAccount.slice(-4)
+        : employee?.bankLast4 ?? '',
+      pan: identity.pan,
+      panMasked: identity.panMasked || employee?.panMasked || '',
+      ifsc: identity.ifsc,
+      workLocation: draft.workLocation.trim(),
+      salaryComponents: components.length ? components : undefined,
       flexBankBalance: Number(draft.flexBankBalance),
       tdsMonthly: Number(draft.tdsMonthly) || 0,
       ptHalfYearly: Number(draft.ptHalfYearly) || 0,
@@ -241,7 +311,14 @@ export default function EmployeeFormModal({
     onClose();
   }
 
-  const err = (k: keyof Draft) => (touchedSave ? errors[k] ?? null : null);
+  const err = (k: keyof Draft | 'salaryComponentsSum') => (touchedSave ? errors[k] ?? null : null);
+
+  function setComponent(index: number, patch: Partial<ComponentDraft>) {
+    setDraft((d) => ({
+      ...d,
+      salaryComponents: d.salaryComponents.map((c, i) => (i === index ? { ...c, ...patch } : c)),
+    }));
+  }
 
   return (
     <Modal title={employee ? `Edit — ${employee.fullName}` : 'Add employee'} onClose={onClose} wide>
@@ -319,21 +396,173 @@ export default function EmployeeFormModal({
             ))}
           </select>
         </Field>
-        <Field label="Bank name">
-          <input className={inputCls} value={draft.bankName} onChange={(e) => set('bankName', e.target.value)} placeholder="Verified salary-credit bank" />
-        </Field>
-        <Field label="IFSC (optional, verified only)">
-          <input className={inputCls} maxLength={11} value={draft.ifsc} onChange={(e) => set('ifsc', e.target.value.toUpperCase())} placeholder="ABCD0123456" />
+
+        <div className="sm:col-span-2 border-t border-hairline pt-4">
+          <p className="mb-3 text-[11px] font-semibold uppercase tracking-[0.08em] text-muted">
+            Identity &amp; Bank
+          </p>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <Field
+              label="PAN (full)"
+              error={err('pan')}
+              hint="AAAAA9999A — stored full; Final slip masks at render"
+            >
+              <input
+                className={inputCls}
+                maxLength={10}
+                value={draft.pan}
+                onChange={(e) =>
+                  set('pan', e.target.value.toUpperCase().replace(/[^A-Z0-9]/gi, '').slice(0, 10))
+                }
+                placeholder="ABCDE1234F"
+              />
+            </Field>
+            <Field label="Bank name" error={err('bankName')}>
+              <input
+                className={inputCls}
+                value={draft.bankName}
+                onChange={(e) => set('bankName', e.target.value)}
+                placeholder="HDFC Bank"
+              />
+            </Field>
+            <Field
+              label="Bank account number"
+              error={err('bankAccountNumber')}
+              hint="9–18 digits — Authorised shows full; Final masks"
+            >
+              <input
+                className={inputCls}
+                inputMode="numeric"
+                maxLength={18}
+                value={draft.bankAccountNumber}
+                onChange={(e) => set('bankAccountNumber', e.target.value.replace(/\D/g, '').slice(0, 18))}
+                placeholder="123456789012"
+              />
+            </Field>
+            <Field label="IFSC" error={err('ifsc')} hint="e.g. HDFC0001234">
+              <input
+                className={inputCls}
+                maxLength={11}
+                value={draft.ifsc}
+                onChange={(e) =>
+                  set('ifsc', e.target.value.toUpperCase().replace(/[^A-Z0-9]/gi, '').slice(0, 11))
+                }
+                placeholder="HDFC0001234"
+              />
+            </Field>
+            <Field label="Work location">
+              <input
+                className={inputCls}
+                value={draft.workLocation}
+                onChange={(e) => set('workLocation', e.target.value)}
+                placeholder="Kochi / Remote"
+              />
+            </Field>
+          </div>
+        </div>
+
+        <div className="sm:col-span-2 border-t border-hairline pt-4">
+          <p className="mb-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-muted">
+            Salary components (optional)
+          </p>
+          <p className="mb-3 text-[11px] text-muted">
+            Leave empty to treat base salary as a single Basic line. When set, amounts must sum to base salary.
+          </p>
+          {draft.salaryComponents.map((c, i) => (
+            <div key={i} className="mb-2 grid grid-cols-[1fr_7rem_auto] gap-2">
+              <input
+                className={inputCls}
+                value={c.label}
+                onChange={(e) => setComponent(i, { label: e.target.value })}
+                placeholder="Basic / HRA / …"
+              />
+              <input
+                type="number"
+                min={0}
+                step="0.01"
+                className={inputAmountCls}
+                value={c.amount}
+                onChange={(e) => setComponent(i, { amount: e.target.value })}
+                placeholder="0"
+              />
+              <button
+                type="button"
+                className={btnSecondary}
+                onClick={() =>
+                  setDraft((d) => ({
+                    ...d,
+                    salaryComponents: d.salaryComponents.filter((_, j) => j !== i),
+                  }))
+                }
+              >
+                Remove
+              </button>
+            </div>
+          ))}
+          {err('salaryComponentsSum') && (
+            <p className="mb-2 text-[11px] font-medium text-amber-brand">{err('salaryComponentsSum')}</p>
+          )}
+          <button
+            type="button"
+            className={btnSecondary}
+            onClick={() =>
+              setDraft((d) => ({
+                ...d,
+                salaryComponents: [...d.salaryComponents, { label: '', amount: '' }],
+              }))
+            }
+          >
+            Add component
+          </button>
+        </div>
+
+        <Field
+          label="Professional Tax half-yearly (₹)"
+          error={err('ptHalfYearly')}
+          hint={
+            draft.ptManualOverride
+              ? `Manual override (CA). Slab suggestion: ₹${suggestedPt.toFixed(2)}`
+              : `Auto from slabs · suggestion ₹${suggestedPt.toFixed(2)} · half-yearly gross ₹${((Number(draft.baseSalary) || 0) * 6).toLocaleString('en-IN')}`
+          }
+        >
+          <input
+            type="number"
+            min={0}
+            step="0.01"
+            className={inputAmountCls}
+            value={draft.ptHalfYearly}
+            readOnly={!draft.ptManualOverride}
+            disabled={!draft.ptManualOverride}
+            onChange={(e) => set('ptHalfYearly', e.target.value)}
+            placeholder="0"
+          />
         </Field>
         <label className="col-span-2 flex items-center gap-2 text-sm">
-          <input type="checkbox" checked={draft.bankDetailsVerified} onChange={(e) => set('bankDetailsVerified', e.target.checked)} />
-          HR has verified the salary-credit bank details
+          <input
+            type="checkbox"
+            checked={draft.ptManualOverride}
+            onChange={(e) => {
+              const on = e.target.checked;
+              setDraft((d) => ({
+                ...d,
+                ptManualOverride: on,
+                // Turning override off restores the live slab suggestion.
+                ptHalfYearly: on ? d.ptHalfYearly : String(suggestedPt),
+              }));
+            }}
+          />
+          Manual override (CA adjustments) — global slab recalculate will skip this employee
         </label>
-        <Field label="Bank a/c — last 4 digits only" error={err('bankLast4')}>
-          <input className={inputCls} maxLength={4} value={draft.bankLast4} onChange={(e) => set('bankLast4', e.target.value.replace(/\D/g, ''))} placeholder="4821" />
-        </Field>
-        <Field label="PAN (masked)" error={err('panMasked')} hint="e.g. ABXXXXXX1F — never the full number">
-          <input className={inputCls} maxLength={10} value={draft.panMasked} onChange={(e) => set('panMasked', e.target.value)} placeholder="ABXXXXXX1F" />
+        <Field label="TDS monthly (₹)" error={err('tdsMonthly')}>
+          <input
+            type="number"
+            min={0}
+            step="0.01"
+            className={inputAmountCls}
+            value={draft.tdsMonthly}
+            onChange={(e) => set('tdsMonthly', e.target.value)}
+            placeholder="0"
+          />
         </Field>
         <Field label="Reporting manager">
           <input className={inputCls} value={draft.reportingManager} onChange={(e) => set('reportingManager', e.target.value)} />
@@ -368,45 +597,6 @@ export default function EmployeeFormModal({
             <input type="number" min={0} className={inputAmountCls} value={draft.flexBankBalance} onChange={(e) => set('flexBankBalance', e.target.value)} />
           </Field>
         )}
-        <Field label="Monthly TDS (₹)" error={err('tdsMonthly')}>
-          <input type="number" min={0} step="0.01" className={inputAmountCls} value={draft.tdsMonthly} onChange={(e) => set('tdsMonthly', e.target.value)} />
-        </Field>
-        <Field
-          label="Professional Tax half-yearly (₹)"
-          error={err('ptHalfYearly')}
-          hint={
-            draft.ptManualOverride
-              ? `Manual override (CA). Slab suggestion: ₹${suggestedPt.toFixed(2)}`
-              : `Auto from slabs · suggestion ₹${suggestedPt.toFixed(2)} · half-yearly gross ₹${((Number(draft.baseSalary) || 0) * 6).toLocaleString('en-IN')}`
-          }
-        >
-          <input
-            type="number"
-            min={0}
-            step="0.01"
-            className={inputAmountCls}
-            value={draft.ptHalfYearly}
-            readOnly={!draft.ptManualOverride}
-            disabled={!draft.ptManualOverride}
-            onChange={(e) => set('ptHalfYearly', e.target.value)}
-          />
-        </Field>
-        <label className="col-span-2 flex items-center gap-2 text-sm">
-          <input
-            type="checkbox"
-            checked={draft.ptManualOverride}
-            onChange={(e) => {
-              const on = e.target.checked;
-              setDraft((d) => ({
-                ...d,
-                ptManualOverride: on,
-                // Turning override off restores the live slab suggestion.
-                ptHalfYearly: on ? d.ptHalfYearly : String(suggestedPt),
-              }));
-            }}
-          />
-          Manual override (CA adjustments) — global slab recalculate will skip this employee
-        </label>
       </div>
 
       <div className="mt-6 flex justify-end gap-2">

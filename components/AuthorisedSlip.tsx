@@ -1,471 +1,126 @@
 'use client';
 
 /**
- * AUTHORISED SALARY SLIP — bank / visa / third-party verification copy.
- * Separate template from the Internal Pay Slip. Generation is gated until
- * payment is fully PAID and reconciled. Never invents credit dates.
+ * Thin host for the authorised bank copy.
+ * Layout is owned exclusively by lib/pdf-vector.ts → buildVectorPayslipPdf.
+ * Preview uses the same ScaledPreview A4 sheet chrome as Draft/Final —
+ * not a browser PDF-viewer chrome modal.
  */
 
-import { useEffect, useState } from 'react';
-import {
-  formatAmount,
-  formatDate,
-  formatINR,
-  formatMonthYear,
-} from '@/lib/format';
-import { slipStatutoryDeductions } from '@/lib/payroll-calc';
-import { resolvePayableDays } from '@/lib/authorised-slip-policy';
-import { formatRegisteredAddress } from '@/lib/company-address';
-import type { AuthorisedSlipYtd, EntityInfo, SlipSnapshot } from '@/lib/types';
-import EntityLogo from '@/components/EntityLogo';
-import { createSignatorySignedUrl } from '@/app/actions/signatory-assets';
+import { useEffect, useRef, useState } from 'react';
 
 interface AuthorisedSlipProps {
-  snapshot: SlipSnapshot;
-  entity: EntityInfo;
-  ytd: AuthorisedSlipYtd;
-  /** @deprecated Prefer actualCreditDate from payment ledger. */
-  paydayDayOfMonth?: number;
-  signatureUrl: string | null;
-  sealUrl: string | null;
-  signatureAssetPath?: string | null;
-  sealAssetPath?: string | null;
-  issueDate?: Date | string;
-  actualCreditDate: string;
-  paymentMode?: string;
-  confirmedPaidAmount?: number;
-  outstandingBalance?: number;
-  attendancePeriodStart?: string | null;
-  attendancePeriodEnd?: string | null;
-  documentNumber?: string | null;
-  verificationId?: string | null;
-  verificationUrl?: string | null;
-  verificationFingerprint?: string | null;
-  revisionNumber?: number;
-  payrollFinalisedDate?: string | null;
-  qrDataUrl?: string | null;
-  financialYearLabel?: string | null;
-  /** Called when preview images finish loading (success or failure). */
-  onAssetsReady?: (ready: boolean) => void;
+  /** Object URL for the canonical pdf-lib blob. */
+  pdfUrl: string | null;
+  /** Optional loading / empty message. */
+  emptyMessage?: string;
+  className?: string;
+  title?: string;
 }
 
-function MoneyCell({ amount }: { amount: number }) {
-  return <td className="amount whitespace-nowrap px-2 py-1 text-right tabular-nums">{formatAmount(amount)}</td>;
+/** Same A4 scaling used by Generator Draft/Final live preview. */
+function ScaledA4({ children }: { children: React.ReactNode }) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [scale, setScale] = useState(0.5);
+  const SHEET_PX = 794; // 210mm at 96dpi
+
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const observer = new ResizeObserver(() => {
+      setScale(Math.min(el.clientWidth / SHEET_PX, 1));
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
+  return (
+    <div ref={containerRef} className="w-full overflow-hidden">
+      <div
+        style={{
+          transform: `scale(${scale})`,
+          transformOrigin: 'top left',
+          width: SHEET_PX,
+          height: 1123 * scale, // 297mm at 96dpi
+        }}
+      >
+        {children}
+      </div>
+    </div>
+  );
 }
 
 export default function AuthorisedSlip({
-  snapshot,
-  entity,
-  ytd,
-  signatureUrl: initialSignatureUrl,
-  sealUrl: initialSealUrl,
-  signatureAssetPath = null,
-  sealAssetPath = null,
-  issueDate,
-  actualCreditDate,
-  paymentMode,
-  confirmedPaidAmount,
-  outstandingBalance = 0,
-  attendancePeriodStart = null,
-  attendancePeriodEnd = null,
-  documentNumber = null,
-  verificationId = null,
-  verificationUrl = null,
-  verificationFingerprint = null,
-  revisionNumber = 1,
-  payrollFinalisedDate = null,
-  qrDataUrl = null,
-  financialYearLabel = null,
-  onAssetsReady,
+  pdfUrl,
+  emptyMessage = 'Preparing authorised bank copy…',
+  className = '',
+  title = 'Authorised Salary Slip',
 }: AuthorisedSlipProps) {
-  const { inputs, computed, employee } = snapshot;
-
-  const { tds, pt } = slipStatutoryDeductions(computed, inputs);
-  const other = computed.otherDeductions;
-  const lop = computed.lopDeduction;
-  const totalDeductions = computed.totalDeductions;
-  const variablePaid = computed.variablePaid;
-  const grossThisMonth = inputs.baseSalary + inputs.fixedAllowance + variablePaid;
-  const paidAmount = confirmedPaidAmount ?? computed.netPay;
-  const issued = issueDate ?? new Date();
-  const payableDays = resolvePayableDays(snapshot);
-  const lopFootnote =
-    computed.lopDays > 0 ? snapshot.calculationMethodLabel?.trim() || null : null;
-
-  // Kept on the prop surface for callers; not printed on the authorised document.
-  void attendancePeriodStart;
-  void attendancePeriodEnd;
-  void payrollFinalisedDate;
-  void financialYearLabel;
-
-  const [signatureUrl, setSignatureUrl] = useState(initialSignatureUrl);
-  const [sealUrl, setSealUrl] = useState(initialSealUrl);
-  const [signatureError, setSignatureError] = useState<string | null>(null);
-  const [sealError, setSealError] = useState<string | null>(null);
-  const [signatureLoaded, setSignatureLoaded] = useState(!initialSignatureUrl);
-  const [sealLoaded, setSealLoaded] = useState(!initialSealUrl);
-
-  useEffect(() => {
-    setSignatureUrl(initialSignatureUrl);
-    setSealUrl(initialSealUrl);
-    setSignatureError(null);
-    setSealError(null);
-    setSignatureLoaded(!initialSignatureUrl);
-    setSealLoaded(!initialSealUrl);
-  }, [initialSignatureUrl, initialSealUrl]);
-
-  useEffect(() => {
-    if (!signatureAssetPath?.trim() && !sealAssetPath?.trim()) {
-      onAssetsReady?.(true);
-      return;
-    }
-    onAssetsReady?.(signatureLoaded && sealLoaded && !signatureError && !sealError);
-  }, [
-    signatureLoaded,
-    sealLoaded,
-    signatureError,
-    sealError,
-    signatureAssetPath,
-    sealAssetPath,
-    onAssetsReady,
-  ]);
-
-  async function refreshSignedUrl(
-    path: string | null | undefined,
-    kind: 'signature' | 'seal',
-  ) {
-    if (!path?.trim()) return;
-    const result = await createSignatorySignedUrl(path);
-    if (!result.ok || !result.data.signedUrl) {
-      if (kind === 'signature') {
-        setSignatureError('Signature image could not be loaded from company settings.');
-        setSignatureLoaded(true);
-      } else {
-        setSealError('Company seal is missing.');
-        setSealLoaded(true);
-      }
-      return;
-    }
-    if (kind === 'signature') {
-      setSignatureUrl(result.data.signedUrl);
-      setSignatureError(null);
-      setSignatureLoaded(false);
-    } else {
-      setSealUrl(result.data.signedUrl);
-      setSealError(null);
-      setSealLoaded(false);
-    }
+  if (!pdfUrl) {
+    return (
+      <div
+        className={`flex h-96 items-center justify-center rounded-lg border border-dashed border-hairline bg-paper text-sm text-muted ${className}`}
+      >
+        {emptyMessage}
+      </div>
+    );
   }
 
+  // Hide browser PDF toolbar/nav so preview matches Draft/Final sheet chrome.
+  const embedSrc = pdfUrl.includes('#') ? pdfUrl : `${pdfUrl}#toolbar=0&navpanes=0&scrollbar=0`;
+
   return (
-    <div
-      className="slip-sheet relative mx-auto box-border bg-paper text-ink shadow-lg"
-      style={{ width: '210mm', minHeight: '297mm', padding: '12mm 14mm' }}
-    >
-      <header className="flex items-start justify-between gap-4 border-b-2 border-ink pb-3">
-        <div className="flex min-w-0 flex-1 items-start gap-3">
-          <div className="flex h-14 w-28 shrink-0 items-center justify-center overflow-hidden rounded bg-ink p-1.5">
-            <EntityLogo entity={entity} code={employee.entityCode} className="max-h-full max-w-full" />
-          </div>
-          <div className="min-w-0">
-            <h1 className="text-[16px] font-bold leading-tight tracking-tight">{entity.name}</h1>
-            <p className="mt-1 text-[10px] text-muted">
-              CIN: <span className="amount text-ink">{entity.cin}</span>
-            </p>
-            <p className="mt-0.5 max-w-[430px] whitespace-normal text-[10px] leading-snug text-muted">
-              {formatRegisteredAddress(entity.registeredAddress)}
-            </p>
-            <p className="mt-1 text-[10px] text-muted">
-              Tel: <span className="text-ink">{entity.phone}</span>
-              {' · '}
-              Payroll: <span className="text-ink">{entity.payrollEmail}</span>
-            </p>
-          </div>
-        </div>
-        {qrDataUrl && (
-          <div className="shrink-0 text-center">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={qrDataUrl} alt="Verification QR" className="h-16 w-16" />
-            <p className="mt-0.5 max-w-[72px] break-all text-[7px] text-muted">{verificationId}</p>
-          </div>
-        )}
-      </header>
-
-      <div className="mt-3 text-center">
-        <p className="text-[16px] font-bold uppercase tracking-[0.14em]">Authorised Salary Slip</p>
-        <p className="mt-0.5 text-[12px] font-semibold">{formatMonthYear(snapshot.monthYear)}</p>
+    <ScaledA4>
+      <div
+        className={`slip-sheet relative mx-auto box-border overflow-hidden bg-paper text-ink shadow-lg ${className}`}
+        style={{ width: '210mm', height: '297mm' }}
+      >
+        <iframe
+          src={embedSrc}
+          title={title}
+          className="h-full w-full border-0 bg-paper"
+        />
       </div>
-
-      <section className="mt-3 rounded border border-hairline">
-        <div className="grid grid-cols-2 divide-x divide-hairline text-[10.5px]">
-          <div className="px-3 py-2">
-            <p className="text-[8.5px] font-semibold uppercase tracking-wider text-muted">Issue date</p>
-            <p className="font-semibold">{formatDate(issued)}</p>
-          </div>
-          <div className="px-3 py-2">
-            <p className="text-[8.5px] font-semibold uppercase tracking-wider text-muted">Credit date</p>
-            <p className="font-semibold">{formatDate(actualCreditDate)}</p>
-          </div>
-        </div>
-      </section>
-
-      <section className="mt-3 rounded border border-hairline px-3 py-2">
-        <div className="grid grid-cols-4 gap-x-4 gap-y-1.5 text-[10.5px]">
-          <div className="col-span-2">
-            <p className="text-[8.5px] font-semibold uppercase tracking-wider text-muted">Employee name</p>
-            <p className="font-semibold">{employee.fullName}</p>
-          </div>
-          <div>
-            <p className="text-[8.5px] font-semibold uppercase tracking-wider text-muted">Employee ID</p>
-            <p className="amount font-semibold">{employee.empId}</p>
-          </div>
-          <div>
-            <p className="text-[8.5px] font-semibold uppercase tracking-wider text-muted">Designation</p>
-            <p>{employee.designation || '—'}</p>
-          </div>
-          <div>
-            <p className="text-[8.5px] font-semibold uppercase tracking-wider text-muted">Department</p>
-            <p>{employee.department || '—'}</p>
-          </div>
-          <div>
-            <p className="text-[8.5px] font-semibold uppercase tracking-wider text-muted">Date of joining</p>
-            <p>{formatDate(employee.joiningDate)}</p>
-          </div>
-          <div>
-            <p className="text-[8.5px] font-semibold uppercase tracking-wider text-muted">PAN</p>
-            <p className="amount">{employee.pan || employee.panMasked || '—'}</p>
-          </div>
-          <div>
-            <p className="text-[8.5px] font-semibold uppercase tracking-wider text-muted">Work location</p>
-            <p>{employee.workLocation || '—'}</p>
-          </div>
-          <div>
-            <p className="text-[8.5px] font-semibold uppercase tracking-wider text-muted">Bank name</p>
-            <p>{employee.bankName || '—'}</p>
-          </div>
-          <div>
-            <p className="text-[8.5px] font-semibold uppercase tracking-wider text-muted">Account number</p>
-            <p className="amount">
-              {employee.bankAccountNumber ||
-                (employee.bankLast4 ? `····${employee.bankLast4}` : '—')}
-            </p>
-          </div>
-          <div>
-            <p className="text-[8.5px] font-semibold uppercase tracking-wider text-muted">IFSC</p>
-            <p className="amount">{employee.ifsc || '—'}</p>
-          </div>
-          <div>
-            <p className="text-[8.5px] font-semibold uppercase tracking-wider text-muted">Payment mode</p>
-            <p>{paymentMode ?? employee.paymentMode}</p>
-          </div>
-          <div>
-            <p className="text-[8.5px] font-semibold uppercase tracking-wider text-muted">Payable days</p>
-            <p className="amount">{payableDays == null ? '—' : payableDays.toFixed(1)}</p>
-          </div>
-          <div>
-            <p className="text-[8.5px] font-semibold uppercase tracking-wider text-muted">LOP days</p>
-            <p className="amount">{computed.lopDays.toFixed(1)}</p>
-          </div>
-        </div>
-      </section>
-
-      <section className="mt-3">
-        <h3 className="mb-1 border-b border-ink/70 pb-1 text-[10.5px] font-bold uppercase tracking-[0.08em]">
-          Earnings
-        </h3>
-        <table className="w-full border-collapse text-[10.5px]">
-          <thead>
-            <tr className="border-b border-hairline text-[8.5px] uppercase tracking-wider text-muted">
-              <th className="px-2 py-1 text-left font-semibold">Particulars</th>
-              <th className="px-2 py-1 text-right font-semibold">Monthly Rate</th>
-              <th className="px-2 py-1 text-right font-semibold">This Month</th>
-              <th className="px-2 py-1 text-right font-semibold">YTD (FY)</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr className="border-b border-hairline/60">
-              <td className="px-2 py-1">Basic</td>
-              <MoneyCell amount={inputs.baseSalary} />
-              <MoneyCell amount={inputs.baseSalary} />
-              <MoneyCell amount={ytd.basic} />
-            </tr>
-            <tr className="border-b border-hairline/60">
-              <td className="px-2 py-1">Fixed Allowance</td>
-              <MoneyCell amount={inputs.fixedAllowance} />
-              <MoneyCell amount={inputs.fixedAllowance} />
-              <MoneyCell amount={ytd.fixedAllowance} />
-            </tr>
-            <tr className="border-b border-hairline/60">
-              <td className="px-2 py-1">Incentive / Variable</td>
-              <MoneyCell amount={0} />
-              <MoneyCell amount={variablePaid} />
-              <MoneyCell amount={ytd.variablePaid} />
-            </tr>
-            <tr className="font-semibold">
-              <td className="px-2 py-1.5">Gross Earnings</td>
-              <MoneyCell amount={inputs.baseSalary + inputs.fixedAllowance} />
-              <MoneyCell amount={grossThisMonth} />
-              <MoneyCell amount={ytd.grossEarnings} />
-            </tr>
-          </tbody>
-        </table>
-      </section>
-
-      <section className="mt-3">
-        <h3 className="mb-1 border-b border-ink/70 pb-1 text-[10.5px] font-bold uppercase tracking-[0.08em]">
-          Deductions
-        </h3>
-        <table className="w-full border-collapse text-[10.5px]">
-          <thead>
-            <tr className="border-b border-hairline text-[8.5px] uppercase tracking-wider text-muted">
-              <th className="px-2 py-1 text-left font-semibold">Particulars</th>
-              <th className="px-2 py-1 text-right font-semibold">This Month</th>
-              <th className="px-2 py-1 text-right font-semibold">YTD (FY)</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr className="border-b border-hairline/60 align-top">
-              <td className="px-2 py-1">
-                Loss of Pay
-                {lopFootnote && (
-                  <span className="mt-0.5 block text-[8px] font-normal text-muted">{lopFootnote}</span>
-                )}
-              </td>
-              <MoneyCell amount={lop} />
-              <MoneyCell amount={ytd.lopDeduction} />
-            </tr>
-            <tr className="border-b border-hairline/60 align-top">
-              <td className="px-2 py-1">Professional Tax</td>
-              <MoneyCell amount={pt} />
-              <MoneyCell amount={ytd.professionalTax} />
-            </tr>
-            <tr className="border-b border-hairline/60 align-top">
-              <td className="px-2 py-1">TDS</td>
-              <MoneyCell amount={tds} />
-              <MoneyCell amount={ytd.tds} />
-            </tr>
-            <tr className="border-b border-hairline/60 align-top">
-              <td className="px-2 py-1">Other</td>
-              <MoneyCell amount={other} />
-              <MoneyCell amount={ytd.otherDeductions} />
-            </tr>
-            <tr className="font-semibold">
-              <td className="px-2 py-1.5">Total Deductions</td>
-              <MoneyCell amount={totalDeductions} />
-              <MoneyCell amount={ytd.totalDeductions} />
-            </tr>
-          </tbody>
-        </table>
-      </section>
-
-      <section className="slip-net-band mt-3 rounded border px-4 py-2.5">
-        <div className="flex items-baseline justify-between gap-4">
-          <p className="text-[10px] font-bold uppercase tracking-[0.15em]">Net Salary</p>
-          <p className="amount shrink-0 text-[22px] font-bold">{formatINR(computed.netPay)}</p>
-        </div>
-        <p className="mt-1 border-t border-emerald-600/30 pt-1 text-[10px] font-medium">
-          {computed.netPayWords}
-        </p>
-        <div className="mt-2 grid grid-cols-3 gap-2 border-t border-emerald-600/20 pt-2 text-[10px]">
-          <div>
-            <p className="text-[8px] uppercase tracking-wider text-muted">Payment status</p>
-            <p className="font-semibold">Paid</p>
-          </div>
-          <div>
-            <p className="text-[8px] uppercase tracking-wider text-muted">Confirmed paid</p>
-            <p className="amount font-semibold">{formatINR(paidAmount)}</p>
-          </div>
-          <div>
-            <p className="text-[8px] uppercase tracking-wider text-muted">Outstanding</p>
-            <p className="amount font-semibold">{formatINR(outstandingBalance)}</p>
-          </div>
-        </div>
-      </section>
-
-      {(signatureError || sealError) && (
-        <div className="no-print mt-2 space-y-1 rounded border border-amber-edge bg-amber-tint px-3 py-2 text-[11px] font-medium text-amber-brand">
-          {signatureError && <p>{signatureError}</p>}
-          {sealError && <p>{sealError}</p>}
-        </div>
-      )}
-
-      <section className="mt-4 grid grid-cols-2 items-end gap-6">
-        <div>
-          <p className="text-[10px]">For {entity.name}</p>
-          <div className="relative mt-1.5 inline-block min-h-[56px] min-w-[180px]">
-            {signatureUrl ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={signatureUrl}
-                alt="Authorised signature"
-                className="relative z-0 max-h-14 max-w-[180px] object-contain"
-                onLoad={() => {
-                  setSignatureLoaded(true);
-                  setSignatureError(null);
-                }}
-                onError={() => {
-                  setSignatureLoaded(true);
-                  setSignatureError('Signature image could not be loaded from company settings.');
-                  void refreshSignedUrl(signatureAssetPath, 'signature');
-                }}
-              />
-            ) : signatureAssetPath ? (
-              <p className="no-print text-[10px] text-amber-brand">Loading signature…</p>
-            ) : null}
-            {sealUrl && (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={sealUrl}
-                alt="Company seal"
-                className="pointer-events-none absolute -bottom-2 -right-4 z-10 h-14 w-14 object-contain"
-                onLoad={() => {
-                  setSealLoaded(true);
-                  setSealError(null);
-                }}
-                onError={() => {
-                  setSealLoaded(true);
-                  setSealError('Company seal is missing.');
-                  void refreshSignedUrl(sealAssetPath, 'seal');
-                }}
-              />
-            )}
-          </div>
-          <p className="mt-1 text-[11px] font-semibold">{entity.signatoryName}</p>
-          <p className="text-[10px] text-muted">{entity.signatoryDesignation} / Authorised Signatory</p>
-          <p className="mt-2 text-[9.5px] text-muted">
-            Place: Kochi
-            {' · '}
-            Date: {formatDate(issued)}
-          </p>
-        </div>
-        <div className="flex flex-col items-center gap-1 text-center">
-          <div className="flex h-20 w-20 items-center justify-center rounded border border-hairline bg-surface text-[8px] text-muted">
-            {verificationUrl ? 'QR' : 'Verification QR'}
-          </div>
-          <p className="text-[8.5px] text-muted">
-            Payslip No:{' '}
-            <span className="amount text-ink">{documentNumber ?? '—'}</span>
-            {' · '}
-            Rev {revisionNumber}
-          </p>
-          {verificationId && (
-            <p className="text-[8.5px] text-muted">
-              Verification ID: <span className="amount text-ink">{verificationId}</span>
-            </p>
-          )}
-          {verificationUrl && <p className="text-[7.5px] text-muted">Verify through the official payroll portal</p>}
-        </div>
-      </section>
-
-      <footer className="mt-3 border-t border-hairline pt-2 text-[8px] leading-relaxed text-muted">
-        <p>
-          This authorised salary slip may be verified through the QR code and verification ID.
-        </p>
-        <p>
-          For employer verification, contact {entity.payrollEmail} or {entity.phone}.
-        </p>
-        {snapshot.ptFootnote && <p className="text-ink">{snapshot.ptFootnote}</p>}
-      </footer>
-    </div>
+    </ScaledA4>
   );
+}
+
+/**
+ * Print the same PDF blob browsers already display.
+ * Uses a hidden iframe — window.open(..., 'noopener') returns null and cannot print.
+ */
+export function printPdfBlobUrl(pdfUrl: string): void {
+  const iframe = document.createElement('iframe');
+  iframe.setAttribute('title', 'Print authorised salary slip');
+  iframe.style.position = 'fixed';
+  iframe.style.right = '0';
+  iframe.style.bottom = '0';
+  iframe.style.width = '0';
+  iframe.style.height = '0';
+  iframe.style.border = '0';
+  iframe.style.opacity = '0';
+  iframe.style.pointerEvents = 'none';
+  iframe.src = pdfUrl;
+  document.body.appendChild(iframe);
+
+  const cleanup = () => {
+    try {
+      iframe.remove();
+    } catch {
+      // ignore
+    }
+  };
+
+  iframe.onload = () => {
+    try {
+      iframe.contentWindow?.focus();
+      iframe.contentWindow?.print();
+    } catch {
+      // Popup/print blocked — leave iframe briefly so the user can retry.
+    }
+    setTimeout(cleanup, 60_000);
+  };
+
+  // Fallback cleanup if onload never fires.
+  setTimeout(cleanup, 120_000);
 }

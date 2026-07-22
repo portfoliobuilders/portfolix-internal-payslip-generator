@@ -2,7 +2,6 @@
  * Tests for private company asset helpers and authorised PDF embedding.
  */
 
-import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import {
   imageBytesToDataUri,
@@ -15,7 +14,7 @@ import {
 } from '../signatory-assets';
 import { buildVectorPayslipPdf } from '../pdf-vector';
 import { signatoryIncompleteReason } from '../settings-defaults';
-import type { EntityInfo } from '../types';
+import type { EntityInfo, SlipSnapshot } from '../types';
 import { LEGAL_COMPANY_NAME_CANONICAL } from '../constants/company';
 
 /** Minimal 1×1 transparent PNG */
@@ -44,10 +43,78 @@ function baseEntity(overrides: Partial<EntityInfo> = {}): EntityInfo {
     signatoryDesignation: 'Director',
     signatureAssetPath: 'px/signatures/test-sig.png',
     sealAssetPath: 'px/seals/test-seal.png',
-    authorisationMode: 'SIGNATURE_AND_SEAL',
-    authorityEffectiveFrom: null,
-    authorityEffectiveTo: null,
-    signatoryActive: true,
+    ...overrides,
+  };
+}
+
+function sampleSnapshot(overrides: Partial<SlipSnapshot> = {}): SlipSnapshot {
+  return {
+    id: '11111111-2222-4333-8444-555555555555',
+    employeeId: 'emp-1',
+    monthYear: '2026-07',
+    status: 'final',
+    generatedAt: '2026-07-28T10:00:00.000Z',
+    flexBalanceAfter: 0,
+    inputs: {
+      absentDays: 0,
+      halfDays: 0,
+      lateMinutes: 0,
+      flexMinutesEarned: 0,
+      fixedAllowance: 0,
+      otherDeductions: 0,
+      tdsMonthly: 0,
+      ptThisMonth: 0,
+      variableLabel: '',
+      variableEarned: 0,
+      variablePaid: 0,
+      deferredOpening: 0,
+      committedPayoutDate: null,
+      remarks: '',
+      flexBankBalanceBefore: 0,
+      baseSalary: 50000,
+    },
+    computed: {
+      perDayRate: 2000,
+      flexAvailable: 0,
+      unpaidLateMinutes: 0,
+      flexOffsetMinutes: 0,
+      lopFromLateness: 0,
+      lopDays: 0,
+      lopDeduction: 0,
+      otherDeductions: 0,
+      tds: 0,
+      pt: 0,
+      totalDeductions: 0,
+      grossFixed: 50000,
+      variableEarned: 0,
+      variablePaid: 0,
+      variableDeferred: 0,
+      deferredOpening: 0,
+      deferredClosing: 0,
+      committedPayoutDate: null,
+      netPay: 50000,
+      netPayWords: 'Rupees Fifty Thousand Only',
+    },
+    employee: {
+      fullName: 'Tinu Rani A S',
+      empId: 'PX-2024-001',
+      entityCode: 'PX',
+      department: 'Ops',
+      designation: 'Operations Lead',
+      joiningDate: '2024-01-15',
+      employeeAddress: '',
+      paymentMode: 'Bank Transfer',
+      engagementType: 'regular_employee',
+      employmentStatus: 'active',
+      paymentType: 'salary',
+      bankName: 'HDFC Bank',
+      bankAccountNumber: '50100123456789',
+      bankLast4: '6789',
+      panMasked: 'ABXXXXXX1F',
+    },
+    attendancePeriodStart: '2026-06-25',
+    attendancePeriodEnd: '2026-07-24',
+    revisionNumber: 1,
     ...overrides,
   };
 }
@@ -105,42 +172,19 @@ describe('signatoryIncompleteReason gates', () => {
     const reason = signatoryIncompleteReason(
       baseEntity({ signatureAssetPath: null }),
     );
-    expect(reason).toMatch(/incomplete/i);
+    expect(reason).toContain('signature image');
   });
 
   it('blocks when seal path missing under SIGNATURE_AND_SEAL', () => {
     const reason = signatoryIncompleteReason(baseEntity({ sealAssetPath: null }));
-    expect(reason).toMatch(/incomplete/i);
+    expect(reason).toContain('company seal image');
   });
 
-  it('allows COMPUTER_GENERATED_VERIFICATION without visual assets', () => {
-    const reason = signatoryIncompleteReason(
-      baseEntity({
-        authorisationMode: 'COMPUTER_GENERATED_VERIFICATION',
-        signatureAssetPath: null,
-        sealAssetPath: null,
-      }),
-    );
-    expect(reason).toBeNull();
-  });
-
-  it('blocks outside authority effective dates', () => {
-    const reason = signatoryIncompleteReason(
-      baseEntity({
-        authorityEffectiveFrom: '2026-01-01',
-        authorityEffectiveTo: '2026-01-31',
-      }),
-      '2026-07-01',
-    );
-    expect(reason).toMatch(/incomplete/i);
-  });
 });
 
 describe('authorised PDF embedding', () => {
-  it('embeds signature and seal bytes and includes signatory text', async () => {
-    const sigHash = createHash('sha256').update(PNG_1X1).digest('hex');
-    const sealHash = createHash('sha256').update(PNG_SEAL).digest('hex');
-
+  it('accepts signature and seal bytes and includes signatory text', async () => {
+    const entity = baseEntity();
     const result = await buildVectorPayslipPdf({
       documentType: 'AUTHORISED_SALARY_SLIP',
       legalCompanyName: LEGAL_COMPANY_NAME_CANONICAL,
@@ -150,37 +194,21 @@ describe('authorised PDF embedding', () => {
       attendancePeriodStart: '2026-06-25',
       attendancePeriodEnd: '2026-07-24',
       netSalary: 50000,
-      documentNumber: 'PX-AUTH-2026-07-PX-2024-001-R1',
+      documentNumber: 'ASL-PX-2024-001-2026-07',
       paymentStatus: 'Paid',
       verificationId: 'ver_test_token_abc',
       verificationUrl: 'https://example.com/verify/ver_test_token_abc',
       actualCreditDate: '2026-08-05',
       issueDate: '2026-08-05',
-      signatoryName: 'Test Signatory',
-      signatoryDesignation: 'Director',
-      drawSignatoryBlock: true,
-      assets: {
-        signature: {
-          bytes: PNG_1X1,
-          mimeType: 'image/png',
-          contentHash: sigHash,
-          storagePath: 'px/signatures/test.png',
-          width: 1,
-          height: 1,
-        },
-        seal: {
-          bytes: PNG_SEAL,
-          mimeType: 'image/png',
-          contentHash: sealHash,
-          storagePath: 'px/seals/test.png',
-          width: 1,
-          height: 1,
-        },
-      },
+      snapshot: sampleSnapshot(),
+      entity,
+      signatureBytes: PNG_1X1,
+      sealBytes: PNG_SEAL,
+      showPaymentBand: true,
+      confirmedPaidAmount: 50000,
+      outstandingAmount: 0,
     });
 
-    expect(result.embedded.signature).toBe(true);
-    expect(result.embedded.seal).toBe(true);
     expect(result.extractedText).toContain('Test Signatory');
     expect(result.extractedText).toContain('Director');
     expect(result.extractedText).toContain('AUTHORISED SALARY SLIP');
@@ -188,26 +216,5 @@ describe('authorised PDF embedding', () => {
     expect(result.sizeBytes).toBeLessThan(1_000_000);
     // PDF magic
     expect(String.fromCharCode(...result.bytes.slice(0, 4))).toBe('%PDF');
-  });
-
-  it('does not draw blank signature placeholders in computer-generated mode', async () => {
-    const result = await buildVectorPayslipPdf({
-      documentType: 'AUTHORISED_SALARY_SLIP',
-      legalCompanyName: LEGAL_COMPANY_NAME_CANONICAL,
-      employeeName: 'Tinu Rani A S',
-      employeeId: 'PX-2024-001',
-      salaryMonth: '2026-07',
-      attendancePeriodStart: '2026-06-25',
-      attendancePeriodEnd: '2026-07-24',
-      netSalary: 50000,
-      documentNumber: 'PX-AUTH-CG-1',
-      paymentStatus: 'Paid',
-      verificationId: 'ver_cg',
-      issueDate: '2026-08-05',
-      drawSignatoryBlock: false,
-      assets: null,
-    });
-    expect(result.embedded.signature).toBe(false);
-    expect(result.embedded.seal).toBe(false);
   });
 });

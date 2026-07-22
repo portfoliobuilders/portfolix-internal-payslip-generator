@@ -1,6 +1,7 @@
 /**
- * Shared registered-office address formatting for bank-facing documents.
- * Formats and wraps only — never shortens or rewrites legal address content.
+ * Company legal name / registered-office address helpers.
+ * - Normalization for Settings save (collapse whitespace / duplicate commas)
+ * - Formatting / wrapping for bank-facing documents (never shortens legal content)
  */
 
 const PLACEHOLDER_TOKENS = [
@@ -13,6 +14,33 @@ const PLACEHOLDER_TOKENS = [
   'UNDEFINED',
   'NULL',
 ] as const;
+
+/**
+ * Normalize a legal company name:
+ * - Trim leading/trailing whitespace
+ * - Collapse internal runs of whitespace to a single space
+ * - Collapse duplicate / trailing commas (live prints showed "Portfolix Hub,,")
+ */
+export function normalizeLegalName(name: string): string {
+  return normalizeAddressText(name);
+}
+
+/**
+ * Normalize an address line or full address string:
+ * - Trim leading/trailing whitespace
+ * - Collapse internal runs of whitespace to a single space
+ * - Remove duplicate commas and comma-only fragments (e.g. ", ,")
+ */
+export function normalizeAddressText(address: string): string {
+  return address
+    .trim()
+    .replace(/\s+/g, ' ')
+    .replace(/,\s*,+/g, ',')
+    .replace(/,(\s*,)+/g, ',')
+    .replace(/^\s*,+\s*/g, '')
+    .replace(/\s*,+\s*$/g, '')
+    .trim();
+}
 
 /** Trim, collapse spaces, drop empty segments, remove duplicate commas. */
 export function formatRegisteredAddress(raw: string | null | undefined): string {

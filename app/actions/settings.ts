@@ -1,12 +1,14 @@
 'use server';
 
+import { requirePayrollAdmin } from '@/lib/auth';
+
 /**
  * Settings server actions.
  *
  * - company_settings: legacy singleton branding row used by Settings UI
  * - app_settings (id=1, data jsonb): full Settings object including signatory fields
  *
- * TODO(auth session): wrap mutating exports with requirePayrollAdmin().
+ * Every export is gated by requirePayrollAdmin() (fail closed).
  */
 
 import { revalidatePath } from 'next/cache';
@@ -17,8 +19,9 @@ import {
   SEED_SETTINGS,
 } from '@/lib/settings-defaults';
 import { clampPaydayDayOfMonth } from '@/lib/format';
+import { normalizeAddressText, normalizeLegalName } from '@/lib/company-address';
 import { validatePtSlabs, type PtCollectionMode } from '@/lib/payroll-calc';
-import type { Settings } from '@/lib/types';
+import type { EntityCode, Settings } from '@/lib/types';
 import { createClient } from '@/utils/supabase/server';
 
 export type SettingsActionResult<T> =
@@ -40,6 +43,7 @@ const SETTINGS_ROW_ID = 1;
 const APP_SETTINGS_ID = 1;
 const BRANDING_BUCKET = 'branding';
 const BRANDING_PATH = 'company-logo';
+const ENTITY_CODES: EntityCode[] = ['PX', 'PB', 'PT', 'PH'];
 
 interface AppSettingsRow {
   id: number;
@@ -70,6 +74,20 @@ function normalizeSettings(settings: Settings): Settings {
   // HARD CAP — reject before persist (Article 276).
   assertPtSlabsAllowed(slabs);
   const defaultPt = Math.max(0, Number(settings.defaultPtHalfYearly) || 0);
+
+  const normalizedEntities = { ...settings.entities };
+  for (const code of Object.keys(normalizedEntities) as Array<keyof typeof normalizedEntities>) {
+    const e = normalizedEntities[code];
+    if (e) {
+      normalizedEntities[code] = {
+        ...e,
+        name: normalizeLegalName(e.name),
+        registeredAddress: normalizeAddressText(e.registeredAddress),
+        addressLines: e.addressLines.map(normalizeAddressText).filter(Boolean),
+      };
+    }
+  }
+
   return {
     ...settings,
     paydayDayOfMonth: clampPaydayDay(settings.paydayDayOfMonth),
@@ -80,11 +98,14 @@ function normalizeSettings(settings: Settings): Settings {
     ptCollectionMode: mode,
     ptSlabs: slabs,
     defaultPtHalfYearly: defaultPt,
+    entities: normalizedEntities,
   };
 }
 
 /** Full app settings (jsonb singleton). */
 export async function fetchSettings(): Promise<ActionResult<Settings>> {
+  const auth = await requirePayrollAdmin();
+  if (!auth.ok) return auth;
   try {
     const supabase = await createClient();
     const { data, error } = await supabase
@@ -102,15 +123,30 @@ export async function fetchSettings(): Promise<ActionResult<Settings>> {
     const row = data as AppSettingsRow;
     const stored = row.data ?? {};
     const merged = mergeSettings(stored);
+
     // Soft-migrate: persist founder-default PT slabs + monthly_accrual when
     // older app_settings rows pre-date this feature (additive keys only).
     const needsPtMigrate =
       stored.ptCollectionMode == null ||
       !Array.isArray(stored.ptSlabs) ||
       stored.ptSlabs.length === 0;
-    if (needsPtMigrate) {
+
+    // One-off write-through cleanup: persist normalized name/address if stored
+    // jsonb still has live-print defects (duplicate commas / whitespace).
+    const needsAddressCleanup = ENTITY_CODES.some((code) => {
+      const before = row.data?.entities?.[code];
+      const after = merged.entities[code];
+      if (!before || !after) return false;
+      return (
+        (before.name ?? '') !== after.name ||
+        (before.registeredAddress ?? '') !== after.registeredAddress ||
+        JSON.stringify(before.addressLines ?? []) !== JSON.stringify(after.addressLines)
+      );
+    });
+    if (needsPtMigrate || needsAddressCleanup) {
       return saveSettings(merged);
     }
+
     return { ok: true, data: merged };
   } catch (err) {
     return {
@@ -121,6 +157,8 @@ export async function fetchSettings(): Promise<ActionResult<Settings>> {
 }
 
 export async function saveSettings(settings: Settings): Promise<ActionResult<Settings>> {
+  const auth = await requirePayrollAdmin();
+  if (!auth.ok) return auth;
   try {
     const capError = validatePtSlabs(settings.ptSlabs ?? []);
     if (capError) return { ok: false, error: capError };
@@ -153,6 +191,8 @@ export async function saveSettings(settings: Settings): Promise<ActionResult<Set
 }
 
 export async function fetchCompanySettings(): Promise<SettingsActionResult<CompanySettingsRecord | null>> {
+  const auth = await requirePayrollAdmin();
+  if (!auth.ok) return auth;
   try {
     const supabase = await createClient();
     const { data, error } = await supabase
@@ -174,6 +214,8 @@ export async function fetchCompanySettings(): Promise<SettingsActionResult<Compa
 export async function updateCompanySettings(
   data: CompanySettingsRecord,
 ): Promise<SettingsActionResult<CompanySettingsRecord>> {
+  const auth = await requirePayrollAdmin();
+  if (!auth.ok) return auth;
   try {
     const supabase = await createClient();
     const payload = {
@@ -205,6 +247,8 @@ export async function updateCompanySettings(
 }
 
 export async function uploadCompanyLogo(formData: FormData): Promise<SettingsActionResult<string>> {
+  const auth = await requirePayrollAdmin();
+  if (!auth.ok) return auth;
   try {
     const file = formData.get('file');
     if (!(file instanceof File)) {

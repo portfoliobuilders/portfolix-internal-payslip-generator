@@ -105,12 +105,31 @@ export const EXPECTED_SCHEMA_MIGRATIONS: ExpectedMigration[] = [
     appliedNames: ['issued_pdf_immutability'],
   },
   {
+    // main — persist ASL document_number on authorised_slip_log
+    file: '013_authorised_slip_document_number.sql',
+    appliedNames: [
+      '013_authorised_slip_document_number',
+      'authorised_slip_document_number',
+    ],
+  },
+  {
     file: '014_unify_employee_base_salary.sql',
     appliedNames: ['unify_employee_base_salary'],
   },
   {
+    file: '014_authorised_registry_harden.sql',
+    appliedNames: [
+      '014_authorised_registry_harden',
+      'authorised_registry_harden',
+    ],
+  },
+  {
     file: '015_verification_hits.sql',
     appliedNames: ['verification_hits'],
+  },
+  {
+    file: '015_authenticated_rls.sql',
+    appliedNames: ['015_authenticated_rls', 'authenticated_rls'],
   },
   {
     file: '016_align_payroll_document_lifecycle_columns.sql',

@@ -3,6 +3,7 @@ import {
   LEGAL_COMPANY_NAME_CANONICAL,
   PAYROLL_CONTACT,
 } from '@/lib/constants/company';
+import { normalizeAddressText, normalizeLegalName } from '@/lib/company-address';
 import {
   KERALA_PT_SLABS_SEED,
   validatePtSlabs,
@@ -48,10 +49,6 @@ function buildEntity(code: EntityCode): EntityInfo {
     signatoryDesignation: SETTINGS_PLACEHOLDER,
     signatureAssetPath: null,
     sealAssetPath: null,
-    authorisationMode: 'SIGNATURE_AND_SEAL',
-    authorityEffectiveFrom: null,
-    authorityEffectiveTo: null,
-    signatoryActive: true,
   };
 }
 
@@ -128,15 +125,24 @@ function mergeEntityBranding(
     const patch = stored[code];
     if (patch) {
       const { contactPhone, ...rest } = patch;
+      const name = normalizeLegalName(coalesceText(patch.name, merged[code].name));
+      const registeredAddress = normalizeAddressText(
+        coalesceText(patch.registeredAddress, merged[code].registeredAddress),
+      );
+      const addressLines = coalesceAddressLines(
+        patch.addressLines,
+        merged[code].addressLines,
+      ).map(normalizeAddressText).filter(Boolean);
+
       merged[code] = {
         ...merged[code],
         ...rest,
-        name: coalesceText(patch.name, merged[code].name),
+        name,
         legalLine: patch.legalLine === undefined ? merged[code].legalLine : patch.legalLine,
-        addressLines: coalesceAddressLines(patch.addressLines, merged[code].addressLines),
+        addressLines,
         contact: coalesceText(patch.contact, merged[code].contact),
         cin: coalesceText(patch.cin, merged[code].cin),
-        registeredAddress: coalesceText(patch.registeredAddress, merged[code].registeredAddress),
+        registeredAddress,
         phone: coalesceText(patch.phone ?? contactPhone, merged[code].phone),
         payrollEmail: coalesceText(patch.payrollEmail, merged[code].payrollEmail),
         signatoryName: coalesceText(patch.signatoryName, merged[code].signatoryName),
@@ -150,28 +156,33 @@ function mergeEntityBranding(
             : patch.signatureAssetPath,
         sealAssetPath:
           patch.sealAssetPath === undefined ? merged[code].sealAssetPath : patch.sealAssetPath,
-        authorisationMode: patch.authorisationMode ?? merged[code].authorisationMode,
-        authorityEffectiveFrom:
-          patch.authorityEffectiveFrom === undefined
-            ? merged[code].authorityEffectiveFrom
-            : patch.authorityEffectiveFrom,
-        authorityEffectiveTo:
-          patch.authorityEffectiveTo === undefined
-            ? merged[code].authorityEffectiveTo
-            : patch.authorityEffectiveTo,
-        signatoryActive:
-          patch.signatoryActive === undefined
-            ? merged[code].signatoryActive
-            : patch.signatoryActive,
       };
     }
   }
   return merged;
 }
 
+/**
+ * One-off cleanup of live-print defects (e.g. "Portfolix Hub,," / "Puthiya Road,,").
+ * Applied on every merge so stored jsonb is sanitized when loaded, and again on save.
+ */
+export function cleanupStoredEntityText(entity: EntityInfo): EntityInfo {
+  return {
+    ...entity,
+    name: normalizeLegalName(entity.name ?? ''),
+    registeredAddress: normalizeAddressText(entity.registeredAddress ?? ''),
+    addressLines: (entity.addressLines ?? []).map(normalizeAddressText).filter(Boolean),
+  };
+}
+
 /** Merges stored DB values over SEED_SETTINGS so missing keys keep their defaults. */
 export function mergeSettings(stored: Partial<Settings> | null | undefined): Settings {
   if (!stored) return structuredClone(SEED_SETTINGS);
+
+  const entities = mergeEntityBranding(stored.entities, SEED_SETTINGS.entities);
+  for (const code of ENTITY_CODES) {
+    entities[code] = cleanupStoredEntityText(entities[code]!);
+  }
 
   return {
     paydayDayOfMonth: stored.paydayDayOfMonth ?? SEED_SETTINGS.paydayDayOfMonth,
@@ -193,7 +204,7 @@ export function mergeSettings(stored: Partial<Settings> | null | undefined): Set
     bankVerificationEnabledByDefault:
       stored.bankVerificationEnabledByDefault ??
       SEED_SETTINGS.bankVerificationEnabledByDefault,
-    entities: mergeEntityBranding(stored.entities, SEED_SETTINGS.entities),
+    entities,
   };
 }
 
@@ -210,49 +221,61 @@ export function isSettingsPlaceholder(value: string | null | undefined): boolean
 }
 
 /**
+ * Generic signatory names that indicate the settings have not been personalized.
+ * Any entity whose signatoryName matches one of these is treated as incomplete.
+ */
+const GENERIC_SIGNATORY_NAMES = new Set([
+  'authorized signatory',
+  'authorised signatory',
+  'hr & payroll',
+  'payroll',
+  'admin',
+]);
+
+/** True when signatoryName is a known generic placeholder (case-insensitive). */
+export function isGenericSignatoryName(name: string | null | undefined): boolean {
+  if (!name) return true;
+  return GENERIC_SIGNATORY_NAMES.has(name.trim().toLowerCase());
+}
+
+/**
  * Returns a human-readable reason listing missing company/signatory fields,
  * or null when the entity is complete enough to generate a bank copy.
+ * Fail-closed: missing signatureBytes/sealBytes at build time → reject.
+ * Generic seed names (e.g. "Authorised Signatory") are treated as incomplete.
  */
 export function signatoryIncompleteReason(
   entity: EntityInfo,
-  issueDate?: string | null,
 ): string | null {
-  if (entity.signatoryActive === false) {
-    return 'Authorised salary slip cannot be issued because the authorised signatory configuration is incomplete.';
-  }
-
-  const mode = entity.authorisationMode ?? 'SIGNATURE_AND_SEAL';
   const missing: string[] = [];
   if (isSettingsPlaceholder(entity.name)) missing.push('legal name');
   if (isSettingsPlaceholder(entity.cin)) missing.push('CIN');
   if (isSettingsPlaceholder(entity.registeredAddress)) missing.push('registered address');
   if (isSettingsPlaceholder(entity.phone)) missing.push('phone');
   if (isSettingsPlaceholder(entity.payrollEmail)) missing.push('payroll email');
-  if (isSettingsPlaceholder(entity.signatoryName)) missing.push('signatory name');
+  if (isSettingsPlaceholder(entity.signatoryName) || isGenericSignatoryName(entity.signatoryName)) {
+    missing.push('signatory name (real name required — generic defaults not accepted)');
+  }
   if (isSettingsPlaceholder(entity.signatoryDesignation)) missing.push('signatory designation');
+  if (!entity.signatureAssetPath?.trim()) missing.push('signature image');
+  if (!entity.sealAssetPath?.trim()) missing.push('company seal image');
+  if (missing.length === 0) return null;
+  return `Complete Company & Signatory settings first (${missing.join(', ')}).`;
+}
 
-  if (mode === 'SIGNATURE_AND_SEAL') {
-    if (!entity.signatureAssetPath?.trim()) missing.push('signature image');
-    if (!entity.sealAssetPath?.trim()) missing.push('company seal image');
-  }
-
-  if (missing.length > 0) {
-    return 'Authorised salary slip cannot be issued because the authorised signatory configuration is incomplete.';
-  }
-
-  const day = (issueDate ?? new Date().toISOString().slice(0, 10)).slice(0, 10);
-  const from = entity.authorityEffectiveFrom?.trim() || null;
-  const to = entity.authorityEffectiveTo?.trim() || null;
-  if (from && day < from) {
-    return 'Authorised salary slip cannot be issued because the authorised signatory configuration is incomplete.';
-  }
-  if (to && day > to) {
-    return 'Authorised salary slip cannot be issued because the authorised signatory configuration is incomplete.';
-  }
-
-  if (mode === 'CRYPTOGRAPHIC_DIGITAL_SIGNATURE') {
-    return 'Cryptographic digital signature mode is not configured for issuance yet.';
-  }
-
-  return null;
+/**
+ * Block bank-copy generation if any rendered entity field is empty or a placeholder.
+ * Returns an error string, or null when all fields are acceptable.
+ * Checks: name, CIN, registered address, phone, payroll email.
+ * Does NOT recheck signatory — use signatoryIncompleteReason for that.
+ */
+export function assertNoSettingsPlaceholders(entity: EntityInfo): string | null {
+  const badFields: string[] = [];
+  if (isSettingsPlaceholder(entity.name)) badFields.push('company legal name');
+  if (isSettingsPlaceholder(entity.cin)) badFields.push('CIN');
+  if (isSettingsPlaceholder(entity.registeredAddress)) badFields.push('registered address');
+  if (isSettingsPlaceholder(entity.phone)) badFields.push('phone number');
+  if (isSettingsPlaceholder(entity.payrollEmail)) badFields.push('payroll email');
+  if (badFields.length === 0) return null;
+  return `Bank-copy blocked: company settings contain placeholder values (${badFields.join(', ')}). Update Settings before generating an authorised slip.`;
 }
