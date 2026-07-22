@@ -15,6 +15,7 @@ export interface AuthorisedExportResult {
   filename: string;
   sizeBytes: number;
   reusedImmutablePdf: boolean;
+  alreadyIssued: boolean;
   embedded: { signature: boolean; seal: boolean };
 }
 
@@ -62,6 +63,7 @@ export async function exportAuthorisedSalarySlipPdf(input: {
       filename: generated.data.filename,
       sizeBytes: generated.data.sizeBytes,
       reusedImmutablePdf: generated.data.reusedImmutablePdf,
+      alreadyIssued: generated.data.alreadyIssued,
       embedded: generated.data.embedded,
     },
   };

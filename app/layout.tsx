@@ -1,7 +1,5 @@
 import type { Metadata, Viewport } from 'next';
 import './globals.css';
-import AppHeader from '@/components/AppHeader';
-import AppSettingsProvider from '@/components/AppSettingsProvider';
 
 export const dynamic = 'force-dynamic';
 
@@ -21,14 +19,7 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
-      <body className="min-h-screen">
-        <AppSettingsProvider>
-          <AppHeader />
-          <main className="no-print mx-auto min-w-0 max-w-[1400px] px-4 py-6 sm:px-6 lg:px-8">
-            {children}
-          </main>
-        </AppSettingsProvider>
-      </body>
+      <body className="min-h-screen bg-paper text-ink antialiased">{children}</body>
     </html>
   );
 }

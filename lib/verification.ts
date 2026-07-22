@@ -9,18 +9,25 @@ export type PublicVerificationStatus = 'VALID' | 'SUPERSEDED' | 'REVOKED' | 'CAN
 
 export interface PublicVerificationPayload {
   companyLegalName: string;
+  companyCin: string | null;
   companyLogoUrl: string | null;
   payslipNumber: string;
+  /** Full employee name exactly as printed on the authorised slip. */
   employeeDisplayName: string;
   maskedEmployeeId: string;
   salaryMonth: string;
+  financialYear: string;
+  attendanceCycle: string;
+  payrollFinalisedAt: string | null;
   actualCreditDate: string | null;
-  netSalary: number;
+  netSalary: number | null;
   documentStatus: PublicVerificationStatus;
   revisionNumber: number;
-  issueDate: string;
-  verificationFingerprint: string;
+  issueDate: string | null;
+  verificationFingerprint: string | null;
   publicVerificationId: string;
+  issuedDocumentId: string;
+  checkedAtIso: string;
 }
 
 /** Unpredictable public verification id (URL-safe). */

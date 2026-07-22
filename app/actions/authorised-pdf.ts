@@ -56,6 +56,8 @@ export interface AuthorisedPdfGenerationResult {
   /** Base64 PDF for client download — never a storage URL. */
   pdfBase64: string;
   reusedImmutablePdf: boolean;
+  /** True when an existing ISSUED document was returned (same number). */
+  alreadyIssued: boolean;
   embedded: { signature: boolean; seal: boolean };
 }
 
@@ -260,6 +262,7 @@ export async function generateAuthorisedSalarySlipPdfAction(input: {
             sizeBytes: stored.data.pdfBytes.byteLength,
             pdfBase64: Buffer.from(stored.data.pdfBytes).toString('base64'),
             reusedImmutablePdf: true,
+            alreadyIssued: true,
             embedded: { signature: true, seal: true },
           },
         };
@@ -297,12 +300,15 @@ export async function generateAuthorisedSalarySlipPdfAction(input: {
       paymentMode: input.snapshot.employee.paymentMode,
       bankName: input.snapshot.employee.bankName,
       bankLast4: input.snapshot.employee.bankLast4,
+      bankAccountNumber: input.snapshot.employee.bankAccountNumber,
       ifsc: input.snapshot.employee.ifsc,
+      workLocation: input.snapshot.employee.workLocation,
       payableDays,
       lopDays: input.snapshot.computed.lopDays,
       department: input.snapshot.employee.department,
       designation: input.snapshot.employee.designation,
       joiningDate: input.snapshot.employee.joiningDate,
+      pan: input.snapshot.employee.pan,
       panMasked: input.snapshot.employee.panMasked,
       signatoryName: input.entity.signatoryName,
       signatoryDesignation: input.entity.signatoryDesignation,
@@ -369,13 +375,15 @@ export async function generateAuthorisedSalarySlipPdfAction(input: {
         sizeBytes: pdf.bytes.byteLength,
         pdfBase64: Buffer.from(pdf.bytes).toString('base64'),
         reusedImmutablePdf: false,
+        alreadyIssued: issued.data.reused,
         embedded: pdf.embedded,
       },
     };
   } catch (err) {
+    console.error('[generateAuthorisedSalarySlipPdfAction]', err);
     return {
       ok: false,
-      error: err instanceof Error ? err.message : 'Failed to generate authorised PDF.',
+      error: 'Failed to generate authorised PDF.',
     };
   }
 }

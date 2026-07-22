@@ -11,7 +11,7 @@ alwaysApply: false
 - The client is UNTRUSTED. All payroll computation, validation, and persistence happen server-side. Never accept computed figures (netPay, lopDeduction, deferredClosing, snapshots) from the browser — accept raw inputs only and recompute on the server.
 - `lib/payroll-calc.ts` and `lib/amount-in-words.ts` remain dependency-free pure modules and are the ONLY place payroll math exists. Server actions call them; UI renders stored results.
 - Fail closed: missing env, failed auth, or a failed guard throws immediately. No mock Supabase clients outside tests.
-- Only masked PAN and last-4 bank digits are ever stored or accepted. Reject full identity/account numbers at validation.
+- Full PAN, bank account number, IFSC, bank name, and work location may be stored and are rendered on the Authorised Slip. The internal Final slip continues to render PAN and account masked. Aadhaar is NEVER collected, stored, or rendered.
 - Allowed dependencies now include: @supabase/ssr, @supabase/supabase-js, zod. Do not add other packages without asking.
 
 ## Payroll math
@@ -35,4 +35,5 @@ alwaysApply: false
 - **Roster**: CRUD employees; flex-bank adjust with mandatory reason (audit log); Excel template download + bulk upload.
 - **Generator**: split-screen inputs + live A4 preview; Draft/Final toggle; Print + PDF (`PX_PaySlip_YYYY-MM_<EMPID>[_DRAFT].pdf`); FINAL commits flex balance + deferred ledger; confirm before superseding an existing FINAL for the same employee+month.
 - **History**: immutable snapshots — filter by employee/month/status; re-download uses stored snapshot numbers, never recomputed.
-- **Settings**: payroll calendar (payday day-of-month, query deadline T−2 at 6:00 PM), payroll contact on every slip, per-entity branding and logo upload.
+- **Settings**: payroll calendar (payday day-of-month 1–31; credit date clamps to month length; query deadline = creditDate − 2 calendar days via `payrollCycleDates` in `lib/format.ts`), payroll contact on every slip, per-entity branding and logo upload.
+- **ATTENDANCE CYCLE (founder-ratified 19 Jul 2026):** salary is calculated on the 25th-previous-month → 24th-salary-month cycle ("24th to 24th"). This is company policy, not a default — never change it to calendar month or any other window without an explicit founder instruction.

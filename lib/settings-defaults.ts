@@ -3,6 +3,12 @@ import {
   LEGAL_COMPANY_NAME_CANONICAL,
   PAYROLL_CONTACT,
 } from '@/lib/constants/company';
+import {
+  KERALA_PT_SLABS_SEED,
+  validatePtSlabs,
+  type PtCollectionMode,
+  type PtSlab,
+} from '@/lib/payroll-calc';
 import type { EntityCode, EntityInfo, Settings } from '@/lib/types';
 
 const ENTITY_CODES: EntityCode[] = ['PX', 'PB', 'PT', 'PH'];
@@ -55,6 +61,10 @@ export const SEED_SETTINGS: Settings = {
   payrollContact: 'payroll@portfolixentreprise.com',
   reviewDeadlineTime: '6:00 PM',
   ptDeductionMonths: [8, 2],
+  // Founder decision: monthly accrual is the default collection mode.
+  ptCollectionMode: 'monthly_accrual',
+  ptSlabs: KERALA_PT_SLABS_SEED.map((s) => ({ ...s })),
+  defaultPtHalfYearly: 0,
   authorizedSignatoryName: SETTINGS_PLACEHOLDER,
   authorizedSignatoryTitle: SETTINGS_PLACEHOLDER,
   bankVerificationEnabledByDefault: false,
@@ -72,6 +82,27 @@ function normalizePtMonths(raw: unknown): number[] {
     .map((m) => (typeof m === 'number' ? m : Number(m)))
     .filter((m) => Number.isInteger(m) && m >= 1 && m <= 12);
   return months.length > 0 ? [...new Set(months)].sort((a, b) => a - b) : [...SEED_SETTINGS.ptDeductionMonths];
+}
+
+function normalizePtCollectionMode(raw: unknown): PtCollectionMode {
+  return raw === 'half_yearly_lump' ? 'half_yearly_lump' : 'monthly_accrual';
+}
+
+function normalizePtSlabs(raw: unknown): PtSlab[] {
+  if (!Array.isArray(raw) || raw.length === 0) {
+    return KERALA_PT_SLABS_SEED.map((s) => ({ ...s }));
+  }
+  const slabs: PtSlab[] = raw.map((row) => {
+    const r = row as Partial<PtSlab>;
+    return {
+      minGross: Number(r.minGross) || 0,
+      maxGross: r.maxGross == null ? null : Number(r.maxGross),
+      tax: Number(r.tax) || 0,
+    };
+  });
+  // Cap enforcement happens on save; merge still returns stored rows so the
+  // UI can show validation errors. If invalid, fall back to seed only when empty.
+  return slabs.length > 0 ? slabs : KERALA_PT_SLABS_SEED.map((s) => ({ ...s }));
 }
 
 function coalesceText(stored: string | undefined, fallback: string): string {
@@ -147,6 +178,14 @@ export function mergeSettings(stored: Partial<Settings> | null | undefined): Set
     payrollContact: coalesceText(stored.payrollContact, SEED_SETTINGS.payrollContact),
     reviewDeadlineTime: coalesceText(stored.reviewDeadlineTime, SEED_SETTINGS.reviewDeadlineTime),
     ptDeductionMonths: normalizePtMonths(stored.ptDeductionMonths),
+    ptCollectionMode: normalizePtCollectionMode(stored.ptCollectionMode),
+    ptSlabs: normalizePtSlabs(stored.ptSlabs),
+    defaultPtHalfYearly: Math.max(
+      0,
+      Number.isFinite(Number(stored.defaultPtHalfYearly))
+        ? Number(stored.defaultPtHalfYearly)
+        : SEED_SETTINGS.defaultPtHalfYearly,
+    ),
     authorizedSignatoryName:
       stored.authorizedSignatoryName ?? SEED_SETTINGS.authorizedSignatoryName,
     authorizedSignatoryTitle:
@@ -156,6 +195,12 @@ export function mergeSettings(stored: Partial<Settings> | null | undefined): Set
       SEED_SETTINGS.bankVerificationEnabledByDefault,
     entities: mergeEntityBranding(stored.entities, SEED_SETTINGS.entities),
   };
+}
+
+/** Reject settings whose PT slabs breach Article 276 caps. */
+export function assertPtSlabsAllowed(slabs: readonly PtSlab[]): void {
+  const err = validatePtSlabs(slabs);
+  if (err) throw new Error(err);
 }
 
 /** True when a settings string is blank or still the placeholder. */

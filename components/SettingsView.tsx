@@ -1,21 +1,29 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { AlertTriangle, CheckCircle2, Loader2 } from 'lucide-react';
-import type { EntityCode } from '@/lib/types';
+import type { EntityCode, PtSlab } from '@/lib/types';
 import { useAppSettings } from '@/hooks/useAppSettings';
 import { useHRStore } from '@/store/useHRStore';
-import { Field, Input, NumberInput, Textarea, btnPrimary, btnSecondary } from '@/components/ui';
+import { Field, Input, NumberInput, Textarea, btnPrimary, btnSecondary, Modal } from '@/components/ui';
 import EntityLogoUpload from '@/components/EntityLogoUpload';
 import SignatoryAssetUpload from '@/components/SignatoryAssetUpload';
 import PayrollStressTestPanel from '@/components/PayrollStressTestPanel';
 import {
   currentMonthKey,
   formatDate,
+  formatINR,
   formatMonthYear,
   formatQueryDeadline,
   payrollCycleDates,
 } from '@/lib/format';
+import { KERALA_PT_SLABS_SEED, validatePtSlabs } from '@/lib/payroll-calc';
+import {
+  recalculatePtFromSlabs,
+  type PtRecalcDiff,
+} from '@/app/actions/payroll';
+import { checkSchemaDrift } from '@/app/actions/schema-drift';
+import type { SchemaDriftReport } from '@/lib/schema-drift';
 
 const ENTITY_ORDER: EntityCode[] = ['PX', 'PB', 'PT', 'PH'];
 
@@ -43,8 +51,85 @@ export default function SettingsView() {
   );
   const entity = settings.entities[selectedEntity];
 
+  const [ptRecalcOpen, setPtRecalcOpen] = useState(false);
+  const [ptRecalcLoading, setPtRecalcLoading] = useState(false);
+  const [ptRecalcApplying, setPtRecalcApplying] = useState(false);
+  const [ptRecalcIncludeManual, setPtRecalcIncludeManual] = useState(false);
+  const [ptRecalcDiffs, setPtRecalcDiffs] = useState<PtRecalcDiff[]>([]);
+  const [ptRecalcError, setPtRecalcError] = useState<string | null>(null);
+  const slabCapError = validatePtSlabs(settings.ptSlabs ?? []);
+  const [schemaDrift, setSchemaDrift] = useState<SchemaDriftReport | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    void checkSchemaDrift().then((result) => {
+      if (cancelled || !result.ok) return;
+      setSchemaDrift(result.data);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   async function handleSave() {
     await save();
+  }
+
+  async function openPtRecalc() {
+    setPtRecalcOpen(true);
+    setPtRecalcError(null);
+    setPtRecalcLoading(true);
+    const result = await recalculatePtFromSlabs({
+      includeManualOverrides: ptRecalcIncludeManual,
+      apply: false,
+    });
+    setPtRecalcLoading(false);
+    if (!result.ok) {
+      setPtRecalcError(result.error);
+      setPtRecalcDiffs([]);
+      return;
+    }
+    setPtRecalcDiffs(result.data.diffs);
+  }
+
+  async function refreshPtRecalcPreview(includeManual: boolean) {
+    setPtRecalcIncludeManual(includeManual);
+    setPtRecalcLoading(true);
+    setPtRecalcError(null);
+    const result = await recalculatePtFromSlabs({
+      includeManualOverrides: includeManual,
+      apply: false,
+    });
+    setPtRecalcLoading(false);
+    if (!result.ok) {
+      setPtRecalcError(result.error);
+      return;
+    }
+    setPtRecalcDiffs(result.data.diffs);
+  }
+
+  async function applyPtRecalc() {
+    setPtRecalcApplying(true);
+    setPtRecalcError(null);
+    const result = await recalculatePtFromSlabs({
+      includeManualOverrides: ptRecalcIncludeManual,
+      apply: true,
+    });
+    setPtRecalcApplying(false);
+    if (!result.ok) {
+      setPtRecalcError(result.error);
+      return;
+    }
+    setPtRecalcOpen(false);
+  }
+
+  function updateSlab(index: number, patch: Partial<PtSlab>) {
+    const next = (settings.ptSlabs ?? []).map((row, i) => (i === index ? { ...row, ...patch } : row));
+    updateSettings({ ptSlabs: next });
+  }
+
+  function resetSlabsToSeed() {
+    updateSettings({ ptSlabs: KERALA_PT_SLABS_SEED.map((s) => ({ ...s })) });
   }
 
   if (settingsLoading) {
@@ -58,6 +143,23 @@ export default function SettingsView() {
 
   return (
     <div className="space-y-6">
+      {schemaDrift?.bannerMessage && (
+        <div
+          role="alert"
+          className="flex items-start gap-3 rounded-md border-2 border-amber-brand bg-amber-tint px-4 py-3 text-sm font-medium text-ink"
+        >
+          <AlertTriangle size={18} className="mt-0.5 shrink-0 text-amber-brand" />
+          <div>
+            <p>{schemaDrift.bannerMessage}</p>
+            {schemaDrift.missingCanaries.length > 0 && (
+              <p className="mt-1 text-[12px] font-normal text-muted">
+                Missing columns: {schemaDrift.missingCanaries.join('; ')}
+              </p>
+            )}
+          </div>
+        </div>
+      )}
+
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <h2 className="text-base font-semibold text-ink">Settings</h2>
@@ -75,7 +177,7 @@ export default function SettingsView() {
           <button
             type="button"
             className={btnPrimary}
-            disabled={settingsSaving || !hasUnsavedSettings}
+            disabled={settingsSaving || !hasUnsavedSettings || Boolean(slabCapError)}
             onClick={() => void handleSave()}
           >
             {settingsSaving ? (
@@ -97,10 +199,10 @@ export default function SettingsView() {
         </div>
       )}
 
-      {(settingsError || settingsSaveError) && (
+      {(settingsError || settingsSaveError || slabCapError) && (
         <div className="flex items-start gap-2 rounded-md border border-amber-edge bg-amber-tint px-3 py-2 text-[12px] font-medium text-amber-brand">
           <AlertTriangle size={14} className="mt-0.5 shrink-0" />
-          {settingsSaveError ?? settingsError}
+          {slabCapError ?? settingsSaveError ?? settingsError}
         </div>
       )}
 
@@ -136,7 +238,25 @@ export default function SettingsView() {
             />
           </Field>
           <Field
-            label="PT deduction months"
+            label="PT collection mode"
+            hint="Monthly accrual is the default. Lump mode deducts the full half-yearly amount only in the months below."
+          >
+            <select
+              className="h-10 w-full rounded-md border border-hairline bg-paper px-3 text-sm text-ink focus:border-ink/30 focus:outline-none focus:ring-2 focus:ring-ink/10"
+              value={settings.ptCollectionMode ?? 'monthly_accrual'}
+              onChange={(e) =>
+                updateSettings({
+                  ptCollectionMode:
+                    e.target.value === 'half_yearly_lump' ? 'half_yearly_lump' : 'monthly_accrual',
+                })
+              }
+            >
+              <option value="monthly_accrual">Monthly accrual (default)</option>
+              <option value="half_yearly_lump">Half-yearly lump (Aug / Feb style)</option>
+            </select>
+          </Field>
+          <Field
+            label="PT deduction months (lump mode only)"
             hint="Comma-separated month numbers (e.g. 8,2 for Aug and Feb)."
           >
             <Input
@@ -162,6 +282,81 @@ export default function SettingsView() {
           , salary credited{' '}
           <span className="font-semibold text-emerald-deep">{formatDate(creditDate)}</span>.
         </p>
+      </div>
+
+      <div className="rounded-lg border border-hairline bg-paper p-5 shadow-card">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h3 className="text-sm font-semibold text-ink">Kerala Professional Tax slabs</h3>
+            <p className="mt-1 text-[12px] text-muted">
+              Basis = half-yearly gross (monthly fixed pay × 6). Hard cap ₹1,250/half-year and
+              ₹2,500/year (Article 276) — not configurable.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button type="button" className={btnSecondary} onClick={resetSlabsToSeed}>
+              Reset to Kerala seed
+            </button>
+            <button type="button" className={btnPrimary} onClick={() => void openPtRecalc()}>
+              Recalculate PT from slabs for everyone
+            </button>
+          </div>
+        </div>
+        <div className="mt-4 overflow-x-auto">
+          <table className="w-full min-w-[32rem] border-collapse text-left text-[12px]">
+            <thead>
+              <tr className="border-b border-hairline text-muted">
+                <th className="px-2 py-1.5 font-semibold">Min gross (₹)</th>
+                <th className="px-2 py-1.5 font-semibold">Max gross (₹)</th>
+                <th className="px-2 py-1.5 font-semibold">Tax / half-year (₹)</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(settings.ptSlabs ?? []).map((slab, index) => (
+                <tr key={index} className="border-b border-hairline/60">
+                  <td className="px-2 py-1.5">
+                    <input
+                      type="number"
+                      min={0}
+                      className="amount h-8 w-full rounded border border-hairline bg-paper px-2"
+                      value={slab.minGross}
+                      onChange={(e) =>
+                        updateSlab(index, { minGross: Math.max(0, Number(e.target.value) || 0) })
+                      }
+                    />
+                  </td>
+                  <td className="px-2 py-1.5">
+                    <input
+                      type="number"
+                      min={0}
+                      placeholder="∞"
+                      className="amount h-8 w-full rounded border border-hairline bg-paper px-2"
+                      value={slab.maxGross ?? ''}
+                      onChange={(e) => {
+                        const raw = e.target.value.trim();
+                        updateSlab(index, {
+                          maxGross: raw === '' ? null : Math.max(0, Number(raw) || 0),
+                        });
+                      }}
+                    />
+                  </td>
+                  <td className="px-2 py-1.5">
+                    <input
+                      type="number"
+                      min={0}
+                      max={1250}
+                      className="amount h-8 w-full rounded border border-hairline bg-paper px-2"
+                      value={slab.tax}
+                      onChange={(e) =>
+                        updateSlab(index, { tax: Math.max(0, Number(e.target.value) || 0) })
+                      }
+                    />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </div>
 
       <div className="rounded-lg border border-hairline bg-paper p-5 shadow-card">
@@ -320,6 +515,79 @@ export default function SettingsView() {
       </div>
 
       <PayrollStressTestPanel />
+
+      {ptRecalcOpen && (
+        <Modal title="Recalculate PT from slabs for everyone" onClose={() => setPtRecalcOpen(false)} wide>
+          <p className="mb-3 text-[12px] text-muted">
+            Confirm the before → after half-yearly PT for each employee. Manual-override employees
+            are skipped unless you include them.
+          </p>
+          <label className="mb-3 flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={ptRecalcIncludeManual}
+              onChange={(e) => void refreshPtRecalcPreview(e.target.checked)}
+            />
+            Include manual-override employees
+          </label>
+          {ptRecalcError && (
+            <p className="mb-3 rounded-md border border-amber-edge bg-amber-tint px-3 py-2 text-[12px] font-medium text-amber-brand">
+              {ptRecalcError}
+            </p>
+          )}
+          {ptRecalcLoading ? (
+            <p className="py-8 text-center text-sm text-muted">
+              <Loader2 className="mr-2 inline animate-spin" size={14} />
+              Computing diffs…
+            </p>
+          ) : (
+            <div className="max-h-72 overflow-auto rounded border border-hairline">
+              <table className="w-full text-left text-[12px]">
+                <thead className="sticky top-0 bg-surface">
+                  <tr className="border-b border-hairline text-muted">
+                    <th className="px-2 py-1.5 font-semibold">Employee</th>
+                    <th className="px-2 py-1.5 font-semibold">Current</th>
+                    <th className="px-2 py-1.5 font-semibold">New</th>
+                    <th className="px-2 py-1.5 font-semibold">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {ptRecalcDiffs.map((d) => (
+                    <tr key={d.id} className="border-b border-hairline/60">
+                      <td className="px-2 py-1.5">
+                        <span className="font-medium text-ink">{d.fullName}</span>
+                        <span className="ml-1 text-muted">({d.empId})</span>
+                      </td>
+                      <td className="amount px-2 py-1.5">{formatINR(d.current)}</td>
+                      <td className="amount px-2 py-1.5">{formatINR(d.suggested)}</td>
+                      <td className="px-2 py-1.5 text-muted">
+                        {d.skipped
+                          ? 'Skipped (manual)'
+                          : d.current === d.suggested
+                            ? 'Unchanged'
+                            : 'Will update'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+          <div className="mt-4 flex justify-end gap-2">
+            <button type="button" className={btnSecondary} onClick={() => setPtRecalcOpen(false)}>
+              Cancel
+            </button>
+            <button
+              type="button"
+              className={btnPrimary}
+              disabled={ptRecalcLoading || ptRecalcApplying}
+              onClick={() => void applyPtRecalc()}
+            >
+              {ptRecalcApplying ? 'Applying…' : 'Confirm recalculate'}
+            </button>
+          </div>
+        </Modal>
+      )}
     </div>
   );
 }

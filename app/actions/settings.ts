@@ -11,7 +11,13 @@
 
 import { revalidatePath } from 'next/cache';
 import { randomUUID } from 'node:crypto';
-import { mergeSettings, SEED_SETTINGS } from '@/lib/settings-defaults';
+import {
+  assertPtSlabsAllowed,
+  mergeSettings,
+  SEED_SETTINGS,
+} from '@/lib/settings-defaults';
+import { clampPaydayDayOfMonth } from '@/lib/format';
+import { validatePtSlabs, type PtCollectionMode } from '@/lib/payroll-calc';
 import type { Settings } from '@/lib/types';
 import { createClient } from '@/utils/supabase/server';
 
@@ -47,13 +53,23 @@ function revalidateSettingsViews() {
 }
 
 function clampPaydayDay(day: number): number {
-  return Math.min(28, Math.max(3, Math.round(day)));
+  return clampPaydayDayOfMonth(day);
 }
 
 function normalizeSettings(settings: Settings): Settings {
   const months = (settings.ptDeductionMonths ?? [])
     .map((m) => Math.round(Number(m)))
     .filter((m) => Number.isInteger(m) && m >= 1 && m <= 12);
+  const mode: PtCollectionMode =
+    settings.ptCollectionMode === 'half_yearly_lump' ? 'half_yearly_lump' : 'monthly_accrual';
+  const slabs = (settings.ptSlabs ?? SEED_SETTINGS.ptSlabs).map((s) => ({
+    minGross: Number(s.minGross) || 0,
+    maxGross: s.maxGross == null ? null : Number(s.maxGross),
+    tax: Number(s.tax) || 0,
+  }));
+  // HARD CAP — reject before persist (Article 276).
+  assertPtSlabsAllowed(slabs);
+  const defaultPt = Math.max(0, Number(settings.defaultPtHalfYearly) || 0);
   return {
     ...settings,
     paydayDayOfMonth: clampPaydayDay(settings.paydayDayOfMonth),
@@ -61,6 +77,9 @@ function normalizeSettings(settings: Settings): Settings {
     reviewDeadlineTime: settings.reviewDeadlineTime.trim() || '6:00 PM',
     ptDeductionMonths:
       months.length > 0 ? [...new Set(months)].sort((a, b) => a - b) : [8, 2],
+    ptCollectionMode: mode,
+    ptSlabs: slabs,
+    defaultPtHalfYearly: defaultPt,
   };
 }
 
@@ -81,7 +100,18 @@ export async function fetchSettings(): Promise<ActionResult<Settings>> {
     }
 
     const row = data as AppSettingsRow;
-    return { ok: true, data: mergeSettings(row.data) };
+    const stored = row.data ?? {};
+    const merged = mergeSettings(stored);
+    // Soft-migrate: persist founder-default PT slabs + monthly_accrual when
+    // older app_settings rows pre-date this feature (additive keys only).
+    const needsPtMigrate =
+      stored.ptCollectionMode == null ||
+      !Array.isArray(stored.ptSlabs) ||
+      stored.ptSlabs.length === 0;
+    if (needsPtMigrate) {
+      return saveSettings(merged);
+    }
+    return { ok: true, data: merged };
   } catch (err) {
     return {
       ok: false,
@@ -92,6 +122,9 @@ export async function fetchSettings(): Promise<ActionResult<Settings>> {
 
 export async function saveSettings(settings: Settings): Promise<ActionResult<Settings>> {
   try {
+    const capError = validatePtSlabs(settings.ptSlabs ?? []);
+    if (capError) return { ok: false, error: capError };
+
     const supabase = await createClient();
     const normalized = normalizeSettings(settings);
     const payload = {

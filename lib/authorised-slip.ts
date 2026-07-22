@@ -16,10 +16,10 @@ export function indianFyMonthRange(monthYear: string): { start: string; end: str
 }
 
 /**
- * Sum this employee's FINAL slip snapshots for the Indian FY up to and
+ * Sum this employee's ACTIVE FINAL slip snapshots for the Indian FY up to and
  * including `throughMonthYear`, per Authorised Slip line item.
  * Deterministic; derived from immutable snapshots only.
- * Missing tds/pt on old finals → 0.
+ * Superseded / voided / draft contribute nothing. Missing tds/pt on old finals → 0.
  */
 export function computeAuthorisedYtd(
   slips: SlipSnapshot[],
@@ -40,17 +40,12 @@ export function computeAuthorisedYtd(
     totalDeductions: 0,
   };
 
-  const relevant = slips.filter(
-    (s) =>
-      s.status === 'final' &&
-      s.employeeId === employeeId &&
-      s.monthYear >= start &&
-      s.monthYear <= end,
-  );
-
-  // One FINAL per month — if superseded, use the latest generatedAt.
+  // Active finals only (status === 'final'). One per month via generatedAt tie-break.
   const byMonth = new Map<string, SlipSnapshot>();
-  for (const s of relevant) {
+  for (const s of slips) {
+    if (s.status !== 'final') continue;
+    if (s.employeeId !== employeeId) continue;
+    if (s.monthYear < start || s.monthYear > end) continue;
     const prev = byMonth.get(s.monthYear);
     if (!prev || s.generatedAt > prev.generatedAt) byMonth.set(s.monthYear, s);
   }

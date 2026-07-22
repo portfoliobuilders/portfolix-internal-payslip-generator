@@ -25,17 +25,6 @@ import type {
 import { partialDocumentTitle } from '@/lib/salary-payment';
 import { btnPrimary, btnSecondary, inputCls, Modal } from './ui';
 
-const ACTOR_KEY = 'portfolix_payment_actor';
-
-function readActor(): string {
-  if (typeof window === 'undefined') return 'hr-user';
-  const stored = window.localStorage.getItem(ACTOR_KEY);
-  if (stored?.trim()) return stored.trim();
-  const generated = `hr-${Math.random().toString(36).slice(2, 8)}`;
-  window.localStorage.setItem(ACTOR_KEY, generated);
-  return generated;
-}
-
 function PaymentStatusBadge({ status }: { status: string }) {
   const tone =
     status === 'PAID'
@@ -77,8 +66,6 @@ export default function PaymentLedgerDrawer({
   const [transactions, setTransactions] = useState<SalaryPaymentTransaction[]>([]);
   const [holds, setHolds] = useState<PaymentHoldOrDeferral[]>([]);
   const [audit, setAudit] = useState<PaymentAuditEvent[]>([]);
-  const [actorId, setActorId] = useState('hr-user');
-  const [emergencyOverride, setEmergencyOverride] = useState(false);
 
   const [panel, setPanel] = useState<
     | null
@@ -111,10 +98,6 @@ export default function PaymentLedgerDrawer({
   const [holdKind, setHoldKind] = useState<'ON_HOLD' | 'PAYMENT_DEFERRED'>('ON_HOLD');
   const [holdCategory, setHoldCategory] = useState('BANK_ISSUE');
   const [complianceFlag, setComplianceFlag] = useState(false);
-
-  useEffect(() => {
-    setActorId(readActor());
-  }, []);
 
   async function reload() {
     setLoading(true);
@@ -160,7 +143,6 @@ export default function PaymentLedgerDrawer({
       payrollRecordId,
       amount: Number(amount),
       paymentMode,
-      createdBy: actorId,
       bankTransactionReference: utr || null,
       sourceBankAccountRef: sourceRef || null,
       maskedDestinationAccount: destMasked || null,
@@ -185,10 +167,6 @@ export default function PaymentLedgerDrawer({
     const result = await confirmSalaryPayment({
       payrollRecordId,
       transactionId: selectedTxId,
-      confirmer: {
-        userId: actorId,
-        emergencyOverridePermission: emergencyOverride,
-      },
       overrideReason: overrideReason || null,
       creditedAt: creditedAt || null,
     });
@@ -208,7 +186,6 @@ export default function PaymentLedgerDrawer({
     const result = await failSalaryPayment({
       payrollRecordId,
       transactionId: selectedTxId,
-      actorUserId: actorId,
       reason,
       asRejectedByBank,
     });
@@ -228,7 +205,6 @@ export default function PaymentLedgerDrawer({
     const result = await reverseSalaryPayment({
       payrollRecordId,
       transactionId: selectedTxId,
-      approver: { userId: actorId, emergencyOverridePermission: emergencyOverride },
       reason,
     });
     setBusy(false);
@@ -251,7 +227,6 @@ export default function PaymentLedgerDrawer({
       detailedExplanation: reason,
       amountAffected: Number(amount) || obligation.outstandingAmount,
       revisedExpectedDate: revisedDate,
-      approvingUser: actorId,
       complianceReviewFlag: complianceFlag,
       evidencePath: evidencePath || null,
     });
@@ -270,7 +245,6 @@ export default function PaymentLedgerDrawer({
     const result = await rescheduleSalaryPayment({
       payrollRecordId,
       revisedExpectedDate: revisedDate,
-      actorUserId: actorId,
       reason,
     });
     setBusy(false);
@@ -340,30 +314,11 @@ export default function PaymentLedgerDrawer({
           </button>
         </div>
 
-        <div className="shrink-0 border-b border-hairline px-4 py-3">
-          <label className="block text-[11px] font-semibold uppercase tracking-wide text-muted">
-            Acting as user id (maker-checker)
-          </label>
-          <div className="mt-1 flex flex-wrap items-center gap-2">
-            <input
-              className={`${inputCls} w-full max-w-xs`}
-              value={actorId}
-              onChange={(e) => {
-                setActorId(e.target.value);
-                if (typeof window !== 'undefined') {
-                  window.localStorage.setItem(ACTOR_KEY, e.target.value);
-                }
-              }}
-            />
-            <label className="flex items-center gap-1.5 text-[12px] text-muted">
-              <input
-                type="checkbox"
-                checked={emergencyOverride}
-                onChange={(e) => setEmergencyOverride(e.target.checked)}
-              />
-              Emergency override permission
-            </label>
-          </div>
+        <div className="shrink-0 border-b border-hairline px-4 py-2.5">
+          <p className="text-[11px] text-muted">
+            Actions are recorded against your signed-in session. Maker and checker must be different
+            users unless you are a payroll admin (emergency override with a reason).
+          </p>
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4 [-webkit-overflow-scrolling:touch]">
@@ -649,8 +604,8 @@ export default function PaymentLedgerDrawer({
         <Modal title="Confirm payment (checker)" onClose={() => setPanel(null)}>
           <div className="space-y-3">
             <p className="text-[12px] text-muted">
-              Maker and checker must be different users unless emergency override is enabled with a
-              reason.
+              Maker and checker must be different users. If you recorded this payment yourself, a
+              payroll-admin override reason is required.
             </p>
             <label className="block text-[12px]">
               Credit / value date
@@ -661,16 +616,14 @@ export default function PaymentLedgerDrawer({
                 onChange={(e) => setCreditedAt(e.target.value)}
               />
             </label>
-            {emergencyOverride && (
-              <label className="block text-[12px]">
-                Override reason
-                <input
-                  className={inputCls}
-                  value={overrideReason}
-                  onChange={(e) => setOverrideReason(e.target.value)}
-                />
-              </label>
-            )}
+            <label className="block text-[12px]">
+              Override reason (required only when confirming your own recording)
+              <input
+                className={inputCls}
+                value={overrideReason}
+                onChange={(e) => setOverrideReason(e.target.value)}
+              />
+            </label>
             {formError && <p className="text-[12px] text-amber-brand">{formError}</p>}
             <div className="flex justify-end gap-2">
               <button className={btnSecondary} disabled={busy} onClick={() => setPanel(null)}>
