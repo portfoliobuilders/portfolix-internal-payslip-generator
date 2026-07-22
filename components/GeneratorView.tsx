@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { format } from 'date-fns';
 import { AlertTriangle, Download, Maximize2, Minus, Plus, Printer } from 'lucide-react';
-import { computePayroll, derivePtThisMonth, validateVariablePaid } from '@/lib/payroll-calc';
+import { computePayroll, derivePtThisMonth, isPartialHalfPtLiability, ptMonthlyAccrualFootnote, validateVariablePaid } from '@/lib/payroll-calc';
 import {
   formatINR,
   formatMinutes,
@@ -20,6 +20,7 @@ import { computeAuthorisedYtd } from '@/lib/authorised-slip';
 import type { AuthorisedSlipYtd, Employee, EntityInfo, SlipSnapshot, SlipStatus } from '@/lib/types';
 import { generateId } from '@/lib/payroll-db';
 import { findFinalSlipForMonth, findPreviousFinalSlip } from '@/lib/payroll-helpers';
+import { authorisedDocumentNumber } from '@/lib/payroll-lifecycle';
 import { useHRStore } from '@/store/useHRStore';
 import { useUIStore } from '@/store/useUIStore';
 import { signatoryIncompleteReason } from '@/lib/settings-defaults';
@@ -373,13 +374,32 @@ export default function GeneratorView({
       employee.ptHalfYearly,
       form.monthYear,
       settings.ptDeductionMonths,
+      {
+        mode: settings.ptCollectionMode ?? 'monthly_accrual',
+        joiningDate: employee.joiningDate,
+      },
     );
-  }, [employee, form.monthYear, settings.ptDeductionMonths]);
+  }, [employee, form.monthYear, settings.ptDeductionMonths, settings.ptCollectionMode]);
+
+  const ptPartialHalfCa = Boolean(
+    employee &&
+      (settings.ptCollectionMode ?? 'monthly_accrual') === 'monthly_accrual' &&
+      isPartialHalfPtLiability(employee.joiningDate, form.monthYear),
+  );
+
+  const ptFootnote =
+    employee && (settings.ptCollectionMode ?? 'monthly_accrual') === 'monthly_accrual'
+      ? ptMonthlyAccrualFootnote(employee.ptHalfYearly)
+      : employee &&
+          (settings.ptCollectionMode ?? 'monthly_accrual') === 'half_yearly_lump' &&
+          ptThisMonth === 0
+        ? 'Not a PT deduction month.'
+        : null;
 
   const result = useMemo(() => {
     if (!employee) return null;
     return computePayroll({
-      baseSalary: employee.compensationAmount,
+      baseSalary: employee.baseSalary,
       flexBankBalance: flexBankBase,
       flexMinutesEarned: num(form.flexMinutesEarned),
       totalLateMinutes: num(form.lateMinutes),
@@ -455,8 +475,7 @@ export default function GeneratorView({
         remarks: form.remarks,
         authorizedForBankVerification: form.authorizedForBankVerification,
         flexBankBalanceBefore: flexBankBase,
-        baseSalary: employee.compensationAmount,
-        compensationAmount: employee.compensationAmount,
+        baseSalary: employee.baseSalary,
       },
       computed: {
         perDayRate: result.perDayRate,
@@ -482,6 +501,8 @@ export default function GeneratorView({
       },
       flexBalanceAfter: result.newFlexBalance,
       generatedAt: new Date().toISOString(),
+      ptFootnote,
+      ptPartialHalfCaFlag: ptPartialHalfCa,
       employee: {
         fullName: employee.fullName,
         empId: employee.empId,
@@ -494,16 +515,18 @@ export default function GeneratorView({
         engagementType: employee.engagementType,
         employmentStatus: employee.employmentStatus,
         paymentType: employee.paymentType,
-        compensationAmount: employee.compensationAmount,
         bankName: employee.bankName ?? '',
         ifsc: employee.ifsc ?? null,
         bankDetailsVerified: employee.bankDetailsVerified === true,
+        bankAccountNumber: employee.bankAccountNumber ?? '',
         bankLast4: employee.bankLast4,
+        pan: employee.pan ?? '',
         panMasked: employee.panMasked,
+        workLocation: employee.workLocation ?? '',
       },
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [employee, result, form, status]);
+  }, [employee, result, form, status, ptFootnote, ptPartialHalfCa, ptThisMonth]);
 
   // ---------- Export / finalize flow ----------
   async function doExport(confirmedSupersede: boolean) {
@@ -713,7 +736,9 @@ export default function GeneratorView({
               label="Professional Tax this month (₹)"
               hint={
                 employee
-                  ? `Half-yearly ₹${employee.ptHalfYearly.toFixed(2)} · deducted in months ${settings.ptDeductionMonths.join(', ')}`
+                  ? (settings.ptCollectionMode ?? 'monthly_accrual') === 'monthly_accrual'
+                    ? `Monthly accrual · half-yearly ₹${employee.ptHalfYearly.toFixed(2)}`
+                    : `Half-yearly lump ₹${employee.ptHalfYearly.toFixed(2)} · deducted in months ${settings.ptDeductionMonths.join(', ')}`
                   : undefined
               }
             >
@@ -726,6 +751,12 @@ export default function GeneratorView({
               />
             </Field>
           </div>
+          {ptPartialHalfCa && (
+            <p className="mt-3 rounded-md border border-amber-edge bg-amber-tint px-3 py-2 text-[12px] font-medium text-amber-brand">
+              Mid-half joiner: partial-half Professional Tax liability — get one CA confirmation
+              before remitting.
+            </p>
+          )}
         </div>
 
         {employee && result && (
@@ -1022,7 +1053,11 @@ export default function GeneratorView({
                   confirmedPaidAmount={authorisedBundle.confirmedPaidAmount}
                   outstandingBalance={authorisedBundle.outstandingAmount}
                   payrollFinalisedDate={existingFinal.generatedAt}
-                  documentNumber={`ASL-${existingFinal.employee.empId}-${existingFinal.monthYear}`}
+                  documentNumber={authorisedDocumentNumber(
+                    existingFinal.monthYear,
+                    existingFinal.employee.empId,
+                    1,
+                  )}
                   verificationId={existingFinal.id.replace(/-/g, '').slice(0, 24)}
                 />
               </ScaledPreview>
@@ -1098,7 +1133,11 @@ export default function GeneratorView({
               confirmedPaidAmount={authorisedBundle.confirmedPaidAmount}
               outstandingBalance={authorisedBundle.outstandingAmount}
               payrollFinalisedDate={(existingFinal ?? authorisedBundle.snapshot).generatedAt}
-              documentNumber={`ASL-${(existingFinal ?? authorisedBundle.snapshot).employee.empId}-${(existingFinal ?? authorisedBundle.snapshot).monthYear}`}
+              documentNumber={authorisedDocumentNumber(
+                (existingFinal ?? authorisedBundle.snapshot).monthYear,
+                (existingFinal ?? authorisedBundle.snapshot).employee.empId,
+                1,
+              )}
               verificationId={(existingFinal ?? authorisedBundle.snapshot).id.replace(/-/g, '').slice(0, 24)}
             />
           </div>,

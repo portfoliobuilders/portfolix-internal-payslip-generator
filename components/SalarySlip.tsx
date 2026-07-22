@@ -281,7 +281,7 @@ export default function SalarySlip({
         <SectionTitle tag="02">Attendance &amp; LOP Calculation</SectionTitle>
         <div className="rounded border border-hairline bg-surface px-3 py-2">
           <p className="amount text-[11px] font-semibold">
-            {formatINR(inputs.compensationAmount)} ÷ {FIXED_DIVISOR} = {formatINR(computed.perDayRate)}/day
+            {formatINR(inputs.baseSalary)} ÷ {FIXED_DIVISOR} = {formatINR(computed.perDayRate)}/day
           </p>
           <p className="mt-0.5 text-[9px] text-muted">
             {lopCalculationBasisLabel('FIXED_25')} — this is the salary-calculation divisor, not the
@@ -324,7 +324,7 @@ export default function SalarySlip({
         <div className="flex h-full flex-col">
           <SectionTitle tag="A">Fixed Earnings</SectionTitle>
           <div className="flex-1">
-            <Row label={statementMeta.mainEarningLabel} value={formatINR(inputs.compensationAmount)} />
+            <Row label={statementMeta.mainEarningLabel} value={formatINR(inputs.baseSalary)} />
             <Row label="Fixed allowance" value={formatINR(inputs.fixedAllowance)} />
           </div>
           <div className="mt-auto border-t border-ink/60">
@@ -474,6 +474,14 @@ export default function SalarySlip({
           This is a computer-generated internal payroll document and does not require a physical
           signature.
         </p>
+        {snapshot.ptFootnote && (
+          <p className="text-ink">{snapshot.ptFootnote}</p>
+        )}
+        {snapshot.ptPartialHalfCaFlag && (
+          <p className="font-medium text-amber-brand">
+            Partial-half PT liability — confirm remittance treatment with CA.
+          </p>
+        )}
         {isAuthorizedForBank && (
           <div className="mt-2 border-t border-hairline pt-2 text-[9px] text-ink">
             <p className="font-semibold">Authorized signatory</p>

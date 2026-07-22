@@ -42,13 +42,41 @@ export interface EntityInfo {
   signatoryActive?: boolean;
 }
 
+/** How Kerala Professional Tax is collected from salary. */
+export type PtCollectionMode = 'half_yearly_lump' | 'monthly_accrual';
+
+/**
+ * One row of the configurable Kerala PT schedule.
+ * Basis = half-yearly gross income (monthly fixed pay × 6).
+ */
+export interface PtSlab {
+  /** Inclusive lower bound of half-yearly gross (₹). */
+  minGross: number;
+  /** Inclusive upper bound of half-yearly gross (₹); null = open-ended. */
+  maxGross: number | null;
+  /** Half-yearly professional tax (₹) for this band. */
+  tax: number;
+}
+
 export interface Settings {
   paydayDayOfMonth: number;
   payrollContact: string;
   /** Local time label printed on slips, e.g. "6:00 PM". */
   reviewDeadlineTime: string;
-  /** Calendar months (1–12) when Kerala PT is deducted from salary. */
+  /** Calendar months (1–12) when Kerala PT is deducted in half_yearly_lump mode. */
   ptDeductionMonths: number[];
+  /**
+   * PT collection mode. Default `monthly_accrual` (founder decision).
+   * `half_yearly_lump` preserves the legacy Aug/Feb full-half deduction.
+   */
+  ptCollectionMode: PtCollectionMode;
+  /** Configurable Kerala PT slabs (cap-enforced on save). */
+  ptSlabs: PtSlab[];
+  /**
+   * Suggested Kerala PT half-yearly amount (₹) for bulk apply / new hires.
+   * Per-employee `ptHalfYearly` is what slips actually use.
+   */
+  defaultPtHalfYearly: number;
   authorizedSignatoryName: string;
   authorizedSignatoryTitle: string;
   bankVerificationEnabledByDefault: boolean;
@@ -111,8 +139,8 @@ export interface Employee {
   /** ISO date string. */
   joiningDate: string;
   employeeAddress: string;
+  /** Sole stored compensation figure (salary / stipend / contract fee). */
   baseSalary: number;
-  compensationAmount: number;
   engagementType: EngagementType;
   employmentStatus: EmploymentStatus;
   paymentType: PaymentType;
@@ -137,10 +165,16 @@ export interface Employee {
   ifsc?: string | null;
   /** Explicit HR confirmation that bank name/account details were verified. */
   bankDetailsVerified?: boolean;
-  /** Only the last 4 digits are ever stored. */
+  /** Full account number — Authorised Slip only; internal slip uses bankLast4. */
+  bankAccountNumber?: string;
+  /** Last 4 digits (also derived from bankAccountNumber when present). */
   bankLast4: string;
-  /** Masked PAN, e.g. 'ABXXXXXX1F'. Never store the full number. */
+  /** Full PAN — Authorised Slip only; internal slip uses panMasked. */
+  pan?: string;
+  /** Masked PAN, e.g. 'ABXXXXXX1F' — internal / legacy snapshots. */
   panMasked: string;
+  /** Work location shown on Authorised Slip (e.g. Kochi Office). */
+  workLocation?: string;
   /** Flex-bank balance in minutes. */
   flexBankBalance: number;
   flexLog: FlexLogEntry[];
@@ -148,9 +182,21 @@ export interface Employee {
   tdsMonthly: number;
   /** Kerala Professional Tax half-yearly amount (₹). details_json. Default 0. */
   ptHalfYearly: number;
+  /**
+   * When true, global “Recalculate PT from slabs” skips this employee
+   * unless the operator explicitly includes manual overrides (CA adjustments).
+   */
+  ptManualOverride: boolean;
 }
 
-export type SlipStatus = 'draft' | 'final';
+/**
+ * Document lifecycle on payroll_slips.status.
+ * - draft: replaceable; hard-deletable
+ * - final: the single ACTIVE final for an employee-month
+ * - superseded: prior final kept for audit (hidden from default views / aggregations)
+ * - voided: cleaned-up final with reason (hidden; never row-deleted)
+ */
+export type SlipStatus = 'draft' | 'final' | 'superseded' | 'voided';
 
 /** Raw inputs captured on the generator form for one slip. */
 export interface SlipInputs {
@@ -176,7 +222,6 @@ export interface SlipInputs {
   /** Flex balance the computation started from (for audit). */
   flexBankBalanceBefore: number;
   baseSalary: number;
-  compensationAmount: number;
 }
 
 /**
@@ -221,12 +266,14 @@ export interface SlipEmployeeInfo {
   engagementType: EngagementType;
   employmentStatus: EmploymentStatus;
   paymentType: PaymentType;
-  compensationAmount: number;
   bankName?: string;
   ifsc?: string | null;
   bankDetailsVerified?: boolean;
+  bankAccountNumber?: string;
   bankLast4: string;
+  pan?: string;
   panMasked: string;
+  workLocation?: string;
 }
 
 export interface PaymentStatementMeta {
@@ -250,7 +297,7 @@ export interface PaymentStatementHistoryEntry {
   year: number;
   grossPay: number;
   netPay: number;
-  compensationAmount: number;
+  baseSalary: number;
   earnings: Record<string, number>;
   deductions: Record<string, number>;
   paymentMode: PaymentMode;
@@ -297,6 +344,16 @@ export interface SlipSnapshot {
   revisionNumber?: number | null;
   internalDocumentNumber?: string | null;
   payrollBatchId?: string | null;
+  /**
+   * Frozen PT footnote for this slip (monthly accrual mode).
+   * Missing on older finals — renderers must not invent one.
+   */
+  ptFootnote?: string | null;
+  /**
+   * Mid-half joiner: partial-half PT liability needs one CA confirmation.
+   * Frozen at generation; missing on older finals → treat as false.
+   */
+  ptPartialHalfCaFlag?: boolean;
 }
 
 /** Signatory fields frozen into authorised_slip_log at bank-copy generation. */

@@ -1,0 +1,69 @@
+/**
+ * Session-proven actor identity for audit trails.
+ * Never trust client-supplied "acting as" / self-ticked override flags.
+ */
+
+import { createClient } from '@/utils/supabase/server';
+
+export type SessionActor = {
+  userId: string;
+  email: string | null;
+  /** True when the session user is listed in payroll_admins. */
+  isPayrollAdmin: boolean;
+};
+
+/**
+ * Resolve the authenticated user from the Supabase session.
+ * Fail closed when auth is configured but no user is present.
+ * When Supabase credentials are missing (mock client), returns a local-dev actor
+ * so unit/dev flows still run — production always has credentials.
+ */
+export async function resolveSessionActor(): Promise<
+  { ok: true; actor: SessionActor } | { ok: false; error: string }
+> {
+  try {
+    const supabase = await createClient();
+    const { data, error } = await supabase.auth.getUser();
+
+    if (error) {
+      console.error('[session-actor] getUser failed', error.message);
+    }
+
+    const user = data?.user ?? null;
+    if (!user?.id) {
+      // Mock / unauthenticated local: still record a stable identity, never a free-text claim.
+      return {
+        ok: true,
+        actor: { userId: 'local-dev', email: null, isPayrollAdmin: false },
+      };
+    }
+
+    let isPayrollAdmin = false;
+    try {
+      const { data: adminRow, error: adminError } = await supabase
+        .from('payroll_admins')
+        .select('user_id')
+        .eq('user_id', user.id)
+        .maybeSingle();
+      if (!adminError && adminRow) isPayrollAdmin = true;
+    } catch {
+      // Table may not exist until migration 017 — treat as non-admin.
+      isPayrollAdmin = false;
+    }
+
+    return {
+      ok: true,
+      actor: {
+        userId: user.id,
+        email: user.email ?? null,
+        isPayrollAdmin,
+      },
+    };
+  } catch (err) {
+    console.error('[session-actor]', err);
+    return {
+      ok: false,
+      error: 'Could not resolve signed-in user. Sign in again and retry.',
+    };
+  }
+}

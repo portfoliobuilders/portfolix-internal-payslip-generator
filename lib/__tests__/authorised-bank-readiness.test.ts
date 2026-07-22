@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { PDFDocument } from 'pdf-lib';
-import { buildBankReadyAuthorisedPdf } from '../authorised-pdf-layout';
+import { buildBankReadyAuthorisedPdf, chooseAuthorisedSpacingTier, measureAuthorisedContentHeight } from '../authorised-pdf-layout';
 import {
   assertExtractedTextClean,
   companyIdentityGate,
@@ -41,7 +41,6 @@ const snapshot: SlipSnapshot = {
     remarks: '',
     flexBankBalanceBefore: 0,
     baseSalary: 50000,
-    compensationAmount: 50000,
   },
   computed: {
     perDayRate: 2000,
@@ -82,11 +81,14 @@ const snapshot: SlipSnapshot = {
     engagementType: 'regular_employee',
     employmentStatus: 'active',
     paymentType: 'salary',
-    compensationAmount: 50000,
-    bankName: 'HDFC Bank',
+    bankName: 'Bank of India',
     bankDetailsVerified: true,
+    bankAccountNumber: '854210110005931',
     bankLast4: '5931',
-    panMasked: 'ABXXXXXX1F',
+    pan: 'RFWPS4835H',
+    panMasked: 'RFXXXXXX5H',
+    ifsc: 'BKID0008542',
+    workLocation: 'Kochi Office',
   },
 };
 
@@ -181,13 +183,17 @@ describe('bank-ready authorised PDF', () => {
       confirmedPaidAmount: 50000,
       outstandingAmount: 0,
       paymentMode: 'Bank Transfer',
-      bankName: 'HDFC Bank',
+      bankName: 'Bank of India',
       bankLast4: '5931',
+      bankAccountNumber: '854210110005931',
+      ifsc: 'BKID0008542',
+      workLocation: 'Kochi Office',
       payableDays: 25,
       lopDays: 0,
       department: 'Operations',
       designation: snapshot.employee.designation,
       joiningDate: snapshot.employee.joiningDate,
+      pan: 'RFWPS4835H',
       panMasked: snapshot.employee.panMasked,
       verificationId: 'ver_secure_123',
       verificationUrl,
@@ -218,14 +224,35 @@ describe('bank-ready authorised PDF', () => {
       await writeFile('artifacts/authorised-salary-slip-sample.pdf', result.bytes);
     }
     expect(loaded.getPageCount()).toBe(1);
+    expect(result.pageCount).toBe(1);
+    expect(result.layoutTier).toBe('comfortable');
     const size = loaded.getPage(0).getSize();
     expect(size.width).toBeCloseTo(595.28, 1);
     expect(size.height).toBeCloseTo(841.89, 1);
     expect(result.bytes.byteLength).toBeLessThan(1_000_000);
     expect(result.extractedText).toContain('₹50,000.00');
-    expect(result.extractedText).toContain('HDFC Bank');
+    expect(result.extractedText).toContain('Bank of India');
+    expect(result.extractedText).toContain('BKID0008542');
+    expect(result.extractedText).toContain('Kochi Office');
+    expect(result.extractedText).toContain('RFWPS4835H');
+    expect(result.extractedText).toContain('854210110005931');
+    expect(result.extractedText).toContain('Account Number');
+    expect(result.extractedText).toContain('Work Location');
+    expect(result.extractedText).not.toContain('Masked PAN');
+    expect(result.extractedText).not.toContain('Masked Bank Account');
     expect(result.extractedText).toContain('Payable Days');
-    expect(result.extractedText).toContain('Actual Credit Date');
+    expect(result.extractedText).toContain('Credit Date');
+    expect(result.extractedText).toContain('Issue Date');
+    expect(result.extractedText).toContain('April 2026');
+    expect(result.extractedText).toContain(
+      'Payslip No: ASL-PX-OPS-2512-005-2026-04 · Rev 1',
+    );
+    expect(result.extractedText).toContain('Verification ID: ver_secure_123');
+    expect(result.extractedText).not.toContain('Attendance Cycle');
+    expect(result.extractedText).not.toContain('Payroll Finalised');
+    expect(result.extractedText).not.toContain('Financial Year');
+    expect(result.extractedText).not.toMatch(/\bISSUED\b/);
+    expect(result.extractedText).not.toContain('LOP Calculation Basis');
     expect(result.extractedText).not.toContain('ABCD1234E');
     expect(result.embedded).toEqual({ signature: true, seal: true });
     expect(assertExtractedTextClean(result.extractedText).ok).toBe(true);
@@ -234,5 +261,129 @@ describe('bank-ready authorised PDF', () => {
     expect(result.geometry.headerDividerY).toBeGreaterThan(result.geometry.titleTopY);
     expect(result.geometry.titleTopY).toBeGreaterThan(result.geometry.titleBottomY);
     expect(result.geometry.headerDividerY - result.geometry.titleTopY).toBeGreaterThanOrEqual(10);
+  });
+
+  it('fits the standard slip (3 earning + 5 deduction rows) on one comfortable page', async () => {
+    const standardSnapshot: SlipSnapshot = {
+      ...snapshot,
+      monthYear: '2026-07',
+      inputs: {
+        ...snapshot.inputs,
+        baseSalary: 40000,
+        fixedAllowance: 8000,
+        variablePaid: 2000,
+        variableEarned: 2000,
+        otherDeductions: 500,
+        tdsMonthly: 1200,
+        ptThisMonth: 208,
+      },
+      computed: {
+        ...snapshot.computed,
+        lopDays: 1,
+        lopDeduction: 1600,
+        otherDeductions: 500,
+        tds: 1200,
+        pt: 208,
+        totalDeductions: 3508,
+        variablePaid: 2000,
+        netPay: 46492,
+        netPayWords: 'Rupees Forty Six Thousand Four Hundred Ninety Two Only',
+      },
+      calculationMethodLabel: 'LOP Calculation Basis: Fixed 25-day divisor',
+    };
+    const standardYtd: AuthorisedSlipYtd = {
+      basic: 40000,
+      fixedAllowance: 8000,
+      variablePaid: 2000,
+      grossEarnings: 50000,
+      lopDeduction: 1600,
+      professionalTax: 208,
+      tds: 1200,
+      otherDeductions: 500,
+      totalDeductions: 3508,
+    };
+
+    const beforeMetaReclaim = 92; // prior 3×3 document-details panel height
+    const afterMeta = 36; // single-row Issue | Credit panel
+    const reclaimed = beforeMetaReclaim - afterMeta;
+
+    const measureInput = {
+      snapshot: standardSnapshot,
+      ytd: standardYtd,
+      lopDays: 1,
+      registeredAddress: entity.registeredAddress,
+    };
+    const comfortableH = measureAuthorisedContentHeight(measureInput, 'comfortable');
+    const choice = chooseAuthorisedSpacingTier(measureInput);
+
+    expect(reclaimed).toBe(56);
+    expect(comfortableH).toBeLessThanOrEqual(841.89);
+    expect(choice.tier).toBe('comfortable');
+    expect(choice.requiresSecondPage).toBe(false);
+    // Layout report anchor: legacy ≈859pt (overflowed A4); comfortable after = measured below.
+
+    const verificationUrl = 'https://payroll.portfolixentreprise.com/verify/payslip/ver_std';
+    const qrPng = await buildVerificationQrPng(verificationUrl);
+    const result = await buildBankReadyAuthorisedPdf({
+      legalCompanyName: entity.name,
+      cin: entity.cin,
+      registeredAddress: entity.registeredAddress,
+      payrollEmail: entity.payrollEmail,
+      verificationPhone: entity.phone,
+      employeeName: standardSnapshot.employee.fullName,
+      employeeId: standardSnapshot.employee.empId,
+      salaryMonth: '2026-07',
+      attendancePeriodStart: '2026-06-25',
+      attendancePeriodEnd: '2026-07-24',
+      payrollFinalisedAt: '2026-07-26',
+      issueDate: '2026-07-19',
+      netSalary: 46492,
+      documentNumber: 'ASL-PX-OPS-2512-005-2026-07',
+      revisionNumber: 1,
+      actualCreditDate: '2026-08-05',
+      confirmedPaidAmount: 46492,
+      outstandingAmount: 0,
+      paymentMode: 'Bank Transfer',
+      bankName: 'HDFC Bank',
+      bankLast4: '5931',
+      payableDays: 24,
+      lopDays: 1,
+      department: 'Operations',
+      designation: standardSnapshot.employee.designation,
+      joiningDate: standardSnapshot.employee.joiningDate,
+      panMasked: standardSnapshot.employee.panMasked,
+      verificationId: 'ver_std',
+      verificationUrl,
+      signatoryName: 'Athul Anil',
+      signatoryDesignation: 'Director',
+      snapshot: standardSnapshot,
+      ytd: standardYtd,
+      qrPng,
+      assets: {
+        signature: {
+          bytes: PNG,
+          mimeType: 'image/png',
+          storagePath: 'signature.png',
+          contentHash: 'sig',
+        },
+        seal: {
+          bytes: PNG,
+          mimeType: 'image/png',
+          storagePath: 'seal.png',
+          contentHash: 'seal',
+        },
+      },
+    });
+
+    expect(result.pageCount).toBe(1);
+    expect(result.layoutTier).toBe('comfortable');
+    expect(result.contentHeight).toBe(comfortableH);
+    expect(result.extractedText).toContain('July 2026');
+    expect(result.extractedText).toContain('Basic');
+    expect(result.extractedText).toContain('Fixed Allowance');
+    expect(result.extractedText).toContain('LOP Calculation Basis: Fixed 25-day divisor');
+    // LOP basis is a footnote under the deduction row — not a document-details cell.
+    expect(result.extractedText).not.toContain('Attendance Cycle');
+    expect(result.extractedText).not.toMatch(/\bISSUED\b/);
   });
 });

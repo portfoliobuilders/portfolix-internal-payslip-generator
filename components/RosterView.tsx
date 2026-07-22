@@ -231,7 +231,7 @@ export default function RosterView({
                     <p className="text-[12px] text-muted">{e.department}</p>
                   </td>
                   <td className="amount px-4 py-2.5 text-right font-medium">
-                    {formatINR(e.compensationAmount)}
+                    {formatINR(e.baseSalary)}
                     <p className="text-[11px] text-muted">{compensationLabelForPaymentType(e.paymentType)}</p>
                   </td>
                   <td className="amount px-4 py-2.5 text-right">

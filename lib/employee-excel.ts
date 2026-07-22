@@ -16,9 +16,8 @@ export const EMPLOYEE_TEMPLATE_HEADERS = [
   'Engagement Type',
   'Employment Status',
   'Payment Type',
-  'Compensation Amount',
-  'Address',
   'Base Salary',
+  'Address',
   'Start Date',
   'End Date',
   'Payment Mode',
@@ -122,8 +121,8 @@ function validateRow(
   if (!/^\d{4}-\d{2}-\d{2}$/.test(employee.joiningDate)) {
     return `Row ${rowNumber}: Joining Date must be a valid date.`;
   }
-  if (!Number.isFinite(employee.compensationAmount) || employee.compensationAmount <= 0) {
-    return `Row ${rowNumber}: Compensation Amount must be greater than zero.`;
+  if (!Number.isFinite(employee.baseSalary) || employee.baseSalary <= 0) {
+    return `Row ${rowNumber}: Base Salary must be greater than zero.`;
   }
   if (employee.bankLast4 && !/^\d{4}$/.test(employee.bankLast4)) {
     return `Row ${rowNumber}: Bank A/C must be exactly 4 digits.`;
@@ -153,7 +152,8 @@ function mapRow(row: Record<string, unknown>, rowNumber: number): BulkEmployeeIn
 
   const engagementType = normalizeEngagementType(row['Engagement Type']);
   const paymentType = normalizePaymentType(row['Payment Type'], engagementType);
-  const compensationAmount = cellNumber(row['Compensation Amount']) || cellNumber(row['Base Salary']);
+  // Prefer Base Salary; accept legacy "Compensation Amount" column from older templates.
+  const baseSalary = cellNumber(row['Base Salary']) || cellNumber(row['Compensation Amount']);
   const employee: BulkEmployeeInput = {
     fullName: cellString(row['Full Name']),
     entityCode,
@@ -165,8 +165,7 @@ function mapRow(row: Record<string, unknown>, rowNumber: number): BulkEmployeeIn
     employmentStatus: (cellString(row['Employment Status']).toLowerCase() as Employee['employmentStatus']) || 'active',
     paymentType,
     employeeAddress: cellString(row['Address']),
-    compensationAmount,
-    baseSalary: compensationAmount,
+    baseSalary,
     paymentMode: normalizePaymentMode(row['Payment Mode']),
     bankLast4: normalizeBankLast4(row['Bank Details']),
     panMasked: cellString(row['PAN Masked']).toUpperCase(),
@@ -187,6 +186,7 @@ function mapRow(row: Record<string, unknown>, rowNumber: number): BulkEmployeeIn
     notes: cellString(row['Notes']),
     tdsMonthly: 0,
     ptHalfYearly: 0,
+    ptManualOverride: false,
   };
 
   const error = validateRow(employee, rowNumber);

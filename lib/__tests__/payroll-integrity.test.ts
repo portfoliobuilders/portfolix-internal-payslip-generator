@@ -250,7 +250,6 @@ const employeeSnapshot: SlipSnapshot['employee'] = {
   engagementType: 'regular_employee',
   employmentStatus: 'active',
   paymentType: 'salary',
-  compensationAmount: 50000,
   bankLast4: '5931',
   panMasked: 'RFXPXXXXX5H',
 };
@@ -275,7 +274,6 @@ describe('server recompute integrity', () => {
     committedPayoutDate: null,
     variableLabel: '',
     remarks: '',
-    compensationAmount: 50000,
   };
 
   it('recomputes net and rejects forged client net', () => {
