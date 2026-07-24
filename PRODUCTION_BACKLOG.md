@@ -17,7 +17,7 @@ Legend: `[ ]` open · `[x]` done · `[~]` mitigated / documented residual · `[H
 - **Estimated time:** 1–2 h
 - **Dependencies:** None
 - **Priority:** Critical
-- **Status:** [ ]
+- **Status:** [x] Done 2026-07-24 — fail closed in `buildAuthorisedSalarySlipPdf` when `registerDocument !== false`; re-assert gate in `issueAuthorisedSalarySlipDocument` before minting new ISSUED rows
 
 ### C2. App starts open when Supabase env is missing (mock / degraded shell)
 - **Description:** Missing env returns mock client; middleware allows all routes. Violates fail-closed payroll rules in production.

@@ -201,16 +201,22 @@ export async function buildAuthorisedSalarySlipPdf(input: {
   );
 
   // Payment facts ONLY from the payment ledger gate — never snapshot soft fields.
+  // Face amount is always the immutable FINAL snapshot net (fingerprint uses the same).
+  const netSalary = input.snapshot.computed.netPay;
+
   let actualCreditDate: string | null = null;
   let confirmedPaidAmount: number | null = null;
   let outstandingAmount: number | null = null;
   let paymentStatus: string | null = null;
   let obligationId: string | null = null;
-  // Face amount is always the immutable FINAL snapshot net (fingerprint uses the same).
-  const netSalary = input.snapshot.computed.netPay;
 
-  const paymentGate = await assertAuthorisedSlipPaymentGate(input.snapshot.id);
-  if (paymentGate.ok) {
+  // Fail closed for every production path (registerDocument defaults to true).
+  // Tests may set registerDocument: false to exercise PDF layout without a ledger.
+  if (input.registerDocument !== false) {
+    const paymentGate = await assertAuthorisedSlipPaymentGate(input.snapshot.id);
+    if (!paymentGate.ok) {
+      return { ok: false, error: paymentGate.error };
+    }
     actualCreditDate = paymentGate.data.actualCreditDate;
     confirmedPaidAmount = paymentGate.data.confirmedPaidAmount;
     outstandingAmount = paymentGate.data.outstandingAmount;
