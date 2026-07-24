@@ -877,14 +877,22 @@ export async function reverseSalaryPayment(input: {
   if (!result.ok) return { ok: false, error: result.error };
 
   const supabase = await createClient();
-  const { error: updErr } = await supabase
+  const { data: updatedRows, error: updErr } = await supabase
     .from('salary_payment_transactions')
     .update(transactionToRow(result.original))
-    .eq('id', result.original.id);
+    .eq('id', result.original.id)
+    .eq('transaction_status', 'CONFIRMED')
+    .select('id');
   if (updErr) {
     return {
       ok: false,
       error: toUserFacingDbError(updErr, 'Failed to reverse payment.', 'reverseSalaryPayment'),
+    };
+  }
+  if (!updatedRows?.length) {
+    return {
+      ok: false,
+      error: 'Transaction is no longer CONFIRMED — another operator may have reversed it.',
     };
   }
 
@@ -892,6 +900,11 @@ export async function reverseSalaryPayment(input: {
     .from('salary_payment_transactions')
     .insert(transactionToRow(result.reversal));
   if (insErr) {
+    // Best-effort restore so we do not leave a REVERSED row without a reversal.
+    await supabase
+      .from('salary_payment_transactions')
+      .update(transactionToRow(tx))
+      .eq('id', tx.id);
     return {
       ok: false,
       error: toUserFacingDbError(insErr, 'Failed to reverse payment.', 'reverseSalaryPayment'),

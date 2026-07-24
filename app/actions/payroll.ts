@@ -590,15 +590,21 @@ export async function finalizePayrollSlip(
         // Archival mirror is best-effort.
       }
     } else {
-      // DB-level duplicate guard (no-op if migrations not yet applied).
-      try {
-        await supabase.rpc('assert_no_duplicate_active_final', {
-          p_employee_id: built.snapshot.employeeId,
-          p_month_year: built.snapshot.monthYear,
-          p_except_id: null,
-        });
-      } catch {
-        // Function may be missing before migrations are applied — app-level check already ran.
+      // DB-level duplicate guard — check { error }; supabase-js does not throw.
+      const { error: dupError } = await supabase.rpc('assert_no_duplicate_active_final', {
+        p_employee_id: built.snapshot.employeeId,
+        p_month_year: built.snapshot.monthYear,
+        p_except_id: null,
+      });
+      if (dupError) {
+        return {
+          ok: false,
+          error: toUserFacingDbError(
+            dupError,
+            'An active FINAL already exists for this employee and month.',
+            'finalizePayrollSlip.duplicateGuard',
+          ),
+        };
       }
     }
 
@@ -606,7 +612,7 @@ export async function finalizePayrollSlip(
     if (!slipResult.ok) return slipResult;
 
     // Annotate integrity columns when migration 009 is present.
-    await supabase
+    const { error: integError } = await supabase
       .from('payroll_slips')
       .update({
         workflow_status: 'FINAL',
@@ -633,7 +639,18 @@ export async function finalizePayrollSlip(
       })
       .eq('id', built.snapshot.id);
 
-    await supabase.from('payroll_audit_logs').insert({
+    if (integError) {
+      return {
+        ok: false,
+        error: toUserFacingDbError(
+          integError,
+          'Failed to mark payroll slip as FINAL.',
+          'finalizePayrollSlip.integrity',
+        ),
+      };
+    }
+
+    const { error: auditError } = await supabase.from('payroll_audit_logs').insert({
       action: 'PAYROLL_FINALIZED',
       entity_type: 'payroll_slip',
       entity_id: built.snapshot.id,
@@ -646,6 +663,16 @@ export async function finalizePayrollSlip(
       },
       reason: `Server-recomputed final for ${built.snapshot.monthYear}`,
     });
+    if (auditError) {
+      return {
+        ok: false,
+        error: toUserFacingDbError(
+          auditError,
+          'Payroll slip saved but audit log failed — investigate before continuing.',
+          'finalizePayrollSlip.audit',
+        ),
+      };
+    }
 
     const delta = built.newFlexBalance - employee.flexBankBalance;
     const flexLog =
@@ -665,36 +692,48 @@ export async function finalizePayrollSlip(
       flexBankBalance: built.newFlexBalance,
       flexLog,
     });
-    if (!employeeResult.ok) return employeeResult;
+    if (!employeeResult.ok) {
+      // Slip is already FINAL — surface loudly so operators can repair flex.
+      return {
+        ok: false,
+        error:
+          employeeResult.error +
+          ' The FINAL slip was saved but the flex bank update failed. Repair the employee flex balance before paying.',
+      };
+    }
 
-    // Parent salary-payment obligation — FINAL ≠ PAID.
-    try {
-      const { ensureSalaryPaymentObligation } = await import('@/app/actions/salary-payment');
-      const { resolvePaymentSchedule } = await import('@/lib/payment-schedule');
-      const schedule = resolvePaymentSchedule({
-        salaryMonth: built.snapshot.monthYear,
-        companyDefaultPaymentDay: settings.paydayDayOfMonth,
-        employeePreferredPaymentDay:
-          (employee as { preferredPaymentDay?: number | null }).preferredPaymentDay ??
-          null,
-        employeeDefaultPaymentDay:
-          (employee as { defaultPaymentDay?: number | null }).defaultPaymentDay ?? null,
-      });
-      const dueCommitted =
-        options?.expectedPaymentDate ?? schedule.scheduledPaymentDate;
-      await ensureSalaryPaymentObligation({
-        payrollRecordId: built.snapshot.id,
-        employeeId: built.snapshot.employeeId,
-        monthYear: built.snapshot.monthYear,
-        netSalaryPayable: built.snapshot.computed.netPay,
-        paydayDayOfMonth: settings.paydayDayOfMonth,
-        originalDueDate: schedule.originalDueDate,
-        scheduledPaymentDate: dueCommitted,
-        companyCommittedDate: dueCommitted,
-        actorUserId: 'system',
-      });
-    } catch {
-      // Payment tables may not exist until migration 011 is applied.
+    // Parent salary-payment obligation — FINAL ≠ PAID. Fail closed.
+    const { ensureSalaryPaymentObligation } = await import('@/app/actions/salary-payment');
+    const { resolvePaymentSchedule } = await import('@/lib/payment-schedule');
+    const schedule = resolvePaymentSchedule({
+      salaryMonth: built.snapshot.monthYear,
+      companyDefaultPaymentDay: settings.paydayDayOfMonth,
+      employeePreferredPaymentDay:
+        (employee as { preferredPaymentDay?: number | null }).preferredPaymentDay ??
+        null,
+      employeeDefaultPaymentDay:
+        (employee as { defaultPaymentDay?: number | null }).defaultPaymentDay ?? null,
+    });
+    const dueCommitted =
+      options?.expectedPaymentDate ?? schedule.scheduledPaymentDate;
+    const obligationResult = await ensureSalaryPaymentObligation({
+      payrollRecordId: built.snapshot.id,
+      employeeId: built.snapshot.employeeId,
+      monthYear: built.snapshot.monthYear,
+      netSalaryPayable: built.snapshot.computed.netPay,
+      paydayDayOfMonth: settings.paydayDayOfMonth,
+      originalDueDate: schedule.originalDueDate,
+      scheduledPaymentDate: dueCommitted,
+      companyCommittedDate: dueCommitted,
+      actorUserId: 'system',
+    });
+    if (!obligationResult.ok) {
+      return {
+        ok: false,
+        error:
+          obligationResult.error +
+          ' The FINAL slip was saved but the payment obligation was not created. Create it from History before paying.',
+      };
     }
 
     return {

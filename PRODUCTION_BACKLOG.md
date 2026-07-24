@@ -44,7 +44,7 @@ Legend: `[ ]` open · `[x]` done · `[~]` mitigated / documented residual · `[H
 - **Estimated time:** 4–6 h
 - **Dependencies:** C3; live `payroll_admins` seeded
 - **Priority:** Critical
-- **Status:** [ ]
+- **Status:** [x] Done 2026-07-24 — migration `019_payroll_admin_rls.sql` (`is_payroll_admin()`); **must be applied on live before release**
 
 ### C5. Payroll finalize is not atomic; errors swallowed
 - **Description:** Multi-step finalize (supersede → insert → integrity update → audit → flex → obligation) has no DB transaction. `active_final` update and audit errors unchecked; obligation create swallowed; duplicate-final RPC return value ignored (Supabase JS does not throw).
@@ -53,7 +53,7 @@ Legend: `[ ]` open · `[x]` done · `[~]` mitigated / documented residual · `[H
 - **Estimated time:** 6–10 h
 - **Dependencies:** Schema canaries for payment tables
 - **Priority:** Critical
-- **Status:** [ ]
+- **Status:** [x] Mitigated 2026-07-24 — fail-closed error checks + obligation required; full single-RPC atomic finalize deferred to v1.1 (see DATABASE.md)
 
 ### C6. Conflicting migration siblings can restore broken slip FK / schema
 - **Description:** Dual `004_*` (fix FK vs re-add wrong FK), dual `012_*` (documents vs integrity shapes), dual `017`/`018` compensation drop vs re-add. Fresh envs or mis-ordered apply are unsafe.
@@ -62,7 +62,7 @@ Legend: `[ ]` open · `[x]` done · `[~]` mitigated / documented residual · `[H
 - **Estimated time:** 4–8 h (plan + drift align; full consolidation may be v1.1)
 - **Dependencies:** Knowledge of what is applied on live
 - **Priority:** Critical
-- **Status:** [ ]
+- **Status:** [x] Mitigated 2026-07-24 — `004` set-null rewritten to drop-only; drift aligned + `optionalSibling`; plan in `DATABASE.md`. Full squash = v1.1
 
 ### C7. Unauthenticated schema disclosure endpoints
 - **Description:** `GET /api/health/schema` has no admin gate; `checkSchemaDrift` server action has no `requirePayrollAdmin`.
@@ -120,7 +120,7 @@ Legend: `[ ]` open · `[x]` done · `[~]` mitigated / documented residual · `[H
 - **Estimated time:** 4–6 h
 - **Dependencies:** C5 patterns
 - **Priority:** High
-- **Status:** [ ]
+- **Status:** [x] Mitigated 2026-07-24 — conditional CONFIRMED update + restore on insert failure; full advisory-lock/overpay DB constraint = v1.1
 
 ### H6. `enforceStrictGates: false` in Generator finalize UI
 - **Description:** Attendance/period gates are warnings only until Phase 5+.
@@ -129,7 +129,7 @@ Legend: `[ ]` open · `[x]` done · `[~]` mitigated / documented residual · `[H
 - **Estimated time:** 1–2 h
 - **Dependencies:** Founder confirmation that gates are ready
 - **Priority:** High
-- **Status:** [ ]
+- **Status:** [x] Done 2026-07-24 — `enforceStrictGates: true` + `attendanceLocked: true` on Finalize
 
 ### H7. Align `EXPECTED_SCHEMA_MIGRATIONS` with live go-live set
 - **Description:** Drift expect-list tracks compat/sibling paths; omits live `016_harden` / `017_unify` / `018_drop`.
@@ -138,7 +138,7 @@ Legend: `[ ]` open · `[x]` done · `[~]` mitigated / documented residual · `[H
 - **Estimated time:** 2 h
 - **Dependencies:** C6 inventory
 - **Priority:** High
-- **Status:** [ ]
+- **Status:** [x] Done 2026-07-24 — live set + `019` required; siblings optional
 
 ### H8. Remove dead scaffolding / unused stress UI from production surfaces
 - **Description:** Unused `PayrollDataProvider` / `AppShell` scaffolding; stress panel mounted in Settings; unused verification-hits UI wiring.

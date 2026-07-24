@@ -43,8 +43,10 @@ export const EXPECTED_SCHEMA_MIGRATIONS: ExpectedMigration[] = [
     appliedNames: ['fix_slip_fk'],
   },
   {
+    // Historical sibling — now a no-op that drops the bad FK (same end state as fix).
     file: '004_payroll_slips_fk_set_null.sql',
     appliedNames: ['payroll_slips_fk_set_null', 'payroll_slips_fk_set_null_on_delete'],
+    optionalSibling: true,
   },
   {
     file: '005_authorised_slip.sql',
@@ -136,10 +138,22 @@ export const EXPECTED_SCHEMA_MIGRATIONS: ExpectedMigration[] = [
     appliedNames: ['align_payroll_document_lifecycle_columns'],
   },
   {
+    file: '016_harden_authenticated_rls.sql',
+    appliedNames: ['016_harden_authenticated_rls', 'harden_authenticated_rls'],
+  },
+  {
     file: '017_document_lifecycle_and_payroll_admins.sql',
     appliedNames: [
       '017_document_lifecycle_and_payroll_admins',
       'document_lifecycle_and_payroll_admins',
+    ],
+    optionalSibling: true,
+  },
+  {
+    file: '017_unify_base_salary_lifecycle_admins.sql',
+    appliedNames: [
+      '017_unify_base_salary_lifecycle_admins',
+      'unify_base_salary_lifecycle_admins',
     ],
   },
   {
@@ -148,6 +162,18 @@ export const EXPECTED_SCHEMA_MIGRATIONS: ExpectedMigration[] = [
       '018_compat_compensation_and_issued_doc_unique',
       'compat_compensation_and_issued_doc_unique',
     ],
+    optionalSibling: true,
+  },
+  {
+    file: '018_drop_compensation_sync_trigger.sql',
+    appliedNames: [
+      '018_drop_compensation_sync_trigger',
+      'drop_compensation_sync_trigger',
+    ],
+  },
+  {
+    file: '019_payroll_admin_rls.sql',
+    appliedNames: ['019_payroll_admin_rls', 'payroll_admin_rls'],
   },
 ];
 
@@ -199,7 +225,9 @@ export function buildDriftReport(
 
   for (const expected of EXPECTED_SCHEMA_MIGRATIONS) {
     const hit = expected.appliedNames.some((n) => applied.has(n.toLowerCase()));
-    if (!hit) pendingMigrations.push(expected.file);
+    if (!hit && !expected.optionalSibling) {
+      pendingMigrations.push(expected.file);
+    }
   }
 
   // Deduplicate display names (align entry shares stem with 005)
