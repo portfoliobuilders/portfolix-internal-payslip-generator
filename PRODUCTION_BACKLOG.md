@@ -290,7 +290,9 @@ Legend: `[ ]` open · `[x]` done · `[~]` mitigated / documented residual · `[H
 
 ## Definition of done for v1.0
 
-- [ ] All Critical closed or explicitly accepted in `FINAL_AUDIT.md` with residual risk
-- [ ] All High closed or human-owned with checklist owners
-- [ ] `npm run typecheck`, `lint`, `test`, `build` green
-- [ ] Dress rehearsal path documented: draft → finalize → pay → bank copy → QR → `/verify` → supersede
+- [x] All Critical closed or explicitly accepted in `FINAL_AUDIT.md` with residual risk
+- [x] All High closed or human-owned with checklist owners (H10/H11 human)
+- [x] `npm run typecheck`, `lint`, `test`, `build` green
+- [ ] Dress rehearsal path documented: draft → finalize → pay → bank copy → QR → `/verify` → supersede — **documented**; **execute** on live after `019`
+- [ ] Apply `019_payroll_admin_rls.sql` on live (ops)
+- [ ] Confirm `NEXT_PUBLIC_APP_URL` + branch protection (ops)
