@@ -9,6 +9,7 @@ import { Field, Input, NumberInput, Textarea, btnPrimary, btnSecondary, Modal } 
 import EntityLogoUpload from '@/components/EntityLogoUpload';
 import SignatoryAssetUpload from '@/components/SignatoryAssetUpload';
 import {
+  clampPaydayDayOfMonth,
   currentMonthKey,
   formatDate,
   formatINR,
@@ -214,10 +215,10 @@ export default function SettingsView() {
           >
             <NumberInput
               value={settings.paydayDayOfMonth}
-              min={3}
-              max={28}
+              min={1}
+              max={31}
               onChange={(e) => {
-                const day = Math.min(28, Math.max(3, Math.round(Number(e.target.value) || 0)));
+                const day = clampPaydayDayOfMonth(Number(e.target.value) || 0);
                 updateSettings({ paydayDayOfMonth: day });
               }}
             />

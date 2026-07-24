@@ -54,6 +54,7 @@ describe('schema drift guard', () => {
         'unify_base_salary_lifecycle_admins',
         'drop_compensation_sync_trigger',
         'payroll_admin_rls',
+        'payday_day_range_1_31',
       ],
       [],
     );
