@@ -35,6 +35,7 @@ import { statementMetaFor } from '@/lib/workforce';
 import { calendarDaysInMonthYear } from '@/lib/calculation-method';
 import { buildServerFinalSnapshot } from '@/lib/payroll-integrity';
 import { findFinalSlipForMonth } from '@/lib/payroll-helpers';
+import { toUserFacingDbError } from '@/lib/supabase-errors';
 
 export type ActionResult<T> =
   | { ok: true; data: T }
@@ -100,7 +101,12 @@ export async function upsertEmployee(
       .select('*')
       .single();
 
-    if (error) return { ok: false, error: error.message };
+    if (error) {
+      return {
+        ok: false,
+        error: toUserFacingDbError(error, 'Failed to save employee.', 'upsertEmployee'),
+      };
+    }
 
     revalidatePayrollViews();
     return { ok: true, data: rowToEmployee(data as EmployeeRow) };
@@ -274,7 +280,12 @@ export async function savePayrollSlip(
       .select('*')
       .single();
 
-    if (error) return { ok: false, error: error.message };
+    if (error) {
+      return {
+        ok: false,
+        error: toUserFacingDbError(error, 'Failed to save payroll slip.', 'savePayrollSlip'),
+      };
+    }
 
     // Secondary history mirror — never fail the primary payroll_slips save when missing/unavailable.
     const { error: statementError } = await supabase.from('payment_statements').insert({
@@ -291,7 +302,7 @@ export async function savePayrollSlip(
       year,
       gross_pay: slipData.computed.grossFixed,
       net_pay: slipData.computed.netPay,
-      compensation_amount: slipData.inputs.baseSalary, // payment_statements archival column
+      compensation_amount: slipData.inputs.baseSalary, // archival mirror column
       earnings: {
         main: slipData.inputs.baseSalary,
         fixedAllowance: slipData.inputs.fixedAllowance,
@@ -513,14 +524,37 @@ export async function finalizePayrollSlip(
 
     // Supersede prior active FINAL when explicitly confirmed.
     if (existingFinal && options?.supersedeConfirmed) {
-      await supabase
+      const supersedePatch: Record<string, unknown> = {
+        status: 'superseded',
+        workflow_status: 'SUPERSEDED',
+        active_final: false,
+        superseded_by: built.snapshot.id,
+      };
+      const { error: supersedeError } = await supabase
         .from('payroll_slips')
-        .update({
-          active_final: false,
-          workflow_status: 'SUPERSEDED',
-          status: 'final',
-        })
+        .update(supersedePatch)
         .eq('id', existingFinal.id);
+      if (supersedeError) {
+        // Column may be missing before migrations — retry without superseded_by.
+        const { error: fallbackError } = await supabase
+          .from('payroll_slips')
+          .update({
+            status: 'superseded',
+            workflow_status: 'SUPERSEDED',
+            active_final: false,
+          })
+          .eq('id', existingFinal.id);
+        if (fallbackError) {
+          return {
+            ok: false,
+            error: toUserFacingDbError(
+              fallbackError,
+              'Failed to supersede prior final slip.',
+              'finalizePayrollSlip.supersede',
+            ),
+          };
+        }
+      }
 
       await supabase.from('payroll_audit_logs').insert({
         action: 'PAYROLL_SUPERSEDED',
@@ -530,6 +564,31 @@ export async function finalizePayrollSlip(
         new_values: { workflow_status: 'SUPERSEDED', superseded_by: built.snapshot.id },
         reason: `Superseded by ${built.snapshot.id} for ${built.snapshot.monthYear}`,
       });
+
+      // Best-effort: sync payment_statements archival snapshot status.
+      try {
+        const { data: stmt } = await supabase
+          .from('payment_statements')
+          .select('snapshot_data')
+          .eq('id', existingFinal.id)
+          .maybeSingle();
+        const priorSnap = (stmt as { snapshot_data?: SlipSnapshot | null } | null)?.snapshot_data;
+        if (priorSnap) {
+          await supabase
+            .from('payment_statements')
+            .update({
+              snapshot_data: {
+                ...priorSnap,
+                status: 'superseded',
+                workflowStatus: 'SUPERSEDED',
+                activeFinal: false,
+              },
+            })
+            .eq('id', existingFinal.id);
+        }
+      } catch {
+        // Archival mirror is best-effort.
+      }
     } else {
       // DB-level duplicate guard (no-op if migrations not yet applied).
       try {

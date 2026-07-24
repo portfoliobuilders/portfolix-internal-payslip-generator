@@ -11,7 +11,7 @@ type DbErrorLike = {
 } | null | undefined;
 
 const SCHEMA_DRIFT_USER_MESSAGE =
-  'Database schema is behind the deployed code. Open Settings for pending migrations, then run them in the Supabase SQL Editor.';
+  'Database schema is behind the deployed code. Apply pending migrations in the Supabase SQL Editor, then retry.';
 
 export function logSupabaseError(context: string, error: DbErrorLike, extra?: unknown): void {
   console.error(`[supabase:${context}]`, {
@@ -50,14 +50,16 @@ export function toUserFacingDbError(
 
   if (!message) return fallback;
 
-  // Known business collisions — map before the generic raw-Postgres scrub.
   if (
     code === '23505' ||
     /payroll_issued_documents_document_number_key|duplicate key value.*document_number/i.test(
       message,
     )
   ) {
-    if (/document_number/i.test(message) || /payroll_issued_documents_document_number/i.test(message)) {
+    if (
+      /document_number/i.test(message) ||
+      /payroll_issued_documents_document_number/i.test(message)
+    ) {
       return "This month's bank copy already exists — opening it.";
     }
     if (/payroll_slips_one_draft/i.test(message)) {
@@ -72,7 +74,6 @@ export function toUserFacingDbError(
   if (looksLikeSchemaDrift(message, code)) return SCHEMA_DRIFT_USER_MESSAGE;
   if (looksLikeRawPostgres(message)) return fallback;
 
-  // App-authored messages (validation, business rules) may pass through.
   return message;
 }
 

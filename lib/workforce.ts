@@ -27,7 +27,7 @@ export function compensationLabelForPaymentType(paymentType: PaymentType): strin
   }
 }
 
-/** Adaptive Edit-modal label for the single money field (`baseSalary`). */
+/** Form label for the single employee money field (baseSalary). */
 export function baseSalaryInputLabel(paymentType: PaymentType): string {
   switch (paymentType) {
     case 'stipend':

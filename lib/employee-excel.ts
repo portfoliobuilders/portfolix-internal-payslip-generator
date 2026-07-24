@@ -172,7 +172,7 @@ function mapRow(row: Record<string, unknown>, rowNumber: number): BulkEmployeeIn
 
   const engagementType = normalizeEngagementType(row['Engagement Type']);
   const paymentType = normalizePaymentType(row['Payment Type'], engagementType);
-  // Prefer Base Salary; accept legacy "Compensation Amount" column from older templates.
+  // Prefer Base Salary; accept legacy Compensation Amount as fallback.
   const baseSalary = cellNumber(row['Base Salary']) || cellNumber(row['Compensation Amount']);
 
   const bankAccountNumber = (() => {

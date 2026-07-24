@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isPublicAppPath } from '../auth';
+import { isPublicAppPath } from '../public-paths';
 
 describe('isPublicAppPath', () => {
   it('allows login, auth callback, and verify routes', () => {

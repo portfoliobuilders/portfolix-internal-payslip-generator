@@ -28,6 +28,7 @@ import {
   generatePublicVerificationId,
 } from '@/lib/verification';
 import type { SlipSnapshot } from '@/lib/types';
+import { toUserFacingDbError } from '@/lib/supabase-errors';
 
 export type ActionResult<T> =
   | { ok: true; data: T }
@@ -225,36 +226,43 @@ export async function issueAuthorisedSalarySlipDocument(input: {
     });
 
     if (error) {
-      // Unique collision (race / ISSUED-only unique): reopen existing ISSUED.
-      if (isDocumentNumberUniqueViolation(error)) {
-        const { data: raced } = await supabase
-          .from('payroll_issued_documents')
-          .select('*')
-          .eq('payroll_record_id', input.snapshot.id)
-          .eq('document_type', 'AUTHORISED_SALARY_SLIP')
-          .eq('document_status', 'ISSUED')
-          .maybeSingle();
-        if (raced) {
-          return {
-            ok: true,
-            data: toIssuedResult(raced, input.verificationBaseUrl, issueDate),
-          };
-        }
-        const { data: byNumber } = await supabase
+      const isDocCollision =
+        error.code === '23505' ||
+        /document_number|payroll_issued_documents_document_number/i.test(error.message ?? '');
+      if (isDocCollision) {
+        const { data: existingIssued } = await supabase
           .from('payroll_issued_documents')
           .select('*')
           .eq('document_number', documentNumber)
           .eq('document_type', 'AUTHORISED_SALARY_SLIP')
           .eq('document_status', 'ISSUED')
           .maybeSingle();
-        if (byNumber) {
+        if (existingIssued) {
+          const publicId = String(existingIssued.public_verification_id);
           return {
             ok: true,
-            data: toIssuedResult(byNumber, input.verificationBaseUrl, issueDate),
+            data: {
+              documentNumber: String(existingIssued.document_number),
+              publicVerificationId: publicId,
+              verificationUrl: buildVerificationUrl(input.verificationBaseUrl, publicId),
+              verificationFingerprint: existingIssued.verification_fingerprint
+                ? String(existingIssued.verification_fingerprint)
+                : '',
+              revisionNumber: Number(existingIssued.revision_number ?? 1),
+              reused: true,
+              issueDate: String(existingIssued.issue_date ?? issueDate),
+            },
           };
         }
       }
-      return { ok: false, error: error.message };
+      return {
+        ok: false,
+        error: toUserFacingDbError(
+          error,
+          'Failed to issue authorised document.',
+          'issueAuthorisedSalarySlipDocument',
+        ),
+      };
     }
 
     return {

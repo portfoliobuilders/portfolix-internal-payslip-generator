@@ -1,6 +1,6 @@
 import { createServerClient } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
-import { isPublicAppPath } from '@/lib/auth';
+import { isPublicAppPath } from '@/lib/public-paths';
 import { getSupabaseEnv, logMissingSupabaseCredentials } from './config';
 
 /**

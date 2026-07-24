@@ -101,6 +101,8 @@ export default function SalarySlip({
   showResidentialAddress = false,
 }: SalarySlipProps) {
   const { inputs, computed, employee } = snapshot;
+  const basePay =
+    inputs.baseSalary ?? (inputs as { compensationAmount?: number }).compensationAmount ?? 0;
   /** Review window and draft chrome key ONLY on the rendered variant. */
   const isDraft = snapshot.status === 'draft';
   const isAuthorizedForBank = !isDraft && Boolean(inputs.authorizedForBankVerification);
@@ -289,7 +291,7 @@ export default function SalarySlip({
         <SectionTitle tag="02">Attendance &amp; LOP Calculation</SectionTitle>
         <div className="rounded border border-hairline bg-surface px-3 py-2">
           <p className="amount text-[11px] font-semibold">
-            {formatINR(inputs.baseSalary)} ÷ {FIXED_DIVISOR} = {formatINR(computed.perDayRate)}/day
+            {formatINR(basePay)} ÷ {FIXED_DIVISOR} = {formatINR(computed.perDayRate)}/day
           </p>
           <p className="mt-0.5 text-[9px] text-muted">
             {lopCalculationBasisLabel('FIXED_25')} — this is the salary-calculation divisor, not the
@@ -332,7 +334,7 @@ export default function SalarySlip({
         <div className="flex h-full flex-col">
           <SectionTitle tag="A">Fixed Earnings</SectionTitle>
           <div className="flex-1">
-            <Row label={statementMeta.mainEarningLabel} value={formatINR(inputs.baseSalary)} />
+            <Row label={statementMeta.mainEarningLabel} value={formatINR(basePay)} />
             <Row label="Fixed allowance" value={formatINR(inputs.fixedAllowance)} />
           </div>
           <div className="mt-auto border-t border-ink/60">

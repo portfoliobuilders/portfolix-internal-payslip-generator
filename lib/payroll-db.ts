@@ -75,7 +75,7 @@ export interface PayrollSlipRow {
   id: string;
   employee_id: string;
   month_year: string;
-  status: 'draft' | 'final';
+  status: 'draft' | 'final' | 'superseded' | 'voided';
   details_json: Omit<SlipSnapshot, 'id' | 'employeeId' | 'monthYear' | 'status'>;
   /** Present when selected from payroll_slips (active FINAL / supersede chains). */
   active_final?: boolean | null;
