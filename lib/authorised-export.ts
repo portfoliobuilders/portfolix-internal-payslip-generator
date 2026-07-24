@@ -60,14 +60,6 @@ function resolveAttendance(snapshot: SlipSnapshot): {
 }
 
 /**
- * Stable production host used when NEXT_PUBLIC_APP_URL is not configured yet.
- * Prefer setting NEXT_PUBLIC_APP_URL (or a custom domain) in Vercel — this is a
- * fail-open default for the known production deployment only.
- */
-export const DEFAULT_CANONICAL_APP_URL =
-  'https://portfolix-internal-payslip-generato.vercel.app';
-
-/**
  * Vercel *preview* hosts only (git-branch / deployment URLs).
  * Stable production `{project}.vercel.app` is allowed until a custom domain is set.
  * Live-print defect: QR pointed at …-git-8ac69a-….vercel.app which dies with the branch.
@@ -90,16 +82,16 @@ export function isVercelPreviewAppUrl(url: string): boolean {
 
 /**
  * Resolve the canonical app URL for QR / verification links.
- * Order: NEXT_PUBLIC_APP_URL → optional settings override → stable production default.
+ * Order: NEXT_PUBLIC_APP_URL → optional settings override.
+ * Fail closed when unset — never invent a host (wrong QR / verify URLs).
  * Never use window.location.origin (preview deployments produce non-stable URLs).
- * NOTE: Switch NEXT_PUBLIC_APP_URL to your custom domain when it is finalized.
  */
 export function resolveCanonicalAppUrl(
   settingsOverride?: string | null,
 ): { ok: true; url: string } | { ok: false; error: string } {
   const fromEnv =
     (typeof process !== 'undefined' ? process.env.NEXT_PUBLIC_APP_URL : undefined) ?? '';
-  const raw = (fromEnv || settingsOverride || DEFAULT_CANONICAL_APP_URL).trim();
+  const raw = (fromEnv || settingsOverride || '').trim();
   const url = raw.replace(/\/$/, '');
   if (!url) {
     return {
@@ -117,15 +109,21 @@ export function resolveCanonicalAppUrl(
   return { ok: true, url };
 }
 
-/** @deprecated Use resolveCanonicalAppUrl() instead. */
 function verificationBaseUrl(): string {
   const resolved = resolveCanonicalAppUrl();
   if (resolved.ok) return resolved.url;
-  // Fallback for legacy non-guard paths only.
-  if (typeof window !== 'undefined' && window.location?.origin) {
-    return window.location.origin;
+  throw new Error(resolved.error);
+}
+
+/** Deterministic host for unit tests that skip production guards. */
+const TEST_VERIFICATION_BASE_URL = 'https://pay.example.test';
+
+function resolveVerificationBaseUrl(skipGuards: boolean | undefined): string {
+  if (skipGuards) {
+    const resolved = resolveCanonicalAppUrl();
+    return resolved.ok ? resolved.url : TEST_VERIFICATION_BASE_URL;
   }
-  return 'https://portfolix-internal-payslip-generato.vercel.app';
+  return verificationBaseUrl();
 }
 
 /** Payday of the following month — scheduled credit, never "today". */
@@ -262,7 +260,7 @@ export async function buildAuthorisedSalarySlipPdf(input: {
       cin: input.entity.cin,
       signatoryName: input.entity.signatoryName,
       signatoryDesignation: input.entity.signatoryDesignation,
-      verificationBaseUrl: verificationBaseUrl(),
+      verificationBaseUrl: resolveVerificationBaseUrl(input._skipGuards),
       issuedBy: 'hr-export',
       revisionNumber,
       issueDate,
@@ -276,7 +274,10 @@ export async function buildAuthorisedSalarySlipPdf(input: {
     // Explicit test path — deterministic id so preview/download hashes match.
     publicVerificationId =
       input.snapshot.id.replace(/-/g, '').padEnd(32, '0').slice(0, 32);
-    verificationUrl = buildVerificationUrl(verificationBaseUrl(), publicVerificationId);
+    verificationUrl = buildVerificationUrl(
+      resolveVerificationBaseUrl(input._skipGuards),
+      publicVerificationId,
+    );
     void generatePublicVerificationId;
   }
 

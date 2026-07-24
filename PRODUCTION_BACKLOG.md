@@ -26,7 +26,7 @@ Legend: `[ ]` open · `[x]` done · `[~]` mitigated / documented residual · `[H
 - **Estimated time:** 2–3 h
 - **Dependencies:** None
 - **Priority:** Critical
-- **Status:** [ ]
+- **Status:** [x] Done 2026-07-24 — production returns 503 without env; mock client only in non-production; removed config `console.log`
 
 ### C3. `requirePayrollAdmin` skips `payroll_admins` when secret key missing
 - **Description:** With URL+anon key but no `SUPABASE_SECRET_KEY`, any authenticated user is treated as admin for server actions.
@@ -35,7 +35,7 @@ Legend: `[ ]` open · `[x]` done · `[~]` mitigated / documented residual · `[H
 - **Estimated time:** 1 h
 - **Dependencies:** C2
 - **Priority:** Critical
-- **Status:** [ ]
+- **Status:** [x] Done 2026-07-24 — always requires `SUPABASE_SECRET_KEY` + `payroll_admins` membership
 
 ### C4. Authenticated RLS is `using (true)` — any signed-in user can CRUD payroll via PostgREST
 - **Description:** Middleware only checks session; browser Supabase client can read/write payroll tables without being in `payroll_admins`. Server actions are gated, but direct PostgREST is not.
@@ -71,7 +71,7 @@ Legend: `[ ]` open · `[x]` done · `[~]` mitigated / documented residual · `[H
 - **Estimated time:** 1 h
 - **Dependencies:** C3
 - **Priority:** Critical
-- **Status:** [ ]
+- **Status:** [x] Done 2026-07-24 — both require `requirePayrollAdmin`
 
 ---
 
@@ -84,7 +84,7 @@ Legend: `[ ]` open · `[x]` done · `[~]` mitigated / documented residual · `[H
 - **Estimated time:** 30 m
 - **Dependencies:** None
 - **Priority:** High
-- **Status:** [ ]
+- **Status:** [x] Done 2026-07-24
 
 ### H2. Remove demo `/todos` page from app shell
 - **Description:** Scaffolding page ships behind login.
@@ -93,7 +93,7 @@ Legend: `[ ]` open · `[x]` done · `[~]` mitigated / documented residual · `[H
 - **Estimated time:** 30 m
 - **Dependencies:** None
 - **Priority:** High
-- **Status:** [ ]
+- **Status:** [x] Done 2026-07-24 — deleted todos route
 
 ### H3. Remove production `console.log` on every env check (middleware spam)
 - **Description:** `getSupabaseEnv()` logs config posture on every call including middleware.
@@ -102,7 +102,7 @@ Legend: `[ ]` open · `[x]` done · `[~]` mitigated / documented residual · `[H
 - **Estimated time:** 30 m
 - **Dependencies:** None
 - **Priority:** High
-- **Status:** [ ]
+- **Status:** [x] Done 2026-07-24 (with C2)
 
 ### H4. Canonical URL fail-open default host
 - **Description:** Hardcoded Vercel host used when `NEXT_PUBLIC_APP_URL` unset — wrong QR / verify hosts.
@@ -111,7 +111,7 @@ Legend: `[ ]` open · `[x]` done · `[~]` mitigated / documented residual · `[H
 - **Estimated time:** 1 h
 - **Dependencies:** [H] Vercel env set
 - **Priority:** High
-- **Status:** [ ]
+- **Status:** [x] Done 2026-07-24 — fail closed when unset; human must confirm Vercel env (H11)
 
 ### H5. Payment reverse / concurrent payment races
 - **Description:** Reverse updates original then inserts reversal (partial write); confirm/pay are read-check-write without row locks / conditional updates.
@@ -147,7 +147,7 @@ Legend: `[ ]` open · `[x]` done · `[~]` mitigated / documented residual · `[H
 - **Estimated time:** 1–2 h
 - **Dependencies:** None
 - **Priority:** High
-- **Status:** [ ]
+- **Status:** [x] Done 2026-07-24 — deleted scaffolding + unmounted stress panel (lib stress tests retained)
 
 ### H9. Session actor fabricates `local-dev` actor when no user
 - **Description:** Fail-open identity for local/mock paths.
@@ -156,7 +156,7 @@ Legend: `[ ]` open · `[x]` done · `[~]` mitigated / documented residual · `[H
 - **Estimated time:** 1 h
 - **Dependencies:** C2
 - **Priority:** High
-- **Status:** [ ]
+- **Status:** [x] Done 2026-07-24 — local-dev only when env missing AND not production
 
 ### H10. Branch protection / required CI checks
 - **Description:** CI workflow exists; GitHub required checks not enabled.

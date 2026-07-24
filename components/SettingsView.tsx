@@ -8,7 +8,6 @@ import { useHRStore } from '@/store/useHRStore';
 import { Field, Input, NumberInput, Textarea, btnPrimary, btnSecondary, Modal } from '@/components/ui';
 import EntityLogoUpload from '@/components/EntityLogoUpload';
 import SignatoryAssetUpload from '@/components/SignatoryAssetUpload';
-import PayrollStressTestPanel from '@/components/PayrollStressTestPanel';
 import {
   currentMonthKey,
   formatDate,
@@ -513,8 +512,6 @@ export default function SettingsView() {
           </div>
         </div>
       </div>
-
-      <PayrollStressTestPanel />
 
       {ptRecalcOpen && (
         <Modal title="Recalculate PT from slabs for everyone" onClose={() => setPtRecalcOpen(false)} wide>

@@ -4,6 +4,7 @@
  */
 
 import { createClient } from '@/utils/supabase/server';
+import { getSupabaseEnv, isProductionRuntime } from '@/utils/supabase/config';
 
 export type SessionActor = {
   userId: string;
@@ -15,8 +16,7 @@ export type SessionActor = {
 /**
  * Resolve the authenticated user from the Supabase session.
  * Fail closed when auth is configured but no user is present.
- * When Supabase credentials are missing (mock client), returns a local-dev actor
- * so unit/dev flows still run — production always has credentials.
+ * Local-dev actor is allowed only when credentials are missing AND not production.
  */
 export async function resolveSessionActor(): Promise<
   { ok: true; actor: SessionActor } | { ok: false; error: string }
@@ -31,10 +31,15 @@ export async function resolveSessionActor(): Promise<
 
     const user = data?.user ?? null;
     if (!user?.id) {
-      // Mock / unauthenticated local: still record a stable identity, never a free-text claim.
+      if (!getSupabaseEnv() && !isProductionRuntime()) {
+        return {
+          ok: true,
+          actor: { userId: 'local-dev', email: null, isPayrollAdmin: false },
+        };
+      }
       return {
-        ok: true,
-        actor: { userId: 'local-dev', email: null, isPayrollAdmin: false },
+        ok: false,
+        error: 'Authentication required. Sign in to continue.',
       };
     }
 

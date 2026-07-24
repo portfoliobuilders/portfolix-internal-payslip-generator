@@ -1,13 +1,18 @@
 import { createServerClient } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
 import { isPublicAppPath } from '@/lib/public-paths';
-import { getSupabaseEnv, logMissingSupabaseCredentials } from './config';
+import {
+  getSupabaseEnv,
+  isProductionRuntime,
+  logMissingSupabaseCredentials,
+  MISSING_CREDENTIALS_MESSAGE,
+} from './config';
 
 /**
  * Refresh the auth session and enforce route protection.
  * Public: /login, /auth/*, /verify/*
  * All other app routes require a signed-in user when Supabase is configured.
- * Without credentials the shell still loads (degraded mode); mutations fail closed.
+ * Production without credentials fails closed (503) — no degraded open shell.
  */
 export async function updateSession(request: NextRequest) {
   const env = getSupabaseEnv();
@@ -16,7 +21,16 @@ export async function updateSession(request: NextRequest) {
 
   if (!env) {
     logMissingSupabaseCredentials('middleware');
-    // Degraded: cannot authenticate without credentials. Allow shell through.
+    if (isProductionRuntime() && !isPublic) {
+      return new NextResponse(
+        `Service unavailable. ${MISSING_CREDENTIALS_MESSAGE}`,
+        {
+          status: 503,
+          headers: { 'content-type': 'text/plain; charset=utf-8' },
+        },
+      );
+    }
+    // Local/dev only: shell may load; mutations still fail via mock client.
     return NextResponse.next({ request });
   }
 

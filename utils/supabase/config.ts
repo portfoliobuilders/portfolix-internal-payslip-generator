@@ -6,14 +6,13 @@ export type SupabaseEnv = {
   key: string;
 };
 
-export function getSupabaseEnv(): SupabaseEnv | null {
-  console.log('[Supabase Config Check]:', {
-    hasUrl: !!process.env.NEXT_PUBLIC_SUPABASE_URL,
-    hasAnonKey: !!process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
-    hasPublishableKey: !!process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY,
-    nodeEnv: process.env.NODE_ENV,
-  });
+/** True on Vercel production or NODE_ENV=production — fail closed, no mock clients. */
+export function isProductionRuntime(): boolean {
+  if (process.env.VERCEL_ENV === 'production') return true;
+  return process.env.NODE_ENV === 'production';
+}
 
+export function getSupabaseEnv(): SupabaseEnv | null {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key =
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||

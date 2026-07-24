@@ -6,6 +6,7 @@
  */
 
 import { createClient as createAnonClient } from '@supabase/supabase-js';
+import { requirePayrollAdmin } from '@/lib/auth';
 import { createClient } from '@/utils/supabase/server';
 import { createServiceRoleClient } from '@/utils/supabase/service-role';
 import { getSupabaseEnv } from '@/utils/supabase/config';
@@ -59,6 +60,9 @@ async function probeMissingCanaries(): Promise<string[]> {
 export async function checkSchemaDrift(): Promise<
   { ok: true; data: SchemaDriftReport } | { ok: false; error: string }
 > {
+  const auth = await requirePayrollAdmin();
+  if (!auth.ok) return auth;
+
   try {
     const [appliedNames, missingCanaries] = await Promise.all([
       fetchAppliedMigrationNames(),
