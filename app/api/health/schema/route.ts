@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { requirePayrollAdmin } from '@/lib/auth';
 import { createServiceRoleClient } from '@/utils/supabase/service-role';
 import { getSupabaseEnv } from '@/utils/supabase/config';
 import {
@@ -11,11 +12,19 @@ import { logSupabaseError } from '@/lib/supabase-errors';
 export const dynamic = 'force-dynamic';
 
 /**
- * Read-only schema health probe for ops.
+ * Read-only schema health probe for ops (payroll-admin only).
  * Prefers service role for migration-history comparison; falls back to
  * canary column probes via the anon key. Never auto-applies migrations.
  */
 export async function GET() {
+  const auth = await requirePayrollAdmin();
+  if (!auth.ok) {
+    return NextResponse.json(
+      { ok: false, error: auth.error, code: auth.code },
+      { status: auth.code === 'AUTH_REQUIRED' ? 401 : 503 },
+    );
+  }
+
   const admin = createServiceRoleClient();
   const env = getSupabaseEnv();
 

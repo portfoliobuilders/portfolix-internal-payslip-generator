@@ -518,9 +518,9 @@ export default function GeneratorView({
       if (status === 'final') {
         const saveResult = await finalizePayrollSlip(finalSnapshot, result.newFlexBalance, settings, {
           supersedeConfirmed: confirmedSupersede,
-          // Phase 2: period/attendance warnings only until gates are turned on in Phase 5+.
-          enforceStrictGates: false,
-          attendanceLocked: false,
+          // Finalize click = attendance reviewed. Period-end / integrity gates are errors.
+          enforceStrictGates: true,
+          attendanceLocked: true,
           paymentStatus: 'UNPAID',
         });
         if (!saveResult.ok) {

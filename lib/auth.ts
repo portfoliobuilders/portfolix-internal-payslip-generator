@@ -41,23 +41,30 @@ export async function requirePayrollAdmin(): Promise<PayrollAdmin> {
     return { ok: false, error: AUTH_REQUIRED_MESSAGE, code: 'AUTH_REQUIRED' };
   }
 
-  // When service role is available, membership in payroll_admins is required.
-  // Without the secret (local/mock), any authenticated user remains allowed.
+  // Fail closed: payroll admin membership is always required when auth is configured.
+  // SUPABASE_SECRET_KEY is mandatory so membership can be checked via service role.
   const service = createServiceRoleClient();
-  if (service) {
-    const { data: admin, error: adminError } = await service
-      .from('payroll_admins')
-      .select('user_id')
-      .eq('user_id', data.user.id)
-      .maybeSingle();
-    if (adminError || !admin) {
-      return {
-        ok: false,
-        error:
-          'Payroll admin access required. Ask an operator to add your user to payroll_admins.',
-        code: 'AUTH_REQUIRED',
-      };
-    }
+  if (!service) {
+    return {
+      ok: false,
+      error:
+        'SUPABASE_SECRET_KEY is required to verify payroll admin access. Set it in the server environment.',
+      code: 'SUPABASE_CONFIG_MISSING',
+    };
+  }
+
+  const { data: admin, error: adminError } = await service
+    .from('payroll_admins')
+    .select('user_id')
+    .eq('user_id', data.user.id)
+    .maybeSingle();
+  if (adminError || !admin) {
+    return {
+      ok: false,
+      error:
+        'Payroll admin access required. Ask an operator to add your user to payroll_admins.',
+      code: 'AUTH_REQUIRED',
+    };
   }
 
   return { ok: true, user: data.user };

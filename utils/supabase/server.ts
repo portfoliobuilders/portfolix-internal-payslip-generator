@@ -1,13 +1,21 @@
 import { createServerClient } from '@supabase/ssr';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { cookies } from 'next/headers';
-import { getSupabaseEnv, logMissingSupabaseCredentials } from './config';
+import {
+  getSupabaseEnv,
+  isProductionRuntime,
+  logMissingSupabaseCredentials,
+  MISSING_CREDENTIALS_MESSAGE,
+} from './config';
 import { createMockSupabaseClient } from './mock-client';
 
 export async function createClient(): Promise<SupabaseClient> {
   const env = getSupabaseEnv();
   if (!env) {
     logMissingSupabaseCredentials('server');
+    if (isProductionRuntime()) {
+      throw new Error(MISSING_CREDENTIALS_MESSAGE);
+    }
     return createMockSupabaseClient();
   }
 

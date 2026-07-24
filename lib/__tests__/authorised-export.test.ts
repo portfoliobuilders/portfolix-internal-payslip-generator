@@ -415,10 +415,23 @@ describe('placeholder and signatory guards', () => {
 });
 
 describe('resolveCanonicalAppUrl', () => {
-  it('falls back to the stable production default when NEXT_PUBLIC_APP_URL is not set', () => {
+  it('fails closed when NEXT_PUBLIC_APP_URL is not set', () => {
     const original = process.env.NEXT_PUBLIC_APP_URL;
     delete process.env.NEXT_PUBLIC_APP_URL;
     const result = resolveCanonicalAppUrl();
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error).toContain('NEXT_PUBLIC_APP_URL');
+    }
+    process.env.NEXT_PUBLIC_APP_URL = original;
+  });
+
+  it('accepts an explicit settings override when env is unset', () => {
+    const original = process.env.NEXT_PUBLIC_APP_URL;
+    delete process.env.NEXT_PUBLIC_APP_URL;
+    const result = resolveCanonicalAppUrl(
+      'https://portfolix-internal-payslip-generato.vercel.app',
+    );
     expect(result.ok).toBe(true);
     if (result.ok) {
       expect(result.url).toBe('https://portfolix-internal-payslip-generato.vercel.app');

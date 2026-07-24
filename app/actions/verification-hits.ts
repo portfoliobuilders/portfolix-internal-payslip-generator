@@ -5,6 +5,7 @@
  * Never imported by the public verify page.
  */
 
+import { requirePayrollAdmin } from '@/lib/auth';
 import { createClient } from '@/utils/supabase/server';
 import { toUserFacingDbError } from '@/lib/supabase-errors';
 
@@ -28,11 +29,14 @@ export type VerificationHitsResult =
 
 /**
  * Batch-load verification hit summaries keyed by payroll_record_id.
- * Auth-gated by living only in the employer app (History); public verify never calls this.
+ * Requires payroll admin — public verify never calls this.
  */
 export async function fetchVerificationHitSummaries(
   payrollRecordIds: string[],
 ): Promise<VerificationHitsResult> {
+  const auth = await requirePayrollAdmin();
+  if (!auth.ok) return auth;
+
   const ids = [...new Set(payrollRecordIds.map((id) => id.trim()).filter(Boolean))];
   if (ids.length === 0) return { ok: true, data: {} };
 

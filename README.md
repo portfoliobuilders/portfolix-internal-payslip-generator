@@ -55,9 +55,12 @@ covered by unit tests, ready to be lifted into the Portfolix EMS unchanged.
    |----------|------------|
    | `NEXT_PUBLIC_SUPABASE_URL` | Browser + server Supabase client |
    | `NEXT_PUBLIC_SUPABASE_ANON_KEY` (or `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`) | Anon key |
-   | `SUPABASE_SECRET_KEY` | **Server-only.** Required for signature/seal uploads and signed URLs. Never prefix with `NEXT_PUBLIC`. |
+   | `SUPABASE_SECRET_KEY` | **Server-only.** Required for payroll admin checks, signature/seal uploads, signed URLs. Never prefix with `NEXT_PUBLIC`. |
+   | `NEXT_PUBLIC_APP_URL` | **Required** canonical origin for QR / verification links (no preview hosts). |
 
-2. Apply SQL migrations in `supabase/migrations/` (in order) against your Supabase project.
+   Production fails closed if Supabase URL/key or (for admin/QR paths) secret / app URL are missing.
+
+2. Apply SQL migrations in `supabase/migrations/` against your Supabase project (see `DATABASE.md`). **Production must include `019_payroll_admin_rls.sql`.**
 3. Ensure the private `signatory-assets` Storage bucket exists (see `005_authorised_slip.sql`).
 4. Install and run:
 

@@ -17,6 +17,7 @@
  */
 
 import { requirePayrollAdmin } from '@/lib/auth';
+import { assertAuthorisedSlipPaymentGate } from '@/app/actions/salary-payment';
 import {
   createServiceRoleClient,
   SIGNATORY_SECRET_MISSING_MESSAGE,
@@ -151,6 +152,11 @@ export async function issueAuthorisedSalarySlipDocument(input: {
       };
     }
 
+    // Fail closed: never mint a new ISSUED registry row without a paid obligation.
+    // Reprints above skip this — the document was already gated at first issue.
+    const paymentGate = await assertAuthorisedSlipPaymentGate(input.snapshot.id);
+    if (!paymentGate.ok) return { ok: false, error: paymentGate.error };
+
     // 2) Supersede any other active ISSUED row that already holds this ASL number
     //    (prior final for same employee+month after payroll supersede).
     const { data: priorActive } = await supabase
@@ -184,18 +190,21 @@ export async function issueAuthorisedSalarySlipDocument(input: {
     }
 
     const publicVerificationId = generatePublicVerificationId();
+    const actualCreditDate = paymentGate.data.actualCreditDate;
+    const obligationId =
+      input.obligationId ?? paymentGate.data.obligationId;
     const fingerprint = buildVerificationFingerprint({
       documentNumber,
       publicVerificationId,
       salaryMonth: input.snapshot.monthYear,
       netSalary: input.netSalary,
-      actualCreditDate: input.actualCreditDate,
+      actualCreditDate,
       revisionNumber,
     });
 
     const { error } = await supabase.from('payroll_issued_documents').insert({
       payroll_record_id: input.snapshot.id,
-      obligation_id: input.obligationId ?? null,
+      obligation_id: obligationId,
       document_type: 'AUTHORISED_SALARY_SLIP',
       document_number: documentNumber,
       revision_number: revisionNumber,
@@ -206,7 +215,7 @@ export async function issueAuthorisedSalarySlipDocument(input: {
       attendance_period_start: input.snapshot.attendancePeriodStart ?? null,
       attendance_period_end: input.snapshot.attendancePeriodEnd ?? null,
       net_salary: input.netSalary,
-      actual_credit_date: input.actualCreditDate,
+      actual_credit_date: actualCreditDate,
       issue_date: issueDate,
       supersedes_document_id: supersedesDocumentId,
       signatory_name: input.signatoryName ?? null,

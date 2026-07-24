@@ -29,19 +29,18 @@ Go-live checklist progress (what is blocked vs already on `main`) lives in
   running.
 
 ### Supabase (required for real data flows)
-- The app **degrades gracefully** without credentials: `utils/supabase/config.ts` returns `null` and
-  a mock client (`utils/supabase/mock-client.ts`) makes every data operation fail with a
-  `503 SUPABASE_CONFIG_MISSING`. The UI shell loads but roster/history/settings persistence and
-  authorised-slip uploads do nothing. For meaningful end-to-end testing, copy `.env.local.example`
+- The app **fails closed in production** without credentials (middleware 503 / no mock client).
+  Local/dev may use a mock client that returns `503 SUPABASE_CONFIG_MISSING` on mutations so the
+  UI shell can load. For meaningful end-to-end testing, copy `.env.local.example`
   to `.env.local` and set `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` (or
-  `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`), and `SUPABASE_SECRET_KEY`, then apply
-  `supabase/migrations/` (in order) and ensure the private `signatory-assets` Storage bucket exists.
+  `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`), `SUPABASE_SECRET_KEY`, and `NEXT_PUBLIC_APP_URL`, then apply
+  `supabase/migrations/` (see `DATABASE.md`, including **`019_payroll_admin_rls.sql`**) and ensure the private `signatory-assets` Storage bucket exists.
 - Auth: when credentials are configured, middleware redirects unauthenticated users to `/login`
   (except `/login`, `/auth/*`, `/verify/*`). Server actions call `requirePayrollAdmin()` which
-  also requires a row in `payroll_admins` when `SUPABASE_SECRET_KEY` is set.
-- RLS: apply `015`–`018` in order. Live hardening is in `016_harden_authenticated_rls.sql`
-  (+ `017` base-salary unify / admins, `018` drop compensation sync trigger). See
-  [`docs/go-live-board-status.md`](docs/go-live-board-status.md).
+  always requires a row in `payroll_admins` (via `SUPABASE_SECRET_KEY`).
+- RLS: apply `015`–`019` in order. Live hardening includes `016_harden_authenticated_rls.sql`
+  (+ `017` unify / admins, `018` drop compensation sync, **`019` payroll-admin-only policies**). See
+  [`docs/go-live-board-status.md`](docs/go-live-board-status.md) and [`DATABASE.md`](DATABASE.md).
 - `middleware.ts` runs Supabase session refresh on (almost) every route, so its import graph is
   compiled for every request — a compile error in the payroll libs takes down all pages, not just
   one route.
