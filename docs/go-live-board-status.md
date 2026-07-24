@@ -51,7 +51,7 @@ Prompt pack files are still not in the repo. Items completed from known gaps / p
 
 ## C. Human tasks (agent cannot complete)
 
-- [ ] Athul + Fahad: PAN, bank name, account, IFSC via Edit modals
+- [x] Athul + Fahad: PAN, bank name, account, IFSC via Edit modals — **entered 2026-07-24** (live roster `details_json`)
 - [ ] CA sitting (Athul TDS; Kochi PT schedule; mid-cycle PT; intern vs salary)
 - [ ] Set real payday in Settings
 - [ ] Confirm flex opening balances before any history reset
