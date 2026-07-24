@@ -354,7 +354,7 @@ export default function GeneratorView({
   const result = useMemo(() => {
     if (!employee) return null;
     return computePayroll({
-      baseSalary: employee.compensationAmount,
+      baseSalary: employee.baseSalary,
       flexBankBalance: flexBankBase,
       flexMinutesEarned: num(form.flexMinutesEarned),
       totalLateMinutes: num(form.lateMinutes),
@@ -430,8 +430,7 @@ export default function GeneratorView({
         remarks: form.remarks,
         authorizedForBankVerification: form.authorizedForBankVerification,
         flexBankBalanceBefore: flexBankBase,
-        baseSalary: employee.compensationAmount,
-        compensationAmount: employee.compensationAmount,
+        baseSalary: employee.baseSalary,
       },
       computed: {
         perDayRate: result.perDayRate,
@@ -471,7 +470,6 @@ export default function GeneratorView({
         engagementType: employee.engagementType,
         employmentStatus: employee.employmentStatus,
         paymentType: employee.paymentType,
-        compensationAmount: employee.compensationAmount,
         bankName: employee.bankName,
         bankAccountNumber: employee.bankAccountNumber,
         bankLast4: employee.bankLast4,

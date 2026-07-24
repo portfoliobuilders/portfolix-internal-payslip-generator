@@ -126,7 +126,6 @@ export interface Employee {
   joiningDate: string;
   employeeAddress: string;
   baseSalary: number;
-  compensationAmount: number;
   engagementType: EngagementType;
   employmentStatus: EmploymentStatus;
   paymentType: PaymentType;
@@ -181,7 +180,7 @@ export interface Employee {
   ptManualOverride: boolean;
 }
 
-export type SlipStatus = 'draft' | 'final';
+export type SlipStatus = 'draft' | 'final' | 'superseded' | 'voided';
 
 /** Raw inputs captured on the generator form for one slip. */
 export interface SlipInputs {
@@ -207,7 +206,10 @@ export interface SlipInputs {
   /** Flex balance the computation started from (for audit). */
   flexBankBalanceBefore: number;
   baseSalary: number;
-  compensationAmount: number;
+  /**
+   * @deprecated Legacy snapshot field — prefer `baseSalary`. Present on older finals only.
+   */
+  compensationAmount?: number;
 }
 
 /**
@@ -252,7 +254,8 @@ export interface SlipEmployeeInfo {
   engagementType: EngagementType;
   employmentStatus: EmploymentStatus;
   paymentType: PaymentType;
-  compensationAmount: number;
+  /** @deprecated Prefer baseSalary on inputs; kept optional for older frozen snapshots. */
+  compensationAmount?: number;
   bankName?: string;
   /** Full account — Authorised only; Final masks at render. */
   bankAccountNumber?: string;

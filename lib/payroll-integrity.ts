@@ -54,7 +54,6 @@ export interface TrustedPayrollInputs {
   committedPayoutDate: string | null;
   variableLabel: string;
   remarks: string;
-  compensationAmount: number;
   calculationMethodCode?: CalculationMethodCode;
   workingDays?: number | null;
   contractualDivisor?: number | null;
@@ -142,7 +141,6 @@ export function recomputePayrollServerSide(
     remarks: trusted.remarks,
     flexBankBalanceBefore: trusted.flexBankBalance,
     baseSalary: trusted.baseSalary,
-    compensationAmount: trusted.compensationAmount,
   };
 
   const issues: ValidationIssue[] = [

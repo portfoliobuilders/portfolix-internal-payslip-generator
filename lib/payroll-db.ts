@@ -55,7 +55,6 @@ export interface EmployeeRow {
   joining_date: string;
   designation: string;
   base_salary: number;
-  compensation_amount: number | null;
   engagement_type: EngagementType | null;
   employment_status: EmploymentStatus | null;
   payment_type: PaymentType | null;
@@ -76,7 +75,7 @@ export interface PayrollSlipRow {
   id: string;
   employee_id: string;
   month_year: string;
-  status: 'draft' | 'final';
+  status: 'draft' | 'final' | 'superseded' | 'voided';
   details_json: Omit<SlipSnapshot, 'id' | 'employeeId' | 'monthYear' | 'status'>;
   /** Present when selected from payroll_slips (active FINAL / supersede chains). */
   active_final?: boolean | null;
@@ -129,8 +128,7 @@ export function rowToEmployee(row: EmployeeRow): Employee {
     designation: row.designation,
     joiningDate: row.joining_date,
     employeeAddress: details.employeeAddress,
-    baseSalary: row.base_salary,
-    compensationAmount: row.compensation_amount ?? row.base_salary,
+    baseSalary: Number(row.base_salary) || 0,
     engagementType: row.engagement_type ?? 'regular_employee',
     employmentStatus: row.employment_status ?? 'active',
     paymentType:
@@ -179,7 +177,6 @@ export function employeeToRow(
     joining_date: employee.joiningDate,
     designation: employee.designation,
     base_salary: employee.baseSalary,
-    compensation_amount: employee.compensationAmount,
     engagement_type: employee.engagementType,
     employment_status: employee.employmentStatus,
     payment_type: employee.paymentType,

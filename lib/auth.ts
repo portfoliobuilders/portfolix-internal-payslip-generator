@@ -1,11 +1,12 @@
 /**
  * Payroll admin auth — fail closed.
- * Any signed-in Supabase user is treated as a payroll admin for this internal tool.
+ * Signed-in users must be listed in payroll_admins when the service role is configured.
  */
 
 import type { User } from '@supabase/supabase-js';
 import { createClient } from '@/utils/supabase/server';
 import { getSupabaseEnv, MISSING_CREDENTIALS_MESSAGE } from '@/utils/supabase/config';
+import { createServiceRoleClient } from '@/utils/supabase/service-role';
 
 export const AUTH_REQUIRED_MESSAGE = 'Authentication required. Sign in to continue.';
 
@@ -39,13 +40,27 @@ export async function requirePayrollAdmin(): Promise<PayrollAdmin> {
   if (error || !data.user) {
     return { ok: false, error: AUTH_REQUIRED_MESSAGE, code: 'AUTH_REQUIRED' };
   }
+
+  // When service role is available, membership in payroll_admins is required.
+  // Without the secret (local/mock), any authenticated user remains allowed.
+  const service = createServiceRoleClient();
+  if (service) {
+    const { data: admin, error: adminError } = await service
+      .from('payroll_admins')
+      .select('user_id')
+      .eq('user_id', data.user.id)
+      .maybeSingle();
+    if (adminError || !admin) {
+      return {
+        ok: false,
+        error:
+          'Payroll admin access required. Ask an operator to add your user to payroll_admins.',
+        code: 'AUTH_REQUIRED',
+      };
+    }
+  }
+
   return { ok: true, user: data.user };
 }
 
-/** Paths that stay public (no session required). */
-export function isPublicAppPath(pathname: string): boolean {
-  if (pathname === '/login') return true;
-  if (pathname.startsWith('/auth/')) return true;
-  if (pathname.startsWith('/verify/')) return true;
-  return false;
-}
+export { isPublicAppPath } from '@/lib/public-paths';

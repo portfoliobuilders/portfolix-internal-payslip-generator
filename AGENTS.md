@@ -37,9 +37,11 @@ Go-live checklist progress (what is blocked vs already on `main`) lives in
   `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`), and `SUPABASE_SECRET_KEY`, then apply
   `supabase/migrations/` (in order) and ensure the private `signatory-assets` Storage bucket exists.
 - Auth: when credentials are configured, middleware redirects unauthenticated users to `/login`
-  (except `/login`, `/auth/*`, `/verify/*`). Server actions call `requirePayrollAdmin()`.
-- RLS: see `supabase/migrations/015_authenticated_rls.sql`. Confirm it is applied on the live
-  project before treating Phase 5 as done (see go-live status doc).
+  (except `/login`, `/auth/*`, `/verify/*`). Server actions call `requirePayrollAdmin()` which
+  also requires a row in `payroll_admins` when `SUPABASE_SECRET_KEY` is set.
+- RLS: apply `015`–`018` in order. Live hardening is in `016_harden_authenticated_rls.sql`
+  (+ `017` base-salary unify / admins, `018` drop compensation sync trigger). See
+  [`docs/go-live-board-status.md`](docs/go-live-board-status.md).
 - `middleware.ts` runs Supabase session refresh on (almost) every route, so its import graph is
   compiled for every request — a compile error in the payroll libs takes down all pages, not just
   one route.

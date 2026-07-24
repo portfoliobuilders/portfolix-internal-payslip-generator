@@ -27,6 +27,22 @@ export function compensationLabelForPaymentType(paymentType: PaymentType): strin
   }
 }
 
+/** Form label for the single employee money field (baseSalary). */
+export function baseSalaryInputLabel(paymentType: PaymentType): string {
+  switch (paymentType) {
+    case 'stipend':
+      return 'Stipend (monthly, ₹)';
+    case 'professional_fee':
+    case 'consultancy_fee':
+    case 'contract_remuneration':
+    case 'honorarium':
+      return 'Contract fee (₹)';
+    case 'salary':
+    default:
+      return 'Base salary (monthly, ₹)';
+  }
+}
+
 export function statementMetaFor(
   paymentType: PaymentType,
   engagementType: EngagementType,

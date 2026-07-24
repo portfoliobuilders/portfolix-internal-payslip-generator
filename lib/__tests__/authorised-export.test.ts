@@ -47,7 +47,6 @@ function sampleSnapshot(overrides: Partial<SlipSnapshot> = {}): SlipSnapshot {
     flexBalanceAfter: 0,
     inputs: {
       baseSalary: 40000,
-      compensationAmount: 40000,
       flexBankBalanceBefore: 0,
       flexMinutesEarned: 0,
       lateMinutes: 0,
@@ -102,7 +101,6 @@ function sampleSnapshot(overrides: Partial<SlipSnapshot> = {}): SlipSnapshot {
       paymentType: 'salary',
       engagementType: 'regular_employee',
       employmentStatus: 'active',
-      compensationAmount: 40000,
     },
     attendancePeriodStart: '2026-06-25',
     attendancePeriodEnd: '2026-07-24',

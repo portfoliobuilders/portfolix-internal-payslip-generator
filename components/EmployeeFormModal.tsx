@@ -18,7 +18,7 @@ import { suggestPtHalfYearly } from '@/lib/payroll-calc';
 import { validateSalaryComponentsSum } from '@/lib/salary-components';
 import { useHRStore } from '@/store/useHRStore';
 import { Field, Modal, btnPrimary, btnSecondary, inputAmountCls, inputCls } from './ui';
-import { compensationLabelForPaymentType, defaultPaymentTypeForEngagement } from '@/lib/workforce';
+import { baseSalaryInputLabel, defaultPaymentTypeForEngagement } from '@/lib/workforce';
 
 const ENTITY_CODES: EntityCode[] = ['PX', 'PB', 'PT', 'PH'];
 const PAYMENT_MODES: PaymentMode[] = ['Bank Transfer', 'UPI', 'Cheque', 'Cash'];
@@ -40,7 +40,6 @@ type Draft = {
   joiningDate: string;
   employeeAddress: string;
   baseSalary: string;
-  compensationAmount: string;
   engagementType: EngagementType;
   employmentStatus: EmploymentStatus;
   paymentType: PaymentType;
@@ -81,7 +80,6 @@ function toDraft(e: Employee | null): Draft {
     joiningDate: e?.joiningDate ?? '',
     employeeAddress: e?.employeeAddress ?? '',
     baseSalary: e ? String(e.baseSalary) : '',
-    compensationAmount: e ? String(e.compensationAmount) : '',
     engagementType: e?.engagementType ?? 'regular_employee',
     employmentStatus: e?.employmentStatus ?? 'active',
     paymentType: e?.paymentType ?? 'salary',
@@ -129,9 +127,6 @@ function validate(d: Draft): Partial<Record<keyof Draft | 'salaryComponentsSum',
   else if (!d.empId.trim().toUpperCase().startsWith(d.entityCode))
     errors.empId = `Must be prefixed by the entity code (e.g. ${d.entityCode}-2024-042).`;
   if (!d.joiningDate) errors.joiningDate = 'Joining date is required.';
-  const compensation = Number(d.compensationAmount);
-  if (!d.compensationAmount || !Number.isFinite(compensation) || compensation <= 0)
-    errors.compensationAmount = 'Compensation amount must be above zero.';
   const salary = Number(d.baseSalary);
   if (!d.baseSalary || !Number.isFinite(salary) || salary <= 0) errors.baseSalary = 'Enter a valid amount.';
   if (d.employmentStatus === 'notice_period' && !d.noticeStartDate) {
@@ -268,7 +263,6 @@ export default function EmployeeFormModal({
       joiningDate: draft.joiningDate,
       employeeAddress: draft.employeeAddress.trim(),
       baseSalary: Number(draft.baseSalary),
-      compensationAmount: Number(draft.compensationAmount),
       engagementType: draft.engagementType,
       employmentStatus: draft.employmentStatus,
       paymentType: draft.paymentType,
@@ -372,11 +366,8 @@ export default function EmployeeFormModal({
             />
           </Field>
         </div>
-        <Field label="Base salary (monthly, ₹)" error={err('baseSalary')}>
+        <Field label={baseSalaryInputLabel(draft.paymentType)} error={err('baseSalary')}>
           <input type="number" min={0} step="0.01" className={inputAmountCls} value={draft.baseSalary} onChange={(e) => set('baseSalary', e.target.value)} placeholder="25000" />
-        </Field>
-        <Field label={`Compensation amount (${compensationLabelForPaymentType(draft.paymentType)}, ₹)`} error={err('compensationAmount')}>
-          <input type="number" min={0} step="0.01" className={inputAmountCls} value={draft.compensationAmount} onChange={(e) => set('compensationAmount', e.target.value)} placeholder="25000" />
         </Field>
         <Field label="Engagement type">
           <select className={inputCls} value={draft.engagementType} onChange={(e) => {

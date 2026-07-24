@@ -14,6 +14,7 @@ import {
   generatePublicVerificationId,
 } from '@/lib/verification';
 import type { SlipSnapshot } from '@/lib/types';
+import { toUserFacingDbError } from '@/lib/supabase-errors';
 
 export type ActionResult<T> =
   | { ok: true; data: T }
@@ -182,7 +183,45 @@ export async function issueAuthorisedSalarySlipDocument(input: {
       issued_at: input.snapshot.generatedAt,
     });
 
-    if (error) return { ok: false, error: error.message };
+    if (error) {
+      const isDocCollision =
+        error.code === '23505' ||
+        /document_number|payroll_issued_documents_document_number/i.test(error.message ?? '');
+      if (isDocCollision) {
+        const { data: existingIssued } = await supabase
+          .from('payroll_issued_documents')
+          .select('*')
+          .eq('document_number', documentNumber)
+          .eq('document_type', 'AUTHORISED_SALARY_SLIP')
+          .eq('document_status', 'ISSUED')
+          .maybeSingle();
+        if (existingIssued) {
+          const publicId = String(existingIssued.public_verification_id);
+          return {
+            ok: true,
+            data: {
+              documentNumber: String(existingIssued.document_number),
+              publicVerificationId: publicId,
+              verificationUrl: buildVerificationUrl(input.verificationBaseUrl, publicId),
+              verificationFingerprint: existingIssued.verification_fingerprint
+                ? String(existingIssued.verification_fingerprint)
+                : '',
+              revisionNumber: Number(existingIssued.revision_number ?? 1),
+              reused: true,
+              issueDate: String(existingIssued.issue_date ?? issueDate),
+            },
+          };
+        }
+      }
+      return {
+        ok: false,
+        error: toUserFacingDbError(
+          error,
+          'Failed to issue authorised document.',
+          'issueAuthorisedSalarySlipDocument',
+        ),
+      };
+    }
 
     return {
       ok: true,
