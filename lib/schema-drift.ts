@@ -175,6 +175,10 @@ export const EXPECTED_SCHEMA_MIGRATIONS: ExpectedMigration[] = [
     file: '019_payroll_admin_rls.sql',
     appliedNames: ['019_payroll_admin_rls', 'payroll_admin_rls'],
   },
+  {
+    file: '020_payday_day_range_1_31.sql',
+    appliedNames: ['020_payday_day_range_1_31', 'payday_day_range_1_31'],
+  },
 ];
 
 /** Canary columns the deployed code reads/writes — belt-and-suspenders vs name tracking alone. */
