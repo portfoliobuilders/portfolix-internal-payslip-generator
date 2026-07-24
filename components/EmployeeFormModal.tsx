@@ -128,7 +128,8 @@ function validate(d: Draft): Partial<Record<keyof Draft | 'salaryComponentsSum',
     errors.empId = `Must be prefixed by the entity code (e.g. ${d.entityCode}-2024-042).`;
   if (!d.joiningDate) errors.joiningDate = 'Joining date is required.';
   const salary = Number(d.baseSalary);
-  if (!d.baseSalary || !Number.isFinite(salary) || salary <= 0) errors.baseSalary = 'Enter a valid amount.';
+  if (!d.baseSalary || !Number.isFinite(salary) || salary <= 0)
+    errors.baseSalary = 'Enter a valid amount.';
   if (d.employmentStatus === 'notice_period' && !d.noticeStartDate) {
     errors.noticeStartDate = 'Notice start date is required for notice period status.';
   }

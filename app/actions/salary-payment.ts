@@ -30,6 +30,8 @@ import {
   type SalaryPaymentTransaction,
 } from '@/lib/salary-payment';
 import { createClient } from '@/utils/supabase/server';
+import { resolveSessionActor } from '@/lib/session-actor';
+import { toUserFacingDbError } from '@/lib/supabase-errors';
 
 function revalidatePaymentViews() {
   revalidatePath('/history');
@@ -584,7 +586,7 @@ export async function fetchPaymentObligationsForHistory(): Promise<
       if (/does not exist|schema cache/i.test(existingErr.message)) {
         return { ok: true, data: [] };
       }
-      return { ok: false, error: existingErr.message };
+      return { ok: false, error: toUserFacingDbError(existingErr, 'Failed to load payment obligations.', 'fetchPaymentObligations') };
     }
 
     const have = new Set(
@@ -652,7 +654,8 @@ export async function recordSalaryPayment(input: {
   payrollRecordId: string;
   amount: number;
   paymentMode: string;
-  createdBy: string;
+  /** @deprecated Ignored — session identity is used. */
+  createdBy?: string;
   initiatedAt?: string;
   processedAt?: string | null;
   creditedAt?: string | null;
@@ -665,6 +668,10 @@ export async function recordSalaryPayment(input: {
 }): Promise<ActionResult<SalaryPaymentTransaction>> {
   const auth = await requirePayrollAdmin();
   if (!auth.ok) return auth;
+  const actor = await resolveSessionActor();
+  if (!actor.ok) return actor;
+  const createdBy = actor.actor.userId;
+
   const bundle = await loadLedgerBundle(input.payrollRecordId);
   if (!bundle.ok) return bundle;
 
@@ -672,7 +679,7 @@ export async function recordSalaryPayment(input: {
     obligation: bundle.data.obligation,
     amount: input.amount,
     paymentMode: input.paymentMode,
-    createdBy: input.createdBy,
+    createdBy,
     initiatedAt: input.initiatedAt,
     processedAt: input.processedAt,
     creditedAt: input.creditedAt,
@@ -694,7 +701,10 @@ export async function recordSalaryPayment(input: {
     if (/unique|duplicate/i.test(error.message)) {
       return { ok: false, error: 'Duplicate bank transaction reference (UTR) is not permitted.' };
     }
-    return { ok: false, error: error.message };
+    return {
+      ok: false,
+      error: toUserFacingDbError(error, 'Failed to record payment.', 'recordSalaryPayment'),
+    };
   }
 
   await appendAudit(
@@ -702,7 +712,7 @@ export async function recordSalaryPayment(input: {
       obligationId: bundle.data.obligation.id,
       transactionId: built.transaction.id,
       action: 'PAYMENT_RECORDED',
-      actorUserId: input.createdBy,
+      actorUserId: createdBy,
       newValues: { amount: built.transaction.amount, status: 'INITIATED' },
     }),
   );
@@ -720,12 +730,21 @@ export async function recordSalaryPayment(input: {
 export async function confirmSalaryPayment(input: {
   payrollRecordId: string;
   transactionId: string;
-  confirmer: ActorContext;
+  /** @deprecated Ignored — session identity + payroll_admins membership are used. */
+  confirmer?: ActorContext;
   overrideReason?: string | null;
   creditedAt?: string | null;
 }): Promise<ActionResult<SalaryPaymentTransaction>> {
   const auth = await requirePayrollAdmin();
   if (!auth.ok) return auth;
+  const actor = await resolveSessionActor();
+  if (!actor.ok) return actor;
+
+  const confirmer: ActorContext = {
+    userId: actor.actor.userId,
+    emergencyOverridePermission: actor.actor.isPayrollAdmin,
+  };
+
   const bundle = await loadLedgerBundle(input.payrollRecordId);
   if (!bundle.ok) return bundle;
 
@@ -734,7 +753,7 @@ export async function confirmSalaryPayment(input: {
 
   const result = confirmTransaction({
     transaction: tx,
-    confirmer: input.confirmer,
+    confirmer,
     overrideReason: input.overrideReason,
     creditedAt: input.creditedAt,
   });
@@ -745,14 +764,19 @@ export async function confirmSalaryPayment(input: {
     .from('salary_payment_transactions')
     .update(transactionToRow(result.transaction))
     .eq('id', result.transaction.id);
-  if (error) return { ok: false, error: error.message };
+  if (error) {
+    return {
+      ok: false,
+      error: toUserFacingDbError(error, 'Failed to confirm payment.', 'confirmSalaryPayment'),
+    };
+  }
 
   await appendAudit(
     buildAuditEvent({
       obligationId: bundle.data.obligation.id,
       transactionId: result.transaction.id,
       action: result.auditAction,
-      actorUserId: input.confirmer.userId,
+      actorUserId: confirmer.userId,
       reason: input.overrideReason ?? null,
       emergencyOverride: result.emergencyOverride,
       newValues: { status: 'CONFIRMED' },
@@ -770,12 +794,17 @@ export async function confirmSalaryPayment(input: {
 export async function failSalaryPayment(input: {
   payrollRecordId: string;
   transactionId: string;
-  actorUserId: string;
+  /** @deprecated Ignored — session identity is used. */
+  actorUserId?: string;
   reason: string;
   asRejectedByBank?: boolean;
 }): Promise<ActionResult<SalaryPaymentTransaction>> {
   const auth = await requirePayrollAdmin();
   if (!auth.ok) return auth;
+  const actor = await resolveSessionActor();
+  if (!actor.ok) return actor;
+  const actorUserId = actor.actor.userId;
+
   const bundle = await loadLedgerBundle(input.payrollRecordId);
   if (!bundle.ok) return bundle;
   const tx = bundle.data.transactions.find((t) => t.id === input.transactionId);
@@ -783,7 +812,7 @@ export async function failSalaryPayment(input: {
 
   const result = markTransactionFailed({
     transaction: tx,
-    actor: { userId: input.actorUserId, emergencyOverridePermission: false },
+    actor: { userId: actorUserId, emergencyOverridePermission: false },
     reason: input.reason,
     asRejectedByBank: input.asRejectedByBank,
   });
@@ -794,14 +823,19 @@ export async function failSalaryPayment(input: {
     .from('salary_payment_transactions')
     .update(transactionToRow(result.transaction))
     .eq('id', result.transaction.id);
-  if (error) return { ok: false, error: error.message };
+  if (error) {
+    return {
+      ok: false,
+      error: toUserFacingDbError(error, 'Failed to mark payment failed.', 'failSalaryPayment'),
+    };
+  }
 
   await appendAudit(
     buildAuditEvent({
       obligationId: bundle.data.obligation.id,
       transactionId: result.transaction.id,
       action: input.asRejectedByBank ? 'PAYMENT_REJECTED_BY_BANK' : 'PAYMENT_FAILED',
-      actorUserId: input.actorUserId,
+      actorUserId,
       reason: input.reason,
     }),
   );
@@ -817,11 +851,19 @@ export async function failSalaryPayment(input: {
 export async function reverseSalaryPayment(input: {
   payrollRecordId: string;
   transactionId: string;
-  approver: ActorContext;
+  /** @deprecated Ignored — session identity is used. */
+  approver?: ActorContext;
   reason: string;
 }): Promise<ActionResult<{ original: SalaryPaymentTransaction; reversal: SalaryPaymentTransaction }>> {
   const auth = await requirePayrollAdmin();
   if (!auth.ok) return auth;
+  const actor = await resolveSessionActor();
+  if (!actor.ok) return actor;
+  const approver: ActorContext = {
+    userId: actor.actor.userId,
+    emergencyOverridePermission: actor.actor.isPayrollAdmin,
+  };
+
   const bundle = await loadLedgerBundle(input.payrollRecordId);
   if (!bundle.ok) return bundle;
   const tx = bundle.data.transactions.find((t) => t.id === input.transactionId);
@@ -829,7 +871,7 @@ export async function reverseSalaryPayment(input: {
 
   const result = reverseConfirmedTransaction({
     original: tx,
-    approver: input.approver,
+    approver,
     reason: input.reason,
   });
   if (!result.ok) return { ok: false, error: result.error };
@@ -839,19 +881,29 @@ export async function reverseSalaryPayment(input: {
     .from('salary_payment_transactions')
     .update(transactionToRow(result.original))
     .eq('id', result.original.id);
-  if (updErr) return { ok: false, error: updErr.message };
+  if (updErr) {
+    return {
+      ok: false,
+      error: toUserFacingDbError(updErr, 'Failed to reverse payment.', 'reverseSalaryPayment'),
+    };
+  }
 
   const { error: insErr } = await supabase
     .from('salary_payment_transactions')
     .insert(transactionToRow(result.reversal));
-  if (insErr) return { ok: false, error: insErr.message };
+  if (insErr) {
+    return {
+      ok: false,
+      error: toUserFacingDbError(insErr, 'Failed to reverse payment.', 'reverseSalaryPayment'),
+    };
+  }
 
   await appendAudit(
     buildAuditEvent({
       obligationId: bundle.data.obligation.id,
       transactionId: result.reversal.id,
       action: 'PAYMENT_REVERSED',
-      actorUserId: input.approver.userId,
+      actorUserId: approver.userId,
       reason: input.reason,
       previousValues: { originalId: tx.id },
       newValues: { reversalId: result.reversal.id },
@@ -876,13 +928,18 @@ export async function putSalaryPaymentOnHold(input: {
   detailedExplanation: string;
   amountAffected: number;
   revisedExpectedDate: string;
-  approvingUser: string;
+  /** @deprecated Ignored — session identity is used. */
+  approvingUser?: string;
   employeeNotificationTimestamp?: string | null;
   evidencePath?: string | null;
   complianceReviewFlag: boolean;
 }): Promise<ActionResult<PaymentHoldOrDeferral>> {
   const auth = await requirePayrollAdmin();
   if (!auth.ok) return auth;
+  const actor = await resolveSessionActor();
+  if (!actor.ok) return actor;
+  const approvingUser = actor.actor.userId;
+
   const bundle = await loadLedgerBundle(input.payrollRecordId);
   if (!bundle.ok) return bundle;
 
@@ -893,7 +950,7 @@ export async function putSalaryPaymentOnHold(input: {
     detailedExplanation: input.detailedExplanation,
     amountAffected: input.amountAffected,
     revisedExpectedDate: input.revisedExpectedDate,
-    approvingUser: input.approvingUser,
+    approvingUser,
     employeeNotificationTimestamp: input.employeeNotificationTimestamp,
     evidencePath: input.evidencePath,
     complianceReviewFlag: input.complianceReviewFlag,
@@ -924,13 +981,18 @@ export async function putSalaryPaymentOnHold(input: {
     active: true,
     created_at: result.hold.createdAt,
   });
-  if (error) return { ok: false, error: error.message };
+  if (error) {
+    return {
+      ok: false,
+      error: toUserFacingDbError(error, 'Failed to place payment hold.', 'putSalaryPaymentOnHold'),
+    };
+  }
 
   await appendAudit(
     buildAuditEvent({
       obligationId: bundle.data.obligation.id,
       action: input.kind === 'PAYMENT_DEFERRED' ? 'PAYMENT_DEFERRED' : 'PAYMENT_ON_HOLD',
-      actorUserId: input.approvingUser,
+      actorUserId: approvingUser,
       reason: input.detailedExplanation,
       newValues: {
         revisedExpectedDate: input.revisedExpectedDate,
@@ -951,18 +1013,23 @@ export async function putSalaryPaymentOnHold(input: {
 export async function rescheduleSalaryPayment(input: {
   payrollRecordId: string;
   revisedExpectedDate: string;
-  actorUserId: string;
+  /** @deprecated Ignored — session identity is used. */
+  actorUserId?: string;
   reason: string;
 }): Promise<ActionResult<SalaryPaymentObligation>> {
   const auth = await requirePayrollAdmin();
   if (!auth.ok) return auth;
+  const actor = await resolveSessionActor();
+  if (!actor.ok) return actor;
+  const actorUserId = actor.actor.userId;
+
   const bundle = await loadLedgerBundle(input.payrollRecordId);
   if (!bundle.ok) return bundle;
 
   const result = rescheduleExpectedPayment({
     obligation: bundle.data.obligation,
     revisedExpectedDate: input.revisedExpectedDate,
-    actorUserId: input.actorUserId,
+    actorUserId,
     reason: input.reason,
   });
   if (!result.ok) return { ok: false, error: result.error };
@@ -971,7 +1038,7 @@ export async function rescheduleSalaryPayment(input: {
     buildAuditEvent({
       obligationId: bundle.data.obligation.id,
       action: 'PAYMENT_RESCHEDULED',
-      actorUserId: input.actorUserId,
+      actorUserId,
       reason: input.reason,
       previousValues: {
         originalStatutoryDueDate: result.preservedOriginalDueDate,

@@ -18,6 +18,7 @@ import {
   mergeSettings,
   SEED_SETTINGS,
 } from '@/lib/settings-defaults';
+import { clampPaydayDayOfMonth } from '@/lib/format';
 import { normalizeAddressText, normalizeLegalName } from '@/lib/company-address';
 import { validatePtSlabs, type PtCollectionMode } from '@/lib/payroll-calc';
 import type { EntityCode, Settings } from '@/lib/types';
@@ -56,7 +57,7 @@ function revalidateSettingsViews() {
 }
 
 function clampPaydayDay(day: number): number {
-  return Math.min(28, Math.max(3, Math.round(day)));
+  return clampPaydayDayOfMonth(day);
 }
 
 function normalizeSettings(settings: Settings): Settings {

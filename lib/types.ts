@@ -125,6 +125,7 @@ export interface Employee {
   /** ISO date string. */
   joiningDate: string;
   employeeAddress: string;
+  /** Sole stored compensation figure (salary / stipend / contract fee). */
   baseSalary: number;
   engagementType: EngagementType;
   employmentStatus: EmploymentStatus;
@@ -289,7 +290,7 @@ export interface PaymentStatementHistoryEntry {
   year: number;
   grossPay: number;
   netPay: number;
-  compensationAmount: number;
+  baseSalary: number;
   earnings: Record<string, number>;
   deductions: Record<string, number>;
   paymentMode: PaymentMode;

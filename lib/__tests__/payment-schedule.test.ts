@@ -21,7 +21,7 @@ describe('payment schedules', () => {
     expect(dates.revisedExpectedPaymentDate).toBeNull();
   });
 
-  it('CEO 1st-day schedule (configurable, not designation-hardcoded)', () => {
+  it('CEO payday 1 rolls review deadline into prior month via shared helper', () => {
     const dates = computePaymentDates({
       salaryMonth: '2026-07',
       employeeSchedule: EXAMPLE_EXECUTIVE_SCHEDULE_SEEDS.CEO,
@@ -29,6 +29,15 @@ describe('payment schedules', () => {
     });
     expect(dates.originalDueDate).toBe('2026-08-01');
     expect(dates.paymentScheduleType).toBe('BOARD_APPROVED_EXECUTIVE_SCHEDULE');
+  });
+
+  it('payday 31 clamps to February month-end for Jan salary', () => {
+    const dates = computePaymentDates({
+      salaryMonth: '2026-01',
+      companyDefaultPayday: 31,
+    });
+    expect(dates.originalDueDate).toBe('2026-02-28');
+    expect(dates.scheduledPaymentDate).toBe('2026-02-28');
   });
 
   it('CTO 3rd-day schedule', () => {

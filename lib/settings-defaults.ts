@@ -1,5 +1,6 @@
 import {
   COMPANY_ENTITIES,
+  LEGAL_COMPANY_NAME_CANONICAL,
   PAYROLL_CONTACT,
 } from '@/lib/constants/company';
 import { normalizeAddressText, normalizeLegalName } from '@/lib/company-address';
@@ -34,7 +35,8 @@ function buildEntity(code: EntityCode): EntityInfo {
   const company = ENTITY_COMPANY_MAP[code];
   const addressLines = addressLinesFrom(company.address);
   return {
-    name: company.displayName,
+    // Parent legal entity always uses the registered spelling — never alternate.
+    name: code === 'PX' ? LEGAL_COMPANY_NAME_CANONICAL : company.displayName,
     legalLine: code === 'PX' ? '' : company.legalLine,
     addressLines,
     contact: PAYROLL_CONTACT,
@@ -42,9 +44,9 @@ function buildEntity(code: EntityCode): EntityInfo {
     cin: SETTINGS_PLACEHOLDER,
     registeredAddress: addressLines.join(', '),
     phone: PAYROLL_CONTACT,
-    payrollEmail: 'payroll@portfolix.tech',
-    signatoryName: 'Authorised Signatory',
-    signatoryDesignation: 'HR & Payroll',
+    payrollEmail: 'payroll@portfolixentreprise.com',
+    signatoryName: SETTINGS_PLACEHOLDER,
+    signatoryDesignation: SETTINGS_PLACEHOLDER,
     signatureAssetPath: null,
     sealAssetPath: null,
   };
@@ -53,15 +55,15 @@ function buildEntity(code: EntityCode): EntityInfo {
 /** Default payroll settings and entity branding used on first run. */
 export const SEED_SETTINGS: Settings = {
   paydayDayOfMonth: 5,
-  payrollContact: 'payroll@portfolix.tech',
+  payrollContact: 'payroll@portfolixentreprise.com',
   reviewDeadlineTime: '6:00 PM',
   ptDeductionMonths: [8, 2],
   // Founder decision: monthly accrual is the default collection mode.
   ptCollectionMode: 'monthly_accrual',
   ptSlabs: KERALA_PT_SLABS_SEED.map((s) => ({ ...s })),
   defaultPtHalfYearly: 0,
-  authorizedSignatoryName: 'Authorised Signatory',
-  authorizedSignatoryTitle: 'HR & Payroll',
+  authorizedSignatoryName: SETTINGS_PLACEHOLDER,
+  authorizedSignatoryTitle: SETTINGS_PLACEHOLDER,
   bankVerificationEnabledByDefault: false,
   entities: {
     PX: buildEntity('PX'),
@@ -242,7 +244,9 @@ export function isGenericSignatoryName(name: string | null | undefined): boolean
  * Fail-closed: missing signatureBytes/sealBytes at build time → reject.
  * Generic seed names (e.g. "Authorised Signatory") are treated as incomplete.
  */
-export function signatoryIncompleteReason(entity: EntityInfo): string | null {
+export function signatoryIncompleteReason(
+  entity: EntityInfo,
+): string | null {
   const missing: string[] = [];
   if (isSettingsPlaceholder(entity.name)) missing.push('legal name');
   if (isSettingsPlaceholder(entity.cin)) missing.push('CIN');

@@ -12,18 +12,21 @@ import { revalidatePath } from 'next/cache';
 import { fetchSettings, saveSettings } from '@/app/actions/settings';
 import type { EntityCode } from '@/lib/types';
 import {
+  assertImageDimensionsWithinLimit,
   MAX_SIGNATORY_ASSET_BYTES,
   SIGNATORY_ASSETS_BUCKET,
   SIGNATORY_SIGNED_URL_TTL_SECONDS,
   signatoryAssetPath,
   validateSignatoryAssetFile,
   type SignatoryAssetKind,
+  type SignatoryAssetMime,
 } from '@/lib/signatory-assets';
 import {
   createServiceRoleClient,
   isSignatoryStorageConfigured,
   SIGNATORY_SECRET_MISSING_MESSAGE,
 } from '@/utils/supabase/service-role';
+import { logAssetFailure } from '@/lib/documents/load-company-asset';
 
 export type ActionResult<T> =
   | { ok: true; data: T }
@@ -51,15 +54,39 @@ function requireServiceClient() {
   return { ok: true as const, client };
 }
 
+function detectMimeFromBytes(bytes: Uint8Array): SignatoryAssetMime | null {
+  if (
+    bytes.length >= 8 &&
+    bytes[0] === 0x89 &&
+    bytes[1] === 0x50 &&
+    bytes[2] === 0x4e &&
+    bytes[3] === 0x47
+  ) {
+    return 'image/png';
+  }
+  if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) {
+    return 'image/jpeg';
+  }
+  return null;
+}
+
 /**
  * Uploads a signature or seal image via the service-role client.
  * Returns the storage path (never a public URL / never base64 in settings).
+ * Uses versioned object names — never overwrites prior assets in place.
  */
 export async function uploadSignatoryAsset(
   entityCode: EntityCode,
   kind: SignatoryAssetKind,
   formData: FormData,
-): Promise<ActionResult<{ path: string; signedUrl: string }>> {
+): Promise<
+  ActionResult<{
+    path: string;
+    signedUrl: string;
+    mimeType: string;
+    sizeBytes: number;
+  }>
+> {
   const auth = await requirePayrollAdmin();
   if (!auth.ok) return auth;
   try {
@@ -73,26 +100,46 @@ export async function uploadSignatoryAsset(
 
     validateSignatoryAssetFile(file);
     if (file.size > MAX_SIGNATORY_ASSET_BYTES) {
-      return { ok: false, error: 'Signature/seal image must be under 1 MB.' };
+      return { ok: false, error: 'Signature/seal image must be under 2 MB.' };
     }
 
-    const extension = file.name.includes('.')
-      ? file.name.split('.').pop()!.toLowerCase()
-      : file.type === 'image/webp'
-        ? 'webp'
-        : file.type === 'image/jpeg'
-          ? 'jpg'
-          : 'png';
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    const detected = detectMimeFromBytes(bytes);
+    if (!detected) {
+      return {
+        ok: false,
+        error: 'File contents are not a valid PNG or JPEG image.',
+      };
+    }
+    assertImageDimensionsWithinLimit(bytes, detected);
+
+    const extension = detected === 'image/jpeg' ? 'jpg' : 'png';
     const path = signatoryAssetPath(entityCode, kind, extension);
-    const bytes = await file.arrayBuffer();
 
     const { error: uploadError } = await service.client.storage
       .from(SIGNATORY_ASSETS_BUCKET)
       .upload(path, bytes, {
-        upsert: true,
-        contentType: file.type,
+        upsert: false,
+        contentType: detected,
       });
     if (uploadError) return { ok: false, error: uploadError.message };
+
+    // Verify object exists before saving path
+    const { data: listed, error: listError } = await service.client.storage
+      .from(SIGNATORY_ASSETS_BUCKET)
+      .list(path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : '', {
+        search: path.split('/').pop(),
+        limit: 5,
+      });
+    if (listError || !listed?.some((o) => path.endsWith(o.name))) {
+      // Fallback head via download
+      const { error: headError } = await service.client.storage
+        .from(SIGNATORY_ASSETS_BUCKET)
+        .download(path);
+      if (headError) {
+        return { ok: false, error: 'Upload verification failed — object not found in storage.' };
+      }
+    }
 
     const settingsResult = await fetchSettings();
     if (!settingsResult.ok) return settingsResult;
@@ -116,11 +163,26 @@ export async function uploadSignatoryAsset(
       .from(SIGNATORY_ASSETS_BUCKET)
       .createSignedUrl(path, SIGNATORY_SIGNED_URL_TTL_SECONDS);
     if (signError || !signed?.signedUrl) {
+      logAssetFailure({
+        documentType: 'SETTINGS_UPLOAD',
+        assetType: kind,
+        storagePath: path,
+        category: 'SIGNED_URL_FAILED',
+        detail: signError?.message,
+      });
       return { ok: false, error: signError?.message ?? 'Could not create signed URL.' };
     }
 
     revalidatePath('/');
-    return { ok: true, data: { path, signedUrl: signed.signedUrl } };
+    return {
+      ok: true,
+      data: {
+        path,
+        signedUrl: signed.signedUrl,
+        mimeType: detected,
+        sizeBytes: bytes.byteLength,
+      },
+    };
   } catch (err) {
     return {
       ok: false,
@@ -129,7 +191,10 @@ export async function uploadSignatoryAsset(
   }
 }
 
-/** Removes a signature/seal object and clears the path in settings. */
+/**
+ * Clears the path in settings. Does NOT delete the storage object so
+ * historically issued documents that reference the path remain valid.
+ */
 export async function removeSignatoryAsset(
   entityCode: EntityCode,
   kind: SignatoryAssetKind,
@@ -137,19 +202,10 @@ export async function removeSignatoryAsset(
   const auth = await requirePayrollAdmin();
   if (!auth.ok) return auth;
   try {
-    const service = requireServiceClient();
-    if (!service.ok) return service;
-
     const settingsResult = await fetchSettings();
     if (!settingsResult.ok) return settingsResult;
 
     const entity = settingsResult.data.entities[entityCode];
-    const path = kind === 'signature' ? entity.signatureAssetPath : entity.sealAssetPath;
-
-    if (path?.trim()) {
-      await service.client.storage.from(SIGNATORY_ASSETS_BUCKET).remove([path]);
-    }
-
     const patch =
       kind === 'signature'
         ? { signatureAssetPath: null }
@@ -190,7 +246,16 @@ export async function createSignatorySignedUrl(
       .from(SIGNATORY_ASSETS_BUCKET)
       .createSignedUrl(path.trim(), SIGNATORY_SIGNED_URL_TTL_SECONDS);
 
-    if (error) return { ok: false, error: error.message };
+    if (error) {
+      logAssetFailure({
+        documentType: 'PREVIEW',
+        assetType: 'signatory',
+        storagePath: path,
+        category: 'SIGNED_URL_FAILED',
+        detail: error.message,
+      });
+      return { ok: false, error: error.message };
+    }
     return { ok: true, data: { signedUrl: data?.signedUrl ?? null } };
   } catch (err) {
     return {
@@ -200,7 +265,7 @@ export async function createSignatorySignedUrl(
   }
 }
 
-/** Pair of signed URLs for signature + seal at preview/PDF time. */
+/** Pair of signed URLs for signature + seal at preview time only. */
 export async function createSignatorySignedUrls(paths: {
   signatureAssetPath: string | null;
   sealAssetPath: string | null;
