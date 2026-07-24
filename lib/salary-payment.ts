@@ -465,7 +465,7 @@ export function assertMakerChecker(
     return {
       ok: false,
       error:
-        'Same user cannot record and confirm a payment (maker-checker). Emergency override permission required.',
+        'Same user cannot record and confirm a payment (maker-checker). Payroll-admin membership with an override reason is required.',
       code: 'MAKER_CHECKER_SAME_USER',
     };
   }

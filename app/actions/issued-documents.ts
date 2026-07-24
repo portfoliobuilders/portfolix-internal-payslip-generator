@@ -1,8 +1,22 @@
 'use server';
 
+/**
+ * Authorised salary-slip registry (ASL).
+ *
+ * Document number scheme (canonical): ASL-{EMPID}-{YYYY-MM}
+ *   - Stable per employee+month; revision_number increments on supersede.
+ *   - Migration 018: UNIQUE only while document_status = 'ISSUED', so a
+ *     SUPERSEDED row may keep the historical number while a new ISSUED row
+ *     reuses it.
+ *
+ * Flow:
+ *   1) Reprint — reuse ISSUED row for this payroll_record_id.
+ *   2) Supersede — mark any other ISSUED holder of that ASL number SUPERSEDED,
+ *      then insert a new ISSUED row (revision + 1).
+ *   3) Race (23505) — reopen the winning ISSUED row instead of failing.
+ */
+
 import { requirePayrollAdmin } from '@/lib/auth';
-
-
 import {
   createServiceRoleClient,
   SIGNATORY_SECRET_MISSING_MESSAGE,
@@ -29,6 +43,14 @@ export interface IssuedAuthorisedDocument {
   issueDate: string;
 }
 
+type IssuedRow = {
+  document_number: string;
+  public_verification_id: string;
+  verification_fingerprint?: string | null;
+  revision_number?: number | null;
+  issue_date?: string | null;
+};
+
 function requireServiceClient(): ActionResult<
   NonNullable<ReturnType<typeof createServiceRoleClient>>
 > {
@@ -42,6 +64,37 @@ function requireServiceClient(): ActionResult<
     };
   }
   return { ok: true, data: client };
+}
+
+function toIssuedResult(
+  row: IssuedRow,
+  verificationBaseUrl: string,
+  fallbackIssueDate: string,
+): IssuedAuthorisedDocument {
+  const publicVerificationId = String(row.public_verification_id);
+  return {
+    documentNumber: String(row.document_number),
+    publicVerificationId,
+    verificationUrl: buildVerificationUrl(verificationBaseUrl, publicVerificationId),
+    verificationFingerprint: row.verification_fingerprint
+      ? String(row.verification_fingerprint)
+      : '',
+    revisionNumber: Number(row.revision_number ?? 1),
+    reused: true,
+    issueDate: String(row.issue_date ?? fallbackIssueDate),
+  };
+}
+
+function isDocumentNumberUniqueViolation(error: {
+  code?: string;
+  message: string;
+}): boolean {
+  return (
+    error.code === '23505' ||
+    /document_number|payroll_issued_documents_document_number|active_document_number/i.test(
+      error.message,
+    )
+  );
 }
 
 /**
@@ -68,6 +121,7 @@ export async function issueAuthorisedSalarySlipDocument(input: {
 }): Promise<ActionResult<IssuedAuthorisedDocument>> {
   const auth = await requirePayrollAdmin();
   if (!auth.ok) return auth;
+
   try {
     const service = requireServiceClient();
     if (!service.ok) return service;
@@ -90,23 +144,9 @@ export async function issueAuthorisedSalarySlipDocument(input: {
       .maybeSingle();
 
     if (existingForSlip) {
-      const publicVerificationId = String(existingForSlip.public_verification_id);
       return {
         ok: true,
-        data: {
-          documentNumber: String(existingForSlip.document_number),
-          publicVerificationId,
-          verificationUrl: buildVerificationUrl(
-            input.verificationBaseUrl,
-            publicVerificationId,
-          ),
-          verificationFingerprint: existingForSlip.verification_fingerprint
-            ? String(existingForSlip.verification_fingerprint)
-            : '',
-          revisionNumber: Number(existingForSlip.revision_number ?? 1),
-          reused: true,
-          issueDate: String(existingForSlip.issue_date ?? issueDate),
-        },
+        data: toIssuedResult(existingForSlip, input.verificationBaseUrl, issueDate),
       };
     }
 
@@ -120,7 +160,8 @@ export async function issueAuthorisedSalarySlipDocument(input: {
       .eq('document_status', 'ISSUED')
       .maybeSingle();
 
-    let revisionNumber = input.revisionNumber ?? input.snapshot.revisionNumber ?? 1;
+    let revisionNumber =
+      input.revisionNumber ?? input.snapshot.revisionNumber ?? 1;
     let supersedesDocumentId: string | null = null;
 
     if (priorActive) {
@@ -133,7 +174,8 @@ export async function issueAuthorisedSalarySlipDocument(input: {
         .from('payroll_issued_documents')
         .update({
           document_status: 'SUPERSEDED',
-          correction_reason: 'Superseded by newer authorised salary slip revision.',
+          correction_reason:
+            'Superseded by newer authorised salary slip revision.',
         })
         .eq('id', priorActive.id)
         .eq('document_status', 'ISSUED');
@@ -182,7 +224,38 @@ export async function issueAuthorisedSalarySlipDocument(input: {
       issued_at: input.snapshot.generatedAt,
     });
 
-    if (error) return { ok: false, error: error.message };
+    if (error) {
+      // Unique collision (race / ISSUED-only unique): reopen existing ISSUED.
+      if (isDocumentNumberUniqueViolation(error)) {
+        const { data: raced } = await supabase
+          .from('payroll_issued_documents')
+          .select('*')
+          .eq('payroll_record_id', input.snapshot.id)
+          .eq('document_type', 'AUTHORISED_SALARY_SLIP')
+          .eq('document_status', 'ISSUED')
+          .maybeSingle();
+        if (raced) {
+          return {
+            ok: true,
+            data: toIssuedResult(raced, input.verificationBaseUrl, issueDate),
+          };
+        }
+        const { data: byNumber } = await supabase
+          .from('payroll_issued_documents')
+          .select('*')
+          .eq('document_number', documentNumber)
+          .eq('document_type', 'AUTHORISED_SALARY_SLIP')
+          .eq('document_status', 'ISSUED')
+          .maybeSingle();
+        if (byNumber) {
+          return {
+            ok: true,
+            data: toIssuedResult(byNumber, input.verificationBaseUrl, issueDate),
+          };
+        }
+      }
+      return { ok: false, error: error.message };
+    }
 
     return {
       ok: true,
@@ -202,7 +275,10 @@ export async function issueAuthorisedSalarySlipDocument(input: {
   } catch (err) {
     return {
       ok: false,
-      error: err instanceof Error ? err.message : 'Failed to issue authorised document.',
+      error:
+        err instanceof Error
+          ? err.message
+          : 'Failed to issue authorised document.',
     };
   }
 }

@@ -6,7 +6,7 @@
  */
 
 import { format, isValid, parse } from 'date-fns';
-import { dateInMonth, payrollCycleDates } from './format';
+import { clampPaydayDayOfMonth, dateInMonth, payrollCycleDates } from './format';
 
 export type PaymentScheduleType =
   | 'FIXED_DAY_OF_SUCCEEDING_MONTH'
@@ -79,7 +79,7 @@ export function resolvePreferredPaymentDay(input: {
     companyDefault;
 
   return {
-    day: Math.min(31, Math.max(1, Math.round(day))),
+    day: clampPaydayDayOfMonth(day),
     scheduleType: type,
     notes: schedule?.paymentScheduleNotes ?? undefined,
   };
@@ -171,8 +171,7 @@ export function succeedingMonthPaymentDate(salaryMonth: string, dayOfMonth: numb
 }
 
 export function clampPaymentDay(day: number): number {
-  if (!Number.isFinite(day)) return DEFAULT_PAYMENT_DAY;
-  return Math.min(31, Math.max(1, Math.round(day)));
+  return clampPaydayDayOfMonth(day);
 }
 
 /**

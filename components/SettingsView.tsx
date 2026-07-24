@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { AlertTriangle, CheckCircle2, Loader2 } from 'lucide-react';
 import type { EntityCode, PtSlab } from '@/lib/types';
 import { useAppSettings } from '@/hooks/useAppSettings';
@@ -22,6 +22,8 @@ import {
   recalculatePtFromSlabs,
   type PtRecalcDiff,
 } from '@/app/actions/payroll';
+import { checkSchemaDrift } from '@/app/actions/schema-drift';
+import type { SchemaDriftReport } from '@/lib/schema-drift';
 
 const ENTITY_ORDER: EntityCode[] = ['PX', 'PB', 'PT', 'PH'];
 
@@ -56,6 +58,18 @@ export default function SettingsView() {
   const [ptRecalcDiffs, setPtRecalcDiffs] = useState<PtRecalcDiff[]>([]);
   const [ptRecalcError, setPtRecalcError] = useState<string | null>(null);
   const slabCapError = validatePtSlabs(settings.ptSlabs ?? []);
+  const [schemaDrift, setSchemaDrift] = useState<SchemaDriftReport | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    void checkSchemaDrift().then((result) => {
+      if (cancelled || !result.ok) return;
+      setSchemaDrift(result.data);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   async function handleSave() {
     await save();
@@ -129,6 +143,23 @@ export default function SettingsView() {
 
   return (
     <div className="space-y-6">
+      {schemaDrift?.bannerMessage && (
+        <div
+          role="alert"
+          className="flex items-start gap-3 rounded-md border-2 border-amber-brand bg-amber-tint px-4 py-3 text-sm font-medium text-ink"
+        >
+          <AlertTriangle size={18} className="mt-0.5 shrink-0 text-amber-brand" />
+          <div>
+            <p>{schemaDrift.bannerMessage}</p>
+            {schemaDrift.missingCanaries.length > 0 && (
+              <p className="mt-1 text-[12px] font-normal text-muted">
+                Missing columns: {schemaDrift.missingCanaries.join('; ')}
+              </p>
+            )}
+          </div>
+        </div>
+      )}
+
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <h2 className="text-base font-semibold text-ink">Settings</h2>

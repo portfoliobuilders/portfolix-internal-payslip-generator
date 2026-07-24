@@ -291,9 +291,9 @@ export async function savePayrollSlip(
       year,
       gross_pay: slipData.computed.grossFixed,
       net_pay: slipData.computed.netPay,
-      compensation_amount: slipData.inputs.compensationAmount,
+      compensation_amount: slipData.inputs.baseSalary, // payment_statements archival column
       earnings: {
-        main: slipData.inputs.compensationAmount,
+        main: slipData.inputs.baseSalary,
         fixedAllowance: slipData.inputs.fixedAllowance,
         variablePaid: slipData.computed.variablePaid,
       },
@@ -456,7 +456,6 @@ export async function finalizePayrollSlip(
         committedPayoutDate: snapshot.inputs.committedPayoutDate,
         variableLabel: snapshot.inputs.variableLabel,
         remarks: snapshot.inputs.remarks,
-        compensationAmount: snapshot.inputs.compensationAmount,
         attendanceLocked: options?.attendanceLocked ?? false,
       },
       settings,
@@ -472,7 +471,6 @@ export async function finalizePayrollSlip(
         engagementType: employee.engagementType,
         employmentStatus: employee.employmentStatus,
         paymentType: employee.paymentType,
-        compensationAmount: employee.compensationAmount,
         bankName: employee.bankName,
         bankAccountNumber: employee.bankAccountNumber,
         bankLast4: employee.bankLast4,

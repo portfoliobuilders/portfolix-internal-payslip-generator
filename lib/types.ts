@@ -125,8 +125,8 @@ export interface Employee {
   /** ISO date string. */
   joiningDate: string;
   employeeAddress: string;
+  /** Sole stored compensation figure (salary / stipend / contract fee). */
   baseSalary: number;
-  compensationAmount: number;
   engagementType: EngagementType;
   employmentStatus: EmploymentStatus;
   paymentType: PaymentType;
@@ -207,7 +207,6 @@ export interface SlipInputs {
   /** Flex balance the computation started from (for audit). */
   flexBankBalanceBefore: number;
   baseSalary: number;
-  compensationAmount: number;
 }
 
 /**
@@ -252,7 +251,6 @@ export interface SlipEmployeeInfo {
   engagementType: EngagementType;
   employmentStatus: EmploymentStatus;
   paymentType: PaymentType;
-  compensationAmount: number;
   bankName?: string;
   /** Full account — Authorised only; Final masks at render. */
   bankAccountNumber?: string;
@@ -286,7 +284,7 @@ export interface PaymentStatementHistoryEntry {
   year: number;
   grossPay: number;
   netPay: number;
-  compensationAmount: number;
+  baseSalary: number;
   earnings: Record<string, number>;
   deductions: Record<string, number>;
   paymentMode: PaymentMode;

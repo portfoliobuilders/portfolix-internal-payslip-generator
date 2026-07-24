@@ -3,7 +3,15 @@
  * in lib/payroll-calc.ts. Attendance-cycle math lives in lib/payroll-cycle.ts.
  */
 
-import { endOfMonth, format, parse, parseISO, isValid, startOfMonth } from 'date-fns';
+import {
+  endOfMonth,
+  format,
+  parse,
+  parseISO,
+  isValid,
+  startOfMonth,
+  subDays,
+} from 'date-fns';
 import {
   computeAttendancePeriod,
   formatAttendanceCycle,
@@ -40,11 +48,34 @@ export function formatDateTime(isoDate: string | Date): string {
   return format(d, 'dd MMM yyyy, HH:mm');
 }
 
+/** Verification "checked at" stamp in Asia/Kolkata with an IST label. */
+export function formatCheckedAtIst(isoDate: string | Date = new Date()): string {
+  const d = typeof isoDate === 'string' ? parseISO(isoDate) : isoDate;
+  if (!isValid(d)) return '—';
+  const formatted = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Asia/Kolkata',
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).format(d);
+  // en-GB yields "19 Jul 2026, 16:20" (comma may vary by runtime)
+  return `${formatted.replace(',', '')} IST`;
+}
+
 /** '2026-07' → 'July 2026'. */
 export function formatMonthYear(monthYear: string): string {
   const d = parse(monthYear, 'yyyy-MM', new Date());
   if (!isValid(d)) return monthYear;
   return format(d, 'MMMM yyyy');
+}
+
+/** Clamp a configured payday to 1–31 (actual calendar day may be shorter — see dateInMonth). */
+export function clampPaydayDayOfMonth(day: number): number {
+  if (!Number.isFinite(day)) return 1;
+  return Math.min(31, Math.max(1, Math.round(day)));
 }
 
 /** '2026-07' + day-of-month → Date within that month (day clamped to month length). */
@@ -53,12 +84,15 @@ export function dateInMonth(monthYear: string, dayOfMonth: number): Date {
   const year = base.getFullYear();
   const month = base.getMonth();
   const daysInMonth = new Date(year, month + 1, 0).getDate();
-  return new Date(year, month, Math.min(dayOfMonth, daysInMonth));
+  const day = clampPaydayDayOfMonth(dayOfMonth);
+  return new Date(year, month, Math.min(day, daysInMonth));
 }
 
 /**
- * Payment credit / review window for a slip month.
- * Salary credits on payday of the FOLLOWING month; review queries close T−2.
+ * Shared payment-calendar derivation for a slip month.
+ * Salary credits on payday of the FOLLOWING month (29/30/31 clamp to that month's last day).
+ * Review / draft / publish offsets use real calendar arithmetic from creditDate
+ * (e.g. reviewDeadline = creditDate − 2 days, rolling into the prior month when needed).
  * This is NOT the attendance cycle — see computeAttendancePeriod.
  */
 export function payrollCycleDates(
@@ -69,7 +103,7 @@ export function payrollCycleDates(
   const nextMonth = new Date(base.getFullYear(), base.getMonth() + 1, 1);
   const nextMonthYear = format(nextMonth, 'yyyy-MM');
   const creditDate = dateInMonth(nextMonthYear, paydayDayOfMonth);
-  const reviewDeadline = dateInMonth(nextMonthYear, paydayDayOfMonth - 2);
+  const reviewDeadline = subDays(creditDate, 2);
   return { creditDate, reviewDeadline };
 }
 
